@@ -78,7 +78,7 @@ __metadata:
     typescript: "npm:^5.9.3"
     typescript-eslint: "npm:^8.56.1"
   bin:
-    agentiq: ./lib/esm/index.js
+    agentiq: ./lib/index.js
   languageName: unknown
   linkType: soft
 
