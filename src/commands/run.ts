@@ -1,9 +1,10 @@
 import Bottleneck from 'bottleneck';
-
-import { getLogger } from '../modules/logging';
-import { performRoundOfThought } from '../modules/ollama';
-import { ThoughtState } from '../types';
 import { input } from '@inquirer/prompts';
+
+import { tools } from '../tools';
+import { getLogger } from '../modules/logging';
+import { makeThinker } from '../modules/ollama';
+import { ThoughtState } from '../types';
 
 const log = getLogger('run');
 const rateLimiter = new Bottleneck({
@@ -11,10 +12,11 @@ const rateLimiter = new Bottleneck({
   minTime: 2000
 });
 
-log.info('Starting up...');
+log.info(`Loaded ${tools.length} tools`);
+
+const thinker = makeThinker(tools);
 
 let nextThought: ThoughtState = {
-  memory: {},
   messages: []
 };
 
@@ -44,7 +46,7 @@ while (true) {
   }
 
   nextThought = await rateLimiter.schedule(async () => {
-    const result = await performRoundOfThought(nextThought);
+    const result = await thinker.think(nextThought);
     const latestThought = result.lastResponse?.message;
 
     roundsOfThought++;
