@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",
+    "@lenml/tokenizers": "^3.7.2",
     "bottleneck": "^2.19.5",
     "commander": "^15.0.0",
     "dotenv": "^17.3.1",

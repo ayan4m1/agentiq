@@ -50,6 +50,7 @@ __metadata:
     "@commitlint/cz-commitlint": "npm:^21.2.2"
     "@eslint/js": "npm:9.39.3"
     "@inquirer/prompts": "npm:^8.7.2"
+    "@lenml/tokenizers": "npm:^3.7.2"
     "@rollup/plugin-terser": "npm:^1.0.0"
     "@rollup/plugin-typescript": "npm:^12.3.0"
     "@types/node": "npm:^26.5.1"
@@ -901,6 +902,13 @@ __metadata:
     "@jridgewell/resolve-uri": "npm:^3.1.0"
     "@jridgewell/sourcemap-codec": "npm:^1.4.14"
   checksum: 10c0/4b30ec8cd56c5fd9a661f088230af01e0c1a3888d11ffb6b47639700f71225be21d1f7e168048d6d4f9449207b978a235c07c8f15c07705685d16dc06280e9d9
+  languageName: node
+  linkType: hard
+
+"@lenml/tokenizers@npm:^3.7.2":
+  version: 3.7.2
+  resolution: "@lenml/tokenizers@npm:3.7.2"
+  checksum: 10c0/455ce7eaff089026e7b8e0e2432c47db8bc4a7774dfbe9a6f51290f96d3199b17cdafd88f2f1d19578d1b15f4238791bafdb5fcd3c705f6b86b750ba384d590b
   languageName: node
   linkType: hard
 
