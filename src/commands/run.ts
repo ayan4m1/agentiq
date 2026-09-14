@@ -15,12 +15,7 @@ log.info('Starting up...');
 
 let nextThought: ThoughtState = {
   memory: {},
-  messages: [
-    {
-      role: 'user',
-      content: 'Save this piece of information in memory: "the apple is red".'
-    }
-  ]
+  messages: []
 };
 
 let needsUserInput = true;
@@ -33,6 +28,13 @@ while (true) {
       required: true
     });
 
+    if (userMessage.startsWith('/')) {
+      switch (userMessage.substring(1)) {
+        case 'quit':
+          process.exit(0);
+      }
+    }
+
     nextThought.messages.push({
       role: 'user',
       content: userMessage
@@ -43,16 +45,18 @@ while (true) {
 
   nextThought = await rateLimiter.schedule(async () => {
     const result = await performRoundOfThought(nextThought);
-    const latestThought = nextThought.messages[nextThought.messages.length - 1];
+    const latestThought = result.lastResponse?.message;
 
     roundsOfThought++;
     log.info(`Round ${roundsOfThought}`);
 
-    needsUserInput = !(nextThought.lastResponse?.done ?? false);
+    // keep thinking while the model is still calling tools - it is only the
+    // user's turn again once a round comes back without any
+    needsUserInput = !latestThought?.tool_calls?.length;
 
-    log.info(needsUserInput);
-    log.info(latestThought.role);
-    log.info(latestThought.content);
+    if (latestThought?.content) {
+      log.info(latestThought.content);
+    }
 
     return result;
   });

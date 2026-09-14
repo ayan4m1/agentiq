@@ -1,15 +1,21 @@
-import { TransformableInfo } from 'logform';
-import { Container, format, transports, Logger } from 'winston';
+import { type TransformableInfo } from 'logform';
+import { Container, Logger, format, transports } from 'winston';
 
-import { logging as config } from './config';
+import { logging as config } from './config.js';
 
+type CustomLogInfo = TransformableInfo & {
+  label?: string;
+  timestamp?: string;
+};
+
+const { Console } = transports;
 const { combine, label, prettyPrint, printf, timestamp } = format;
 
-const loggers: Record<string, Logger> = {};
+const loggers = new Map<string, Logger>();
 const container = new Container();
 
 const createLogger = (category: string, categoryLabel: string) => {
-  let formatter = (data: TransformableInfo) =>
+  let formatter = (data: CustomLogInfo) =>
     `[${data.level}][${data.label}] ${data.message}`;
   const formatters = [label({ label: categoryLabel })];
 
@@ -22,7 +28,7 @@ const createLogger = (category: string, categoryLabel: string) => {
   formatters.push(prettyPrint(), printf(formatter));
   container.add(category, {
     transports: [
-      new transports.Console({
+      new Console({
         level: config.level,
         format: combine(...formatters)
       })
@@ -33,9 +39,13 @@ const createLogger = (category: string, categoryLabel: string) => {
 };
 
 export const getLogger = (category: string, categoryLabel = category) => {
-  if (!loggers[category]) {
-    loggers[category] = createLogger(category, categoryLabel);
+  if (!loggers.has(category)) {
+    const newLogger = createLogger(category, categoryLabel);
+
+    loggers.set(category, newLogger);
+
+    return newLogger;
   }
 
-  return loggers[category];
+  return loggers.get(category) as Logger;
 };
