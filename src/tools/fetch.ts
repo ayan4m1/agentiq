@@ -21,7 +21,5 @@ export const handler = async ({ url }: IArgs) => {
     return;
   }
 
-  const contents = await response.text();
-
-  return JSON.stringify({ contents });
+  return await response.text();
 };
