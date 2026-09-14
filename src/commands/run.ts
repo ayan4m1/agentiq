@@ -1,10 +1,12 @@
 import Bottleneck from 'bottleneck';
 import { input } from '@inquirer/prompts';
+import { TokenizerLoader } from '@lenml/tokenizers';
 
 import { tools } from '../tools';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
 import { ThoughtState } from '../types';
+import { readFileSync } from 'node:fs';
 
 const log = getLogger('run');
 const rateLimiter = new Bottleneck({
@@ -14,6 +16,12 @@ const rateLimiter = new Bottleneck({
 
 log.info(`Loaded ${tools.length} tools`);
 
+const tokenizer = await TokenizerLoader.fromPreTrained({
+  tokenizerConfig: JSON.parse(
+    readFileSync('./model/tokenizer_config.json').toString()
+  ),
+  tokenizerJSON: JSON.parse(readFileSync('./model/tokenizer.json').toString())
+});
 const thinker = makeThinker(tools);
 
 let nextThought: ThoughtState = {
@@ -22,6 +30,7 @@ let nextThought: ThoughtState = {
 
 let needsUserInput = true;
 let roundsOfThought = 0;
+let tokenCount = 0;
 
 while (true) {
   if (needsUserInput) {
@@ -42,6 +51,9 @@ while (true) {
       content: userMessage
     });
 
+    const tokens = tokenizer.encode(userMessage);
+
+    tokenCount += tokens.length;
     needsUserInput = false;
   }
 
@@ -49,8 +61,12 @@ while (true) {
     const result = await thinker.think(nextThought);
     const latestThought = result.lastResponse?.message;
 
+    const tokens = tokenizer.encode(latestThought?.content ?? '');
+
+    tokenCount += tokens.length;
     roundsOfThought++;
-    log.info(`Round ${roundsOfThought}`);
+
+    log.info(`Round ${roundsOfThought} - ${tokenCount} tokens`);
 
     // keep thinking while the model is still calling tools - it is only the
     // user's turn again once a round comes back without any
