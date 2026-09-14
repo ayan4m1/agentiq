@@ -33,7 +33,7 @@ export const makeParameter = (
   type: string,
   name: string,
   description: string,
-  required: boolean = false
+  required: boolean = true
 ): ToolParameter => ({
   type,
   name,
