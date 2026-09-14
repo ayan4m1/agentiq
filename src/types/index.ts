@@ -1,4 +1,4 @@
-import { Message } from 'ollama';
+import { ChatResponse, Message } from 'ollama';
 
 export type ModelConfig = {
   id: string;
@@ -27,4 +27,5 @@ export type OllamaConfig = {
 export type ThoughtState = {
   memory: Record<string, string>;
   messages: Message[];
+  lastResponse?: ChatResponse;
 };

@@ -1,15 +1,18 @@
-import * as dotenv from 'dotenv';
+try {
+  process.loadEnvFile();
+} catch {
+  // If there is no .env file, use the environment as-is
+}
 
-dotenv.config();
-
-import { LoggingConfig, LogLevel, OllamaConfig } from 'types/index.js';
+import { LoggingConfig, LogLevel, OllamaConfig } from '../types';
 
 export const logging: LoggingConfig = {
   level: (process.env.AQ_LOG_LEVEL || 'info') as unknown as LogLevel,
   timestampFormat: process.env.AQ_LOG_TIME_FMT
 };
+
 export const ollama: OllamaConfig = {
   bearerToken: process.env.AQ_OLLAMA_BEARER_TOKEN,
   host: process.env.AQ_OLLAMA_HOST,
-  model: process.env.AQ_OLLAMA_MODEL
+  model: process.env.AQ_OLLAMA_MODEL ?? ''
 };
