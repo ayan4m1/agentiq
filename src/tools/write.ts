@@ -1,7 +1,10 @@
 import { confirm } from '@inquirer/prompts';
 import { existsSync, writeFileSync } from 'node:fs';
 
+import { getLogger } from '../modules/logging';
 import { makeParameter, makeTool } from '../utils';
+
+const log = getLogger('write');
 
 export const definition = makeTool('write', 'Writes a new document', [
   makeParameter('string', 'path', 'Path to the document to write'),
@@ -24,5 +27,6 @@ export const handler = async ({ path, content }: IArgs) => {
 
   if (proceed) {
     writeFileSync(path, content);
+    log.info('Wrote file!');
   }
 };

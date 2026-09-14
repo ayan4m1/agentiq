@@ -1,6 +1,10 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { makeParameter, makeTool } from '../utils';
 import { confirm } from '@inquirer/prompts';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+
+import { getLogger } from '../modules/logging';
+import { makeParameter, makeTool } from '../utils';
+
+const log = getLogger('patch');
 
 export const definition = makeTool('patch', 'Patches an existing document', [
   makeParameter('string', 'path', 'Path to the document to patch'),
@@ -32,8 +36,11 @@ export const handler = async ({
   caseInsensitive
 }: IArgs) => {
   if (!existsSync(path)) {
+    log.error(`Cannot replace text in ${path} - it does not exist`);
     return;
   }
+
+  log.info(`Replacing ${regex} with ${replacement} in ${path}`);
 
   const contents = readFileSync(path).toString();
   const pattern = new RegExp(regex, caseInsensitive ? 'gi' : 'g');
@@ -45,6 +52,7 @@ export const handler = async ({
 
   if (proceed) {
     writeFileSync(path, replaced);
+    log.info('Wrote file!');
   }
 
   return JSON.stringify({ contents, newContents: replaced });
