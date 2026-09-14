@@ -55,5 +55,5 @@ export const handler = async ({
     log.info('Wrote file!');
   }
 
-  return JSON.stringify({ contents, newContents: replaced });
+  return { contents, newContents: replaced };
 };

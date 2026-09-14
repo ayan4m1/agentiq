@@ -23,5 +23,5 @@ export const handler = async ({ path }: IArgs) => {
 
   log.info(`Read ${contents.length} bytes from ${path}`);
 
-  return JSON.stringify({ contents });
+  return contents;
 };
