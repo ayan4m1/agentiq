@@ -62,6 +62,8 @@ while (true) {
         case 'quit':
           process.exit(0);
       }
+
+      continue;
     }
 
     nextThought.messages.push({
