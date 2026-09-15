@@ -35,7 +35,6 @@ let nextThought: ThoughtState = {
 };
 
 let needsUserInput = true;
-let roundsOfThought = 0;
 
 while (true) {
   if (needsUserInput) {
@@ -89,9 +88,7 @@ while (true) {
     const result = await thinker.think(nextThought);
     const latestThought = result.lastResponse?.message;
 
-    roundsOfThought++;
-
-    log.debug(`Round ${roundsOfThought} - ${thinker.tokens.total} tokens`);
+    log.debug(`Round ${thinker.turnCount} - ${thinker.tokens.total} tokens`);
 
     // keep thinking while the model is still calling tools - it is only the
     // user's turn again once a round comes back without any

@@ -41,6 +41,7 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
     tools: 0,
     total: 0
   };
+  let turnCount = 0;
 
   if (systemPrompt) {
     const sysPromptCost = tokenizer(systemPrompt);
@@ -63,6 +64,9 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
 
     // tokens.messages += tokenCount;
     // tokens.total += tokenCount;
+
+    turnCount++;
+
     if (lastState.messages.length === 1 && systemPrompt) {
       lastState.messages = [
         { role: 'system', content: systemPrompt },
@@ -115,6 +119,7 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
 
   return {
     think,
-    tokens
+    tokens,
+    turnCount
   };
 };
