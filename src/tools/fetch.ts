@@ -7,11 +7,11 @@ export const definition = makeTool('fetch', 'Fetches a document via HTTP', [
   makeParameter('string', 'url', 'The URL to fetch')
 ]);
 
-type IArgs = {
+type Args = {
   url: string;
 };
 
-export const handler = async ({ url }: IArgs) => {
+export const handler = async ({ url }: Args) => {
   log.info(`Fetching URL ${url}`);
 
   const response = await fetch(url);

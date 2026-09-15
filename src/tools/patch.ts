@@ -22,7 +22,7 @@ export const definition = makeTool('patch', 'Patches an existing document', [
   )
 ]);
 
-type IArgs = {
+type Args = {
   path: string;
   regex: string;
   replacement: string;
@@ -34,7 +34,7 @@ export const handler = async ({
   regex,
   replacement,
   caseInsensitive
-}: IArgs) => {
+}: Args) => {
   if (!existsSync(path)) {
     log.error(`Cannot replace text in ${path} - it does not exist`);
     return;

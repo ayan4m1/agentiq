@@ -9,11 +9,11 @@ export const definition = makeTool('read', 'Reads an existing document', [
   makeParameter('string', 'path', 'Path to the document to read')
 ]);
 
-type IArgs = {
+type Args = {
   path: string;
 };
 
-export const handler = async ({ path }: IArgs) => {
+export const handler = async ({ path }: Args) => {
   if (!existsSync(path)) {
     log.error(`Cannot read ${path} - it does not exist`);
     return;

@@ -11,12 +11,12 @@ export const definition = makeTool('write', 'Writes a new document', [
   makeParameter('string', 'content', 'Content to write to the document')
 ]);
 
-type IArgs = {
+type Args = {
   path: string;
   content: string;
 };
 
-export const handler = async ({ path, content }: IArgs) => {
+export const handler = async ({ path, content }: Args) => {
   if (existsSync(path)) {
     return;
   }
