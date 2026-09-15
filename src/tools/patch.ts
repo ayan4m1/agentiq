@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { confirm } from '@inquirer/prompts';
+import inquirer from 'inquirer';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { getLogger } from '../modules/logging';
@@ -66,7 +66,9 @@ export const handler = async ({
   console.log(chalk.bgRed.black(contents));
   console.log(chalk.bgGreen.black(replaced));
 
-  const proceed = await confirm({
+  const { proceed } = await inquirer.prompt({
+    type: 'confirm',
+    name: 'proceed',
     message: `OK to write ${replaced.length} bytes to ${path}?`,
     default: false
   });

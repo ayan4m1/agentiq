@@ -1,6 +1,7 @@
-import { confirm } from '@inquirer/prompts';
-import { makeParameter, makeTool } from '../utils';
+import inquirer from 'inquirer';
 import { execSync } from 'node:child_process';
+
+import { makeParameter, makeTool } from '../utils';
 
 export const definition = makeTool(
   'shell',
@@ -24,7 +25,9 @@ interface ExecSyncError extends Error {
 }
 
 export const handler = async ({ command, cwd }: Args) => {
-  const proceed = await confirm({
+  const { proceed } = await inquirer.prompt({
+    type: 'confirm',
+    name: 'proceed',
     message: `OK to run command "${command}"?`,
     default: false
   });
