@@ -59,6 +59,17 @@ while (true) {
           // total token count for this session
           log.info(`{TOTAL    } - ${thinker.tokens.total} tokens`);
           break;
+        case 'reset': {
+          nextThought.lastResponse = undefined;
+          nextThought.messages = [];
+
+          const messageTokens = thinker.tokens.messages;
+
+          thinker.tokens.total -= messageTokens;
+
+          log.info(`Freed ${messageTokens} tokens from context`);
+          break;
+        }
         case 'quit':
           process.exit(0);
       }
