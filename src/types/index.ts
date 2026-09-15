@@ -44,3 +44,10 @@ export type ThoughtState = {
   messages: Message[];
   lastResponse?: ChatResponse;
 };
+
+export type TokenStats = {
+  tools: number;
+  total: number;
+  system: number;
+  messages: number;
+};

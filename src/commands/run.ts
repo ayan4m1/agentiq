@@ -1,27 +1,19 @@
 import Bottleneck from 'bottleneck';
 import { input } from '@inquirer/prompts';
-import { TokenizerLoader } from '@lenml/tokenizers';
 
 import { tools } from '../tools';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
 import { ThoughtState } from '../types';
-import { readFileSync } from 'node:fs';
 
 const log = getLogger('run');
 const rateLimiter = new Bottleneck({
   maxConcurrent: 1,
-  minTime: 2000
+  minTime: 1000
 });
 
 log.info(`Loaded ${tools.length} tools`);
 
-const tokenizer = await TokenizerLoader.fromPreTrained({
-  tokenizerConfig: JSON.parse(
-    readFileSync('./model/tokenizer_config.json').toString()
-  ),
-  tokenizerJSON: JSON.parse(readFileSync('./model/tokenizer.json').toString())
-});
 const thinker = makeThinker(tools);
 
 let nextThought: ThoughtState = {
@@ -30,7 +22,6 @@ let nextThought: ThoughtState = {
 
 let needsUserInput = true;
 let roundsOfThought = 0;
-let tokenCount = 0;
 
 while (true) {
   if (needsUserInput) {
@@ -41,6 +32,16 @@ while (true) {
 
     if (userMessage.startsWith('/')) {
       switch (userMessage.substring(1)) {
+        case 'context':
+          // todo: set a system prompt and tokenize it to get its length here
+          log.info(`{SYSTEM   } - ${thinker.tokens.system} tokens`);
+          // todo: when tool calls are made, this should increase
+          log.info(`{TOOLS    } - ${thinker.tokens.tools} tokens`);
+          // count of tokens in back/forth messages
+          log.info(`{MESSAGES } - ${thinker.tokens.messages} tokens`);
+          // total token count for this session
+          log.info(`{TOTAL    } - ${thinker.tokens.total} tokens`);
+          break;
         case 'quit':
           process.exit(0);
       }
@@ -51,9 +52,6 @@ while (true) {
       content: userMessage
     });
 
-    const tokens = tokenizer.encode(userMessage);
-
-    tokenCount += tokens.length;
     needsUserInput = false;
   }
 
@@ -61,12 +59,9 @@ while (true) {
     const result = await thinker.think(nextThought);
     const latestThought = result.lastResponse?.message;
 
-    const tokens = tokenizer.encode(latestThought?.content ?? '');
-
-    tokenCount += tokens.length;
     roundsOfThought++;
 
-    log.info(`Round ${roundsOfThought} - ${tokenCount} tokens`);
+    log.info(`Round ${roundsOfThought} - ${thinker.tokens.total} tokens`);
 
     // keep thinking while the model is still calling tools - it is only the
     // user's turn again once a round comes back without any

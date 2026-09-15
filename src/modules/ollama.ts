@@ -1,8 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { Message, Ollama } from 'ollama';
+import { TokenizerLoader } from '@lenml/tokenizers';
 
 import { ollama } from './config';
 import { getLogger } from './logging';
-import { ThoughtState, ToolCall } from '../types';
+import { ThoughtState, TokenStats, ToolCall } from '../types';
 
 const log = getLogger('ollama');
 const client = new Ollama({
@@ -14,10 +16,35 @@ const client = new Ollama({
   host: ollama.host
 });
 
+export const makeTokenizer = () => {
+  const tokenizer = TokenizerLoader.fromPreTrained({
+    tokenizerConfig: JSON.parse(
+      readFileSync('./model/tokenizer_config.json').toString()
+    ),
+    tokenizerJSON: JSON.parse(readFileSync('./model/tokenizer.json').toString())
+  });
+
+  return (value: string) => tokenizer.encode(value).length;
+};
+
 export const makeThinker = (tools: ToolCall[]) => {
+  const tokenizer = makeTokenizer();
   const toolDefs = tools.map((tool) => tool.definition);
+  const tokens: TokenStats = {
+    messages: 0,
+    system: 0,
+    tools: 0,
+    total: 0
+  };
 
   const think = async (lastState: ThoughtState): Promise<ThoughtState> => {
+    const tokenCount = tokenizer(
+      lastState.messages[lastState.messages.length - 1].content
+    );
+
+    tokens.messages += tokenCount;
+    tokens.total += tokenCount;
+
     const response = await client.chat({
       model: ollama.model,
       messages: lastState.messages,
@@ -45,6 +72,11 @@ export const makeThinker = (tools: ToolCall[]) => {
       }
 
       if (toolFound) {
+        const tokenCount = tokenizer(content);
+
+        tokens.tools += tokenCount;
+        tokens.total += tokenCount;
+
         messages.push({
           role: 'tool',
           tool_name: name,
@@ -61,5 +93,8 @@ export const makeThinker = (tools: ToolCall[]) => {
     };
   };
 
-  return { think };
+  return {
+    think,
+    tokens
+  };
 };
