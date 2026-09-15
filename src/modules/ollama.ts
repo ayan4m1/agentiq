@@ -28,7 +28,7 @@ export const makeTokenizer = () => {
 };
 
 export const makeThinker = (tools: ToolCall[]) => {
-  const tokenizer = makeTokenizer();
+  // const tokenizer = makeTokenizer();
   const toolDefs = tools.map((tool) => tool.definition);
   const tokens: TokenStats = {
     messages: 0,
@@ -38,12 +38,12 @@ export const makeThinker = (tools: ToolCall[]) => {
   };
 
   const think = async (lastState: ThoughtState): Promise<ThoughtState> => {
-    const tokenCount = tokenizer(
-      lastState.messages[lastState.messages.length - 1].content
-    );
+    // const tokenCount = tokenizer(
+    //   lastState.messages[lastState.messages.length - 1].content
+    // );
 
-    tokens.messages += tokenCount;
-    tokens.total += tokenCount;
+    // tokens.messages += tokenCount;
+    // tokens.total += tokenCount;
 
     const response = await client.chat({
       model: ollama.model,
@@ -72,10 +72,10 @@ export const makeThinker = (tools: ToolCall[]) => {
       }
 
       if (toolFound) {
-        const tokenCount = tokenizer(content);
+        // const tokenCount = tokenizer(content);
 
-        tokens.tools += tokenCount;
-        tokens.total += tokenCount;
+        // tokens.tools += tokenCount;
+        // tokens.total += tokenCount;
 
         messages.push({
           role: 'tool',
