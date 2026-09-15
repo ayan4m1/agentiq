@@ -63,6 +63,10 @@ export const handler = async ({
   const pattern = new RegExp(regex, regexOpts);
   const replaced = contents.replace(pattern, replacement);
 
+  if (contents === replaced) {
+    return 'The regex did not match; no change was made.';
+  }
+
   console.log(chalk.bgRed.black(contents));
   console.log(chalk.bgGreen.black(replaced));
 
