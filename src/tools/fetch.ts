@@ -1,7 +1,13 @@
+import { parse } from 'node-html-parser';
+
 import { getLogger } from '../modules/logging';
 import { makeParameter, makeTool } from '../utils';
 
 const log = getLogger('fetch');
+
+// roughly 60k tokens of prose, leaving room for the system prompt, tool
+// definitions and conversation history inside the configured context limit
+const maxLength = 200000;
 
 export const definition = makeTool('fetch', 'Fetches a document via HTTP', [
   makeParameter('string', 'url', 'The URL to fetch')
@@ -9,6 +15,19 @@ export const definition = makeTool('fetch', 'Fetches a document via HTTP', [
 
 type Args = {
   url: string;
+};
+
+// an HTML document is mostly markup the model has no use for - scripts, styles
+// and attributes crowd out the prose and can account for 90% of the payload.
+// the doctype goes first because the parser would otherwise emit it as text.
+const stripHtml = (html: string) => {
+  const root = parse(html.replace(/<!DOCTYPE[^>]*>/i, ''));
+
+  for (const node of root.querySelectorAll('script, style, noscript')) {
+    node.remove();
+  }
+
+  return root.structuredText.replace(/\n{3,}/g, '\n\n').trim();
 };
 
 export const handler = async ({ url }: Args) => {
@@ -24,5 +43,23 @@ export const handler = async ({ url }: Args) => {
     return message;
   }
 
-  return await response.text();
+  const contentType = response.headers.get('content-type') ?? 'unknown';
+  const body = await response.text();
+  const byteCount = Buffer.byteLength(body);
+  const content = contentType.includes('html') ? stripHtml(body) : body;
+  // tool results arrive with no record of the call that produced them, so say
+  // which URL this is and how much of it the model is being shown
+  const header = `Fetched ${url} (${contentType}, ${byteCount} bytes)`;
+
+  log.info(
+    `Read ${byteCount} bytes from ${url} - ${content.length} characters after stripping`
+  );
+
+  if (content.length > maxLength) {
+    log.warn(`Truncating ${url} to ${maxLength} characters`);
+
+    return `${header}\n\n${content.slice(0, maxLength)}\n\n[truncated: showing ${maxLength} of ${content.length} characters]`;
+  }
+
+  return `${header}\n\n${content}`;
 };

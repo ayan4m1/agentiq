@@ -13,5 +13,7 @@ export const logging: LoggingConfig = {
 export const ollama: OllamaConfig = {
   bearerToken: process.env.AQ_OLLAMA_BEARER_TOKEN,
   host: process.env.AQ_OLLAMA_HOST,
-  model: process.env.AQ_OLLAMA_MODEL ?? ''
+  model: process.env.AQ_OLLAMA_MODEL ?? '',
+  contextLimit:
+    Number.parseInt(process.env.AQ_OLLAMA_CONTEXT_LIMIT ?? '', 10) || 131072
 };

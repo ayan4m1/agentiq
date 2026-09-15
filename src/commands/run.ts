@@ -61,11 +61,7 @@ while (true) {
           nextThought.lastResponse = undefined;
           nextThought.messages = [];
 
-          const messageTokens = thinker.tokens.messages;
-
-          thinker.tokens.total -= messageTokens;
-
-          log.info(`Freed ${messageTokens} tokens from context`);
+          log.info(`Freed ${thinker.reset()} tokens from context`);
           break;
         }
         case 'quit':

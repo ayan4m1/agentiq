@@ -27,6 +27,20 @@ export const makeTokenizer = () => {
   return (value: string) => tokenizer.encode(value).length;
 };
 
+const describeError = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
+// handlers return whatever shape suits them, but a tool message needs a string.
+// strings pass through untouched - running a file through JSON.stringify would
+// hand the model a quoted, escape-mangled blob instead of its contents.
+const serializeResult = (result: unknown): string => {
+  if (result === undefined || result === null) {
+    return 'The tool returned no output.';
+  }
+
+  return typeof result === 'string' ? result : JSON.stringify(result);
+};
+
 type ThinkerOpts = {
   tools: ToolCall[];
   systemPrompt?: string;
@@ -35,6 +49,7 @@ type ThinkerOpts = {
 export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
   const tokenizer = makeTokenizer();
   const toolDefs = tools.map((tool) => tool.definition);
+  const toolNames = toolDefs.map((toolDef) => toolDef.function.name).join(', ');
   const tokens: TokenStats = {
     messages: 0,
     system: 0,
@@ -42,6 +57,27 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
     total: 0
   };
   let turnCount = 0;
+
+  // think() is re-entered with the array it returned last turn, so track which
+  // messages have already been charged rather than counting the whole history
+  // again every round. the system prompt is accounted for separately below.
+  const counted = new WeakSet<Message>();
+  const countMessage = (message: Message) => {
+    if (message.role === 'system' || counted.has(message)) {
+      return 0;
+    }
+
+    counted.add(message);
+
+    const cost = tokenizer(message.content ?? '');
+
+    tokens.messages += cost;
+    tokens.total += cost;
+
+    return cost;
+  };
+
+  log.debug(`Context limit is ${ollama.contextLimit} tokens`);
 
   if (systemPrompt) {
     const sysPromptCost = tokenizer(systemPrompt);
@@ -53,67 +89,83 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
   }
 
   for (const tool of tools) {
-    const toolCost = tokenizer(JSON.stringify(tool));
+    const toolCost = tokenizer(JSON.stringify(tool.definition));
 
-    log.debug(`Tool call definitions will consume ${toolCost} tokens`);
+    log.debug(
+      `Definition for ${tool.definition.function.name} will consume ${toolCost} tokens`
+    );
 
     tokens.tools += toolCost;
     tokens.total += toolCost;
   }
 
   const think = async (lastState: ThoughtState): Promise<ThoughtState> => {
-    const lastMessage =
-      lastState.messages[lastState.messages.length - 1].content;
-    const tokenCount = tokenizer(lastMessage ?? '');
+    let messages: Message[] = [...lastState.messages];
 
-    log.debug(`Turn cost ${tokenCount} tokens`);
-
-    tokens.messages += tokenCount;
-    tokens.total += tokenCount;
+    if (systemPrompt && messages[0]?.role !== 'system') {
+      messages = [{ role: 'system', content: systemPrompt }, ...messages];
+    }
 
     turnCount++;
 
-    if (lastState.messages.length === 1 && systemPrompt) {
-      lastState.messages = [
-        { role: 'system', content: systemPrompt },
-        ...lastState.messages
-      ];
-    }
-
     const response = await client.chat({
       model: ollama.model,
-      messages: lastState.messages,
-      tools: toolDefs
+      messages,
+      tools: toolDefs,
+      // without this ollama falls back to the model default - often 4096 - and
+      // silently truncates the prompt, dropping messages the model needs
+      options: {
+        num_ctx: ollama.contextLimit
+      }
     });
 
-    // append response before the tool call results
-    const messages: Message[] = [...lastState.messages, response.message];
+    // append response before the tool call results - drop `thinking` so the
+    // model's own reasoning is not replayed back to it on every later turn
+    const assistantMessage: Message = { ...response.message };
+
+    delete assistantMessage.thinking;
+
+    messages.push(assistantMessage);
 
     // append tool call results, if any
     for (const toolCall of response.message.tool_calls ?? []) {
       const { name, arguments: args } = toolCall.function;
-      let content: string = '';
-      let toolFound = false;
+      const tool = tools.find(
+        (candidate) => candidate.definition.function.name === name
+      );
+      let content: string;
 
-      // look through registered tools and call handler
-      for (const tool of tools) {
-        if (name === tool.definition.function.name) {
-          content = JSON.stringify(await tool.handler(args as never));
-          toolFound = true;
-          break;
+      if (!tool) {
+        log.warn(`Asked to use an unknown tool called ${name}`);
+
+        content = `There is no tool called ${name}. The available tools are: ${toolNames}`;
+      } else {
+        try {
+          content = serializeResult(await tool.handler(args as never));
+        } catch (error) {
+          const message = describeError(error);
+
+          log.error(`The ${name} tool threw an error - ${message}`);
+
+          content = `The ${name} tool failed: ${message}`;
         }
       }
 
-      if (toolFound) {
-        messages.push({
-          role: 'tool',
-          tool_name: name,
-          content
-        });
-      } else if (!toolFound) {
-        log.warn(`Asked to use an unknown tool called ${name}`);
-      }
+      // every tool call needs a result, even a failed one - leaving one
+      // dangling makes the next request an incomplete conversation
+      messages.push({
+        role: 'tool',
+        tool_name: name,
+        content
+      });
     }
+
+    const turnCost = messages.reduce(
+      (total, message) => total + countMessage(message),
+      0
+    );
+
+    log.debug(`Turn cost ${turnCost} tokens`);
 
     return {
       lastResponse: response,
@@ -121,9 +173,24 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
     };
   };
 
+  // drop the conversation from the running totals, leaving the system prompt
+  // and tool definitions - they are still sent on every turn
+  const reset = () => {
+    const freed = tokens.messages;
+
+    tokens.messages = 0;
+    tokens.total -= freed;
+    turnCount = 0;
+
+    return freed;
+  };
+
   return {
     think,
+    reset,
     tokens,
-    turnCount
+    get turnCount() {
+      return turnCount;
+    }
   };
 };

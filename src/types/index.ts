@@ -21,6 +21,7 @@ export type OllamaConfig = {
   host?: string;
   bearerToken?: string;
   model: string;
+  contextLimit: number;
 };
 
 // handlers declare their own argument type, so the parameter here is `never` -

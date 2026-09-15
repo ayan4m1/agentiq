@@ -33,7 +33,7 @@ export const handler = async ({ command, cwd }: Args) => {
   });
 
   if (!proceed) {
-    return;
+    return 'The user declined to run the command.';
   }
 
   try {
@@ -47,5 +47,7 @@ export const handler = async ({ command, cwd }: Args) => {
       const execError = error as ExecSyncError;
       return `Error: ${execError.stderr}\n\nOutput: ${execError.stdout}`;
     }
+
+    return `The command failed: ${String(error)}`;
   }
 };
