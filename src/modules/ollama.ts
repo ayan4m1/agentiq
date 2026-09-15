@@ -27,8 +27,13 @@ export const makeTokenizer = () => {
   return (value: string) => tokenizer.encode(value).length;
 };
 
-export const makeThinker = (tools: ToolCall[]) => {
-  // const tokenizer = makeTokenizer();
+type ThinkerOpts = {
+  tools: ToolCall[];
+  systemPrompt?: string;
+};
+
+export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
+  const tokenizer = makeTokenizer();
   const toolDefs = tools.map((tool) => tool.definition);
   const tokens: TokenStats = {
     messages: 0,
@@ -37,6 +42,20 @@ export const makeThinker = (tools: ToolCall[]) => {
     total: 0
   };
 
+  if (systemPrompt) {
+    const sysPromptCost = tokenizer(systemPrompt);
+
+    tokens.system += sysPromptCost;
+    tokens.total += sysPromptCost;
+  }
+
+  for (const tool of tools) {
+    const toolCost = tokenizer(JSON.stringify(tool));
+
+    tokens.tools += toolCost;
+    tokens.total += toolCost;
+  }
+
   const think = async (lastState: ThoughtState): Promise<ThoughtState> => {
     // const tokenCount = tokenizer(
     //   lastState.messages[lastState.messages.length - 1].content
@@ -44,6 +63,12 @@ export const makeThinker = (tools: ToolCall[]) => {
 
     // tokens.messages += tokenCount;
     // tokens.total += tokenCount;
+    if (lastState.messages.length === 1 && systemPrompt) {
+      lastState.messages = [
+        { role: 'system', content: systemPrompt },
+        ...lastState.messages
+      ];
+    }
 
     const response = await client.chat({
       model: ollama.model,
@@ -72,11 +97,6 @@ export const makeThinker = (tools: ToolCall[]) => {
       }
 
       if (toolFound) {
-        // const tokenCount = tokenizer(content);
-
-        // tokens.tools += tokenCount;
-        // tokens.total += tokenCount;
-
         messages.push({
           role: 'tool',
           tool_name: name,

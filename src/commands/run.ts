@@ -1,5 +1,7 @@
-import Bottleneck from 'bottleneck';
 import inquirer from 'inquirer';
+import Bottleneck from 'bottleneck';
+import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import InquirerCommandPrompt from 'inquirer-command-prompt';
 
 import { tools } from '../tools';
@@ -17,7 +19,16 @@ const rateLimiter = new Bottleneck({
 
 log.info(`Loaded ${tools.length} tools`);
 
-const thinker = makeThinker(tools);
+let systemPrompt: string | undefined;
+
+const sysPromptPath = resolve(process.cwd(), 'AGENTIQ.md');
+if (existsSync(sysPromptPath)) {
+  log.debug(`Reading system prompt from ${sysPromptPath}`);
+
+  systemPrompt = readFileSync(sysPromptPath).toString();
+}
+
+const thinker = makeThinker({ tools, systemPrompt });
 
 let nextThought: ThoughtState = {
   messages: []
