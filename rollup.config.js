@@ -8,7 +8,8 @@ export default {
   input: './src/**/*.ts',
   output: {
     dir: './lib',
-    format: 'esm'
+    format: 'esm',
+    preserveModules: true
   },
   plugins: [
     typescript(),
