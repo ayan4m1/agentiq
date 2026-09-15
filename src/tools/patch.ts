@@ -16,6 +16,11 @@ export const definition = makeTool('patch', 'Patches an existing document', [
   makeParameter('string', 'replacement', 'Text to substitute for each match'),
   makeParameter(
     'boolean',
+    'global',
+    'Whether or not to replace all instances of the search regex'
+  ),
+  makeParameter(
+    'boolean',
     'caseInsensitive',
     'Whether or not to respect case for the replacement',
     false
@@ -26,14 +31,16 @@ type Args = {
   path: string;
   regex: string;
   replacement: string;
+  global?: boolean;
   caseInsensitive?: boolean;
 };
 
 export const handler = async ({
+  caseInsensitive,
+  global,
   path,
   regex,
-  replacement,
-  caseInsensitive
+  replacement
 }: Args) => {
   if (!existsSync(path)) {
     log.error(`Cannot replace text in ${path} - it does not exist`);
@@ -42,8 +49,18 @@ export const handler = async ({
 
   log.info(`Replacing ${regex} with ${replacement} in ${path}`);
 
+  let regexOpts = '';
+
+  if (global) {
+    regexOpts += 'g';
+  }
+
+  if (caseInsensitive) {
+    regexOpts += 'i';
+  }
+
   const contents = readFileSync(path).toString();
-  const pattern = new RegExp(regex, caseInsensitive ? 'gi' : 'g');
+  const pattern = new RegExp(regex, regexOpts);
   const replaced = contents.replace(pattern, replacement);
 
   const proceed = await confirm({
