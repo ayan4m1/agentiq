@@ -1,10 +1,13 @@
 import Bottleneck from 'bottleneck';
-import { input } from '@inquirer/prompts';
+import inquirer from 'inquirer';
+import InquirerCommandPrompt from 'inquirer-command-prompt';
 
 import { tools } from '../tools';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
 import { ThoughtState } from '../types';
+
+inquirer.registerPrompt('command', InquirerCommandPrompt);
 
 const log = getLogger('run');
 const rateLimiter = new Bottleneck({
@@ -25,9 +28,12 @@ let roundsOfThought = 0;
 
 while (true) {
   if (needsUserInput) {
-    const userMessage = await input({
+    //@ts-expect-error saveHistory must be a bool but inquirer doesn't allow that
+    const { userMessage } = await inquirer.prompt({
+      type: 'command',
+      name: 'userMessage',
       message: '>',
-      required: true
+      saveHistory: true
     });
 
     if (userMessage.startsWith('/')) {
