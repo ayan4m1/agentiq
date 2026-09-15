@@ -80,7 +80,7 @@ while (true) {
 
     roundsOfThought++;
 
-    log.info(`Round ${roundsOfThought} - ${thinker.tokens.total} tokens`);
+    log.debug(`Round ${roundsOfThought} - ${thinker.tokens.total} tokens`);
 
     // keep thinking while the model is still calling tools - it is only the
     // user's turn again once a round comes back without any
