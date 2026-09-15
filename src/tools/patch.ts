@@ -47,7 +47,8 @@ export const handler = async ({
   const replaced = contents.replace(pattern, replacement);
 
   const proceed = await confirm({
-    message: `OK to write ${replaced.length} bytes to ${path}?`
+    message: `OK to write ${replaced.length} bytes to ${path}?`,
+    default: false
   });
 
   if (proceed) {

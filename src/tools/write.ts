@@ -22,7 +22,8 @@ export const handler = async ({ path, content }: Args) => {
   }
 
   const proceed = await confirm({
-    message: `OK to write ${content.length} bytes to ${path}?`
+    message: `OK to write ${content.length} bytes to ${path}?`,
+    default: false
   });
 
   if (proceed) {
