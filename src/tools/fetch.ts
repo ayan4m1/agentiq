@@ -17,7 +17,7 @@ export const handler = async ({ url }: Args) => {
   const response = await fetch(url);
 
   if (response.status !== 200) {
-    const message = `Got ${response.status} response when fetching ${url}`;
+    const message = `Got a ${response.status} response when fetching ${url}`;
 
     log.warn(message);
 

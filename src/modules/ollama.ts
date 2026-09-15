@@ -62,14 +62,14 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
   }
 
   const think = async (lastState: ThoughtState): Promise<ThoughtState> => {
-    // const tokenCount = tokenizer(
-    //   lastState.messages[lastState.messages.length - 1].content
-    // );
+    const lastMessage =
+      lastState.messages[lastState.messages.length - 1].content;
+    const tokenCount = tokenizer(lastMessage ?? '');
 
-    // log.debug(`Turn cost ${tokenCount} tokens`);
+    log.debug(`Turn cost ${tokenCount} tokens`);
 
-    // tokens.messages += tokenCount;
-    // tokens.total += tokenCount;
+    tokens.messages += tokenCount;
+    tokens.total += tokenCount;
 
     turnCount++;
 

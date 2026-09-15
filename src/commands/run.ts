@@ -8,6 +8,7 @@ import { tools } from '../tools';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
 import { ThoughtState } from '../types';
+import chalk from 'chalk';
 
 inquirer.registerPrompt('command', InquirerCommandPrompt);
 
@@ -33,7 +34,6 @@ log.debug(`Loaded ${tools.length} tools`);
 let nextThought: ThoughtState = {
   messages: []
 };
-
 let needsUserInput = true;
 
 while (true) {
@@ -49,15 +49,14 @@ while (true) {
     if (userMessage.startsWith('/')) {
       switch (userMessage.substring(1)) {
         case 'context':
-          // todo: set a system prompt and tokenize it to get its length here
+          // system prompt
           log.info(`{SYSTEM   } - ${thinker.tokens.system} tokens`);
-          // todo: when tool calls are made, this should increase
+          // tool definitions
           log.info(`{TOOLS    } - ${thinker.tokens.tools} tokens`);
-          // count of tokens in back/forth messages
           log.info(`{MESSAGES } - ${thinker.tokens.messages} tokens`);
-          // total token count for this session
           log.info(`{TOTAL    } - ${thinker.tokens.total} tokens`);
           break;
+        case 'clear':
         case 'reset': {
           nextThought.lastResponse = undefined;
           nextThought.messages = [];
@@ -95,7 +94,7 @@ while (true) {
     needsUserInput = !latestThought?.tool_calls?.length;
 
     if (latestThought?.content) {
-      log.info(latestThought.content);
+      console.log(`\n${chalk.blue(latestThought.content.toString())}\n`);
     }
 
     return result;

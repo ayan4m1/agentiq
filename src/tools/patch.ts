@@ -79,7 +79,7 @@ export const handler = async ({
 
   if (proceed) {
     writeFileSync(path, replaced);
-    log.info('Wrote file!');
+    log.info(`Wrote to ${path}!`);
 
     return { contents, newContents: replaced };
   } else {
