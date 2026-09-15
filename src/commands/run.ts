@@ -17,8 +17,6 @@ const rateLimiter = new Bottleneck({
   minTime: 1000
 });
 
-log.info(`Loaded ${tools.length} tools`);
-
 let systemPrompt: string | undefined;
 
 const sysPromptPath = resolve(process.cwd(), 'AGENTIQ.md');
@@ -29,6 +27,8 @@ if (existsSync(sysPromptPath)) {
 }
 
 const thinker = makeThinker({ tools, systemPrompt });
+
+log.debug(`Loaded ${tools.length} tools`);
 
 let nextThought: ThoughtState = {
   messages: []

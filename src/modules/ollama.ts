@@ -46,12 +46,16 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
   if (systemPrompt) {
     const sysPromptCost = tokenizer(systemPrompt);
 
+    log.debug(`System prompt will consume ${sysPromptCost} tokens`);
+
     tokens.system += sysPromptCost;
     tokens.total += sysPromptCost;
   }
 
   for (const tool of tools) {
     const toolCost = tokenizer(JSON.stringify(tool));
+
+    log.debug(`Tool call definitions will consume ${toolCost} tokens`);
 
     tokens.tools += toolCost;
     tokens.total += toolCost;
@@ -61,6 +65,8 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
     // const tokenCount = tokenizer(
     //   lastState.messages[lastState.messages.length - 1].content
     // );
+
+    // log.debug(`Turn cost ${tokenCount} tokens`);
 
     // tokens.messages += tokenCount;
     // tokens.total += tokenCount;
@@ -91,13 +97,11 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
 
       // look through registered tools and call handler
       for (const tool of tools) {
-        if (name !== tool.definition.function.name) {
-          continue;
+        if (name === tool.definition.function.name) {
+          content = JSON.stringify(await tool.handler(args as never));
+          toolFound = true;
+          break;
         }
-
-        content = JSON.stringify(await tool.handler(args as never));
-        toolFound = true;
-        break;
       }
 
       if (toolFound) {
@@ -107,7 +111,7 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
           content
         });
       } else if (!toolFound) {
-        log.warn(`Did not find tool with name ${name}`);
+        log.warn(`Asked to use an unknown tool called ${name}`);
       }
     }
 
