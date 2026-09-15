@@ -1,3 +1,4 @@
+import chalk from 'chalk';
 import { confirm } from '@inquirer/prompts';
 import { existsSync, writeFileSync } from 'node:fs';
 
@@ -20,6 +21,8 @@ export const handler = async ({ path, content }: Args) => {
   if (existsSync(path)) {
     return;
   }
+
+  console.log(`\n\n${chalk.bgGreen.black(content)}\n\n`);
 
   const proceed = await confirm({
     message: `OK to write ${content.length} bytes to ${path}?`,

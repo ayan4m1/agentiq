@@ -1,3 +1,4 @@
+import chalk from 'chalk';
 import { confirm } from '@inquirer/prompts';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
@@ -62,6 +63,9 @@ export const handler = async ({
   const contents = readFileSync(path).toString();
   const pattern = new RegExp(regex, regexOpts);
   const replaced = contents.replace(pattern, replacement);
+
+  console.log(chalk.bgRed.black(contents));
+  console.log(chalk.bgGreen.black(replaced));
 
   const proceed = await confirm({
     message: `OK to write ${replaced.length} bytes to ${path}?`,
