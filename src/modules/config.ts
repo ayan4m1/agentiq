@@ -7,8 +7,7 @@ try {
 import { LoggingConfig, LogLevel, OllamaConfig } from '../types';
 
 export const logging: LoggingConfig = {
-  level: (process.env.AQ_LOG_LEVEL || 'info') as unknown as LogLevel,
-  timestampFormat: process.env.AQ_LOG_TIME_FMT
+  level: (process.env.AQ_LOG_LEVEL || 'info') as unknown as LogLevel
 };
 
 export const ollama: OllamaConfig = {

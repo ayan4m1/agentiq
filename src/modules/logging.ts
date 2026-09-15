@@ -9,23 +9,20 @@ type CustomLogInfo = TransformableInfo & {
 };
 
 const { Console } = transports;
-const { combine, label, prettyPrint, printf, timestamp } = format;
+const { combine, label, prettyPrint, printf } = format;
 
 const loggers = new Map<string, Logger>();
 const container = new Container();
 
 const createLogger = (category: string, categoryLabel: string) => {
-  let formatter = (data: CustomLogInfo) =>
-    `[${data.level}][${data.label}] ${data.message}`;
   const formatters = [label({ label: categoryLabel })];
 
-  if (config.timestampFormat) {
-    formatters.push(timestamp({ format: config.timestampFormat }));
-    formatter = (data) =>
-      `${data.timestamp} [${data.level}][${data.label}] ${data.message}`;
-  }
-
-  formatters.push(prettyPrint(), printf(formatter));
+  formatters.push(
+    prettyPrint(),
+    printf(
+      (data: CustomLogInfo) => `[${data.level}][${data.label}] ${data.message}`
+    )
+  );
   container.add(category, {
     transports: [
       new Console({

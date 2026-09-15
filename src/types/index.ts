@@ -15,7 +15,6 @@ export enum LogLevel {
 
 export type LoggingConfig = {
   level: LogLevel;
-  timestampFormat?: string;
 };
 
 export type OllamaConfig = {
