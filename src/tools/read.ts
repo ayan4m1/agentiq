@@ -15,8 +15,7 @@ type Args = {
 
 export const handler = async ({ path }: Args) => {
   if (!existsSync(path)) {
-    log.error(`Cannot read ${path} - it does not exist`);
-    return;
+    return `Cannot read ${path} - it does not exist`;
   }
 
   const contents = readFileSync(path).toString();

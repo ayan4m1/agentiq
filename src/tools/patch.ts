@@ -44,8 +44,7 @@ export const handler = async ({
   replacement
 }: Args) => {
   if (!existsSync(path)) {
-    log.error(`Cannot replace text in ${path} - it does not exist`);
-    return;
+    return `Cannot replace text in ${path} - it does not exist`;
   }
 
   log.info(`Replacing ${regex} with ${replacement} in ${path}`);
@@ -75,7 +74,9 @@ export const handler = async ({
   if (proceed) {
     writeFileSync(path, replaced);
     log.info('Wrote file!');
-  }
 
-  return { contents, newContents: replaced };
+    return { contents, newContents: replaced };
+  } else {
+    return 'The user declined to make the change.';
+  }
 };

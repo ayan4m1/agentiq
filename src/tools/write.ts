@@ -19,7 +19,7 @@ type Args = {
 
 export const handler = async ({ path, content }: Args) => {
   if (existsSync(path)) {
-    return;
+    return 'The path already exists - use the patch tool instead.';
   }
 
   console.log(`\n\n${chalk.bgGreen.black(content)}\n\n`);
@@ -32,5 +32,9 @@ export const handler = async ({ path, content }: Args) => {
   if (proceed) {
     writeFileSync(path, content);
     log.info('Wrote file!');
+
+    return `Wrote ${content.length} bytes to ${path}`;
+  } else {
+    return 'User declined to write file.';
   }
 };
