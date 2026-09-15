@@ -5,7 +5,7 @@ import { makeParameter, makeTool } from '../utils';
 
 export const definition = makeTool(
   'shell',
-  'Access a system shell to run commands',
+  'Access a bash shell to run commands',
   [
     makeParameter('string', 'command', 'THe command to execute', true),
     makeParameter('string', 'cwd', 'The working directory to execute in', true)
