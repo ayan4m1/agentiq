@@ -67,8 +67,8 @@ export const handler = async ({
     return 'The regex did not match; no change was made.';
   }
 
-  console.log(chalk.bgRed.black(contents));
-  console.log(chalk.bgGreen.black(replaced));
+  console.log(chalk.bgRed(contents));
+  console.log(chalk.bgGreen(replaced));
 
   const { proceed } = await inquirer.prompt({
     type: 'confirm',
