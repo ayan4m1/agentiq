@@ -7,6 +7,7 @@ import { ollama } from '../modules/config';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
 import { cycleMode, describeMode } from '../modules/approval';
+import { takeYield } from '../modules/turn';
 import { ThoughtState } from '../types';
 import { describeError, getTokenString } from '../utils';
 
@@ -170,8 +171,10 @@ while (true) {
       }
 
       // keep thinking while the model is still calling tools - it is only the
-      // user's turn again once a round comes back without any
-      needsUserInput = !result.lastResponse?.message?.tool_calls?.length;
+      // user's turn again once a round comes back without any, or a tool that
+      // already spoke to the user asked for the keyboard back
+      needsUserInput =
+        takeYield() || !result.lastResponse?.message?.tool_calls?.length;
 
       return result;
     });

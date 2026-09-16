@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import inquirer from 'inquirer';
 
 import { setMode } from '../modules/approval';
+import { yieldToUser } from '../modules/turn';
 import { ApprovalMode } from '../types';
 import { makeParameter, makeTool } from '../utils';
 
@@ -82,6 +83,11 @@ export const handler = async ({ title, steps }: Args) => {
 
       return 'The user approved the plan. Start working through the steps, but expect to be asked to confirm every change.';
     default:
-      return 'The user is not ready to start. Revise the plan and present it again - do not make any changes yet.';
+      // the run loop stops here rather than taking another turn, so this is
+      // read alongside whatever the user types next - it reports what happened
+      // and leaves the next move to them
+      yieldToUser();
+
+      return 'The user declined the plan and has not approved any work.';
   }
 };
