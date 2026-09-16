@@ -33,7 +33,13 @@ const stripHtml = (html: string) => {
 export const handler = async ({ url }: Args) => {
   log.info(`Fetching URL ${url}`);
 
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: {
+      // lowest effort anti-anti-scraping
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:155.0) Gecko/20100101 Firefox/155.0'
+    }
+  });
 
   if (response.status !== 200) {
     const message = `Got a ${response.status} response when fetching ${url}`;
