@@ -8,7 +8,7 @@ import { makeParameter, makeTool } from '../utils';
 
 export const definition = makeTool(
   'present_plan',
-  'Show the user a plan and ask permission to start work. Use this before making any changes to a codebase you have just finished investigating, and always while plan mode is active - it is the only way out of plan mode, since the shell, write, and patch tools refuse to run there. The user replies with how they want the work approved.',
+  'Show the user a plan and ask permission to start work. Use this before making any changes to a codebase you have just finished investigating, and always while plan mode is active. The user replies with how they want the work approved.',
   [
     makeParameter(
       'string',
