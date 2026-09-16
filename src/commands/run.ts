@@ -22,6 +22,18 @@ const rateLimiter = new Bottleneck({
   minTime: 1000
 });
 
+// the switch below and the /help listing both read from here, so a new
+// command only has to be added in one place
+enum Command {
+  Context = 'context',
+  Mode = 'mode',
+  Compact = 'compact',
+  Clear = 'clear',
+  Reset = 'reset',
+  Help = 'help',
+  Quit = 'quit'
+}
+
 const renderPrompt = () =>
   `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.messages)}`)}${chalk.blue('>')}`;
 
@@ -98,7 +110,7 @@ while (true) {
 
     if (userMessage.startsWith('/')) {
       switch (userMessage.substring(1)) {
-        case 'context':
+        case Command.Context:
           // system prompt
           console.log(
             `${systemColor('{SYSTEM   }')} - ${thinker.tokens.system} tokens`
@@ -114,16 +126,16 @@ while (true) {
             `${systemColor('{TOTAL    }')} - ${thinker.tokens.total} tokens / ${ollama.contextLimit} max (${Math.round((thinker.tokens.total / ollama.contextLimit) * 100)}%)`
           );
           break;
-        case 'mode':
+        case Command.Mode:
           cycleMode();
           break;
-        case 'compact':
+        case Command.Compact:
           // an explicit request overrides an earlier stalled attempt
           compactionStalled = false;
           await compact();
           break;
-        case 'clear':
-        case 'reset': {
+        case Command.Clear:
+        case Command.Reset: {
           nextThought.lastResponse = undefined;
           nextThought.messages = [];
           compactionStalled = false;
@@ -137,7 +149,14 @@ while (true) {
           );
           break;
         }
-        case 'quit':
+        case Command.Help:
+          console.log(systemColor('\n--- Available Commands ---'));
+          Object.values(Command).forEach((cmd) =>
+            console.log(`${systemColor('*')} /${cmd}`)
+          );
+          console.log(systemColor('---------------------------\n'));
+          break;
+        case Command.Quit:
           process.exit(0);
         // eslint-disable-next-line no-fallthrough
         default:
