@@ -132,24 +132,6 @@ export const makeThinker = () => {
     turnCount++;
     aborted = false;
 
-    const stream = await client.chat({
-      model: ollama.model,
-      messages,
-      tools: toolDefs,
-      stream: true,
-      // without this ollama falls back to the model default - often 4096 - and
-      // silently truncates the prompt, dropping messages the model needs
-      options: {
-        num_ctx: ollama.contextLimit
-      }
-    });
-
-    const assistantMessage: Message = { role: 'assistant', content: '' };
-    let wroteOutput = false;
-    let lastChunk;
-
-    process.stdout.write('\n');
-
     // the hint holds only while it is still the current line - the first token
     // of output scrolls it out of reach - so whoever writes next clears it
     let hintShown = false;
@@ -168,6 +150,24 @@ export const makeThinker = () => {
       process.stdout.write(chalk.dim('esc to interrupt'));
       hintShown = true;
     }
+
+    const stream = await client.chat({
+      model: ollama.model,
+      messages,
+      tools: toolDefs,
+      stream: true,
+      // without this ollama falls back to the model default - often 4096 - and
+      // silently truncates the prompt, dropping messages the model needs
+      options: {
+        num_ctx: ollama.contextLimit
+      }
+    });
+
+    const assistantMessage: Message = { role: 'assistant', content: '' };
+    let wroteOutput = false;
+    let lastChunk;
+
+    process.stdout.write('\n');
 
     const stopWatching = watchForInterrupt(abort);
 
