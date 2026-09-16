@@ -67,6 +67,7 @@ __metadata:
     eslint-import-resolver-typescript: "npm:^4.4.5"
     eslint-plugin-import-x: "npm:^4.17.1"
     eslint-plugin-prettier: "npm:^5.5.6"
+    filesize: "npm:^11.0.24"
     globals: "npm:^17.12.0"
     husky: "npm:^9.1.7"
     inquirer: "npm:^14.2.2"
@@ -3872,6 +3873,13 @@ __metadata:
   dependencies:
     flat-cache: "npm:^4.0.0"
   checksum: 10c0/9e2b5938b1cd9b6d7e3612bdc533afd4ac17b2fc646569e9a8abbf2eb48e5eb8e316bc38815a3ef6a1b456f4107f0d0f055a614ca613e75db6bf9ff4d72c1638
+  languageName: node
+  linkType: hard
+
+"filesize@npm:^11.0.24":
+  version: 11.0.24
+  resolution: "filesize@npm:11.0.24"
+  checksum: 10c0/7c94fca10260bd4f3c2eae7c723b78a9b22947c67cca7ab7d833d76755577b5ea28c7968d6007baae19b53457ffda38d4902c5bfb6108c0324e732ddaa9132aa
   languageName: node
   linkType: hard
 

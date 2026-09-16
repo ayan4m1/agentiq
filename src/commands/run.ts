@@ -9,6 +9,8 @@ import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
 import { ThoughtState } from '../types';
 import chalk from 'chalk';
+import { filesize } from 'filesize';
+import { ollama } from '../modules/config';
 
 inquirer.registerPrompt('command', InquirerCommandPrompt);
 
@@ -17,6 +19,7 @@ const rateLimiter = new Bottleneck({
   maxConcurrent: 1,
   minTime: 1000
 });
+const systemColor = chalk.yellow;
 
 let systemPrompt: string | undefined;
 
@@ -42,7 +45,12 @@ while (true) {
     const { userMessage } = await inquirer.prompt({
       type: 'command',
       name: 'userMessage',
-      message: '>',
+      message: systemColor(
+        `[${filesize(thinker.tokens.messages, {
+          fullform: true,
+          fullforms: ['Tokens', 'kTokens', 'mTokens', 'gTokens']
+        })}]>`
+      ),
       saveHistory: true
     });
 
@@ -50,11 +58,19 @@ while (true) {
       switch (userMessage.substring(1)) {
         case 'context':
           // system prompt
-          log.info(`{SYSTEM   } - ${thinker.tokens.system} tokens`);
+          console.log(
+            `${systemColor('{SYSTEM   }')} - ${thinker.tokens.system} tokens`
+          );
           // tool definitions
-          log.info(`{TOOLS    } - ${thinker.tokens.tools} tokens`);
-          log.info(`{MESSAGES } - ${thinker.tokens.messages} tokens`);
-          log.info(`{TOTAL    } - ${thinker.tokens.total} tokens`);
+          console.log(
+            `${systemColor('{TOOLS    }')} - ${thinker.tokens.tools} tokens`
+          );
+          console.log(
+            `${systemColor('{MESSAGES }')} - ${thinker.tokens.messages} tokens`
+          );
+          console.log(
+            `${systemColor('{TOTAL    }')} - ${thinker.tokens.total} tokens / ${ollama.contextLimit} total (${Math.round(thinker.tokens.total / ollama.contextLimit)}%)`
+          );
           break;
         case 'clear':
         case 'reset': {
@@ -64,6 +80,9 @@ while (true) {
           log.info(`Freed ${thinker.reset()} tokens from context`);
           break;
         }
+        default:
+          log.warn(`Tried to use unknown command ${userMessage}!`);
+          break;
         case 'quit':
           process.exit(0);
       }
