@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import inquirer from 'inquirer';
+import { structuredPatch } from 'diff';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { getLogger } from '../modules/logging';
@@ -7,68 +8,98 @@ import { makeParameter, makeTool } from '../utils';
 
 const log = getLogger('patch');
 
-export const definition = makeTool('patch', 'Patches an existing document', [
-  makeParameter('string', 'path', 'Path to the document to patch'),
-  makeParameter(
-    'string',
-    'regex',
-    'Regular expression matching the text to replace'
-  ),
-  makeParameter('string', 'replacement', 'Text to substitute for each match'),
-  makeParameter(
-    'boolean',
-    'global',
-    'Whether or not to replace all instances of the search regex'
-  ),
-  makeParameter(
-    'boolean',
-    'caseInsensitive',
-    'Whether or not to respect case for the replacement',
-    false
-  )
-]);
+export const definition = makeTool(
+  'patch',
+  'Replaces an exact snippet of text in an existing document',
+  [
+    makeParameter('string', 'path', 'Path to the document to patch'),
+    makeParameter(
+      'string',
+      'oldText',
+      'The exact text to replace, copied verbatim from the document. Include enough surrounding lines to make it unique'
+    ),
+    makeParameter('string', 'newText', 'The text to put in its place'),
+    makeParameter(
+      'boolean',
+      'replaceAll',
+      'Whether to replace every occurrence instead of requiring a unique match',
+      false
+    )
+  ]
+);
 
 type Args = {
   path: string;
-  regex: string;
-  replacement: string;
-  global?: boolean;
-  caseInsensitive?: boolean;
+  oldText: string;
+  newText: string;
+  replaceAll?: boolean;
 };
 
-export const handler = async ({
-  caseInsensitive,
-  global,
-  path,
-  regex,
-  replacement
-}: Args) => {
+const countOccurrences = (haystack: string, needle: string) => {
+  let count = 0;
+  let index = haystack.indexOf(needle);
+
+  while (index !== -1) {
+    count++;
+    index = haystack.indexOf(needle, index + needle.length);
+  }
+
+  return count;
+};
+
+// the whole file on a colored background buries the change it is meant to show,
+// so render only the hunks the patch actually touches
+const renderDiff = (path: string, before: string, after: string) => {
+  const { hunks } = structuredPatch(path, path, before, after, '', '', {
+    context: 3
+  });
+
+  for (const hunk of hunks) {
+    console.log(
+      chalk.cyan(
+        `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`
+      )
+    );
+
+    for (const line of hunk.lines) {
+      if (line.startsWith('+')) {
+        console.log(chalk.green(line));
+      } else if (line.startsWith('-')) {
+        console.log(chalk.red(line));
+      } else {
+        console.log(chalk.dim(line));
+      }
+    }
+  }
+};
+
+export const handler = async ({ path, oldText, newText, replaceAll }: Args) => {
   if (!existsSync(path)) {
     return `Cannot replace text in ${path} - it does not exist`;
   }
 
-  log.info(`Replacing ${regex} with ${replacement} in ${path}`);
-
-  let regexOpts = '';
-
-  if (global) {
-    regexOpts += 'g';
-  }
-
-  if (caseInsensitive) {
-    regexOpts += 'i';
-  }
-
   const contents = readFileSync(path).toString();
-  const pattern = new RegExp(regex, regexOpts);
-  const replaced = contents.replace(pattern, replacement);
+  const occurrences = countOccurrences(contents, oldText);
 
-  if (contents === replaced) {
-    return 'The regex did not match; no change was made.';
+  if (!occurrences) {
+    return `That text does not appear in ${path}; no change was made. Read the file again and copy the snippet exactly.`;
   }
 
-  console.log(chalk.bgRed(contents));
-  console.log(chalk.bgGreen(replaced));
+  // replacing the wrong one of several identical snippets is a silent
+  // corruption, so make the model disambiguate rather than guessing for it
+  if (occurrences > 1 && !replaceAll) {
+    return `That text appears ${occurrences} times in ${path}; no change was made. Include more surrounding context to identify a single occurrence, or set replaceAll to true.`;
+  }
+
+  log.info(
+    `Replacing ${occurrences} occurrence(s) of ${oldText.length} bytes in ${path}`
+  );
+
+  const replaced = replaceAll
+    ? contents.split(oldText).join(newText)
+    : contents.replace(oldText, newText);
+
+  renderDiff(path, contents, replaced);
 
   const { proceed } = await inquirer.prompt({
     type: 'confirm',
@@ -77,12 +108,14 @@ export const handler = async ({
     default: false
   });
 
-  if (proceed) {
-    writeFileSync(path, replaced);
-    log.info(`Wrote to ${path}!`);
-
-    return { contents, newContents: replaced };
-  } else {
+  if (!proceed) {
     return 'The user declined to make the change.';
   }
+
+  writeFileSync(path, replaced);
+  log.info(`Wrote to ${path}!`);
+
+  // returning the file bodies here would hand the model the whole document
+  // twice over - it already knows what it asked for
+  return `Replaced ${occurrences} occurrence(s) in ${path}`;
 };
