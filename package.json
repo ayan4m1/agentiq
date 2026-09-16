@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@inquirer/core": "^12.0.3",
+    "@inquirer/prompts": "^8.7.2",
     "@lenml/tokenizers": "^3.7.2",
     "bottleneck": "^2.19.5",
     "chalk": "^6.0.0",

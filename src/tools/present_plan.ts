@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import inquirer from 'inquirer';
+import { select } from '@inquirer/prompts';
 
 import { setMode } from '../modules/approval';
 import { yieldToUser } from '../modules/turn';
@@ -58,9 +58,7 @@ export const handler = async ({ title, steps }: Args) => {
 
   // deliberately not requestApproval - that answers itself in auto mode, which
   // would let the model grant itself the very permission it is asking for
-  const { answer } = await inquirer.prompt({
-    type: 'select',
-    name: 'answer',
+  const answer = await select({
     message: 'How would you like to proceed?',
     default: Answer.Manual,
     choices: [
