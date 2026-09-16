@@ -19,7 +19,7 @@ type Args = {
 
 export const handler = async ({ path, content }: Args) => {
   if (existsSync(path)) {
-    return 'The path already exists - use the patch tool instead.';
+    return 'The path already exists - use the patch tool to modify it.';
   }
 
   console.log(`\n\n${chalk.bgGreen.black(content)}\n\n`);
