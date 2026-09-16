@@ -1,16 +1,15 @@
 import inquirer from 'inquirer';
 import { execSync } from 'node:child_process';
 
-import { makeParameter, makeTool } from '../utils';
+import { shell } from '../modules/config';
+import { getContentBudget, makeParameter, makeTool, truncate } from '../utils';
 
-export const definition = makeTool(
-  'shell',
-  'Access a bash shell to run commands',
-  [
-    makeParameter('string', 'command', 'THe command to execute', true),
-    makeParameter('string', 'cwd', 'The working directory to execute in', true)
-  ]
-);
+const maxLength = getContentBudget(0.2);
+
+export const definition = makeTool('shell', 'Access a shell to run commands', [
+  makeParameter('string', 'command', 'The command to execute', true),
+  makeParameter('string', 'cwd', 'The working directory to execute in', true)
+]);
 
 type Args = {
   command: string;
@@ -37,15 +36,33 @@ export const handler = async ({ command, cwd }: Args) => {
   }
 
   try {
-    return execSync(`bash -c "${command.replace('"', '\\"')}"`, {
-      cwd
-    })
-      .toString()
-      .trim();
+    // handing the command to execSync's own shell option avoids wrapping it in
+    // quotes we would then have to escape - the command the user approved is
+    // the exact string that runs
+    return truncate(
+      execSync(command, {
+        cwd,
+        shell: shell.path,
+        // execSync is blocking, so a dev server or a hung install would wedge
+        // the agent with no way back to the prompt
+        timeout: shell.timeout,
+        maxBuffer: maxLength * 4,
+        encoding: 'utf-8'
+      }).trim(),
+      maxLength
+    );
   } catch (error) {
     if (error instanceof Error) {
       const execError = error as ExecSyncError;
-      return `Error: ${execError.stderr}\n\nOutput: ${execError.stdout}`;
+
+      if ('signal' in execError && execError.signal === 'SIGTERM') {
+        return `The command timed out after ${shell.timeout}ms and was killed.`;
+      }
+
+      return truncate(
+        `Error: ${execError.stderr}\n\nOutput: ${execError.stdout}`,
+        maxLength
+      );
     }
 
     return `The command failed: ${String(error)}`;
