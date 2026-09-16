@@ -1,13 +1,13 @@
 import { parse } from 'node-html-parser';
 
+import { ollama } from '../modules/config';
 import { getLogger } from '../modules/logging';
 import { makeParameter, makeTool } from '../utils';
 
 const log = getLogger('fetch');
 
-// roughly 60k tokens of prose, leaving room for the system prompt, tool
-// definitions and conversation history inside the configured context limit
-const maxLength = 200000;
+// allows for at least 3 fetches before context is full - 3.33 chars/token
+const maxLength = ollama.contextLimit * 0.3 * 3.33;
 
 export const definition = makeTool('fetch', 'Fetches a document via HTTP', [
   makeParameter('string', 'url', 'The URL to fetch')
