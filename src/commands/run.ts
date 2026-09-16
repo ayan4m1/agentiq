@@ -23,7 +23,7 @@ const rateLimiter = new Bottleneck({
 });
 
 const renderPrompt = () =>
-  `${systemColor(`[${getTokenString(thinker.tokens.messages)}]`)}${describeMode()}${systemColor('>')}`;
+  `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.messages)}`)}${chalk.blue('>')}`;
 
 // the prompt's own tab branch has no shift guard, so shift+tab would otherwise
 // fall into autocompletion and leave a literal tab in the buffer

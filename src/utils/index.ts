@@ -51,10 +51,10 @@ export const makeParameter = (
 });
 
 export const getTokenString = (value: number) =>
-  filesize(value, {
+  `[${filesize(value, {
     fullform: true,
-    fullforms: ['Tokens', 'kTokens', 'mTokens', 'gTokens']
-  });
+    fullforms: ['tok', 'kTok', 'mTok', 'gTok']
+  })}]`;
 
 // large files and HTML pages trivially exceed the context window, so tools cap
 // their output at a fraction of it. 3.33 chars/token is a rough average that

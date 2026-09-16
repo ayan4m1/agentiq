@@ -22,18 +22,14 @@ const nextModes: Record<ApprovalMode, ApprovalMode> = {
 
 const badges: Record<ApprovalMode, string> = {
   [ApprovalMode.Manual]: chalk.yellow('[manual]'),
-  [ApprovalMode.Auto]: chalk.red('[auto]'),
-  [ApprovalMode.Plan]: chalk.cyan('[plan]')
+  [ApprovalMode.Auto]: chalk.red('[ auto ]'),
+  [ApprovalMode.Plan]: chalk.cyan('[ plan ]')
 };
 
 const banners: Record<ApprovalMode, string> = {
-  [ApprovalMode.Manual]: chalk.bgYellow.black(
-    ' manual - every change is confirmed '
-  ),
-  [ApprovalMode.Auto]: chalk.bgRed.white(
-    ' auto - changes apply without asking '
-  ),
-  [ApprovalMode.Plan]: chalk.bgCyan.black(' plan - no changes can be made ')
+  [ApprovalMode.Manual]: chalk.bgYellow.black('every change is confirmed'),
+  [ApprovalMode.Auto]: chalk.bgRed.white('changes apply without asking'),
+  [ApprovalMode.Plan]: chalk.bgCyan.black('no changes can be made')
 };
 
 export const hint = chalk.dim('shift+tab to cycle');

@@ -26,7 +26,7 @@ export const handler = async ({ path, content }: Args) => {
     return 'Plan mode is active, so no files can be written. Use the present_plan tool to propose an approach and ask to start work.';
   }
 
-  console.log(`\n\n${chalk.bgGreen.black(content)}\n\n`);
+  console.log(`\n${chalk.bgGreen(content.replace(/\n{2,}/, '\n'))}\n`);
 
   if (
     await requestApproval(`OK to write ${content.length} bytes to ${path}?`)
