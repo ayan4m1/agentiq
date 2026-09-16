@@ -5,6 +5,7 @@ import * as find from './find';
 import * as fetch from './fetch';
 import * as shell from './shell';
 import * as askList from './ask_list';
+import * as askBoolean from './ask_boolean';
 import * as presentPlan from './present_plan';
 
 import { ToolCall } from '../types';
@@ -17,5 +18,6 @@ export const tools: ToolCall[] = [
   fetch,
   shell,
   askList,
+  askBoolean,
   presentPlan
 ];
