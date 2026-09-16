@@ -62,17 +62,6 @@ let nextThought: ThoughtState = {
   messages: []
 };
 let needsUserInput = true;
-let inFlight = false;
-
-// only intercept while the model is generating - at the prompt, inquirer's own
-// handling still applies, so ctrl+c there exits as it always did
-process.on('SIGINT', () => {
-  if (!inFlight) {
-    process.exit(0);
-  }
-
-  thinker.abort();
-});
 
 // set when compaction runs but cannot free anything, so the automatic trigger
 // below stops paying for a summarization call every single turn. asking for
@@ -176,15 +165,13 @@ while (true) {
   }
 
   try {
-    inFlight = true;
-
     nextThought = await rateLimiter.schedule(async () => {
       const result = await thinker.think(nextThought);
 
       log.debug(`Round ${thinker.turnCount} - ${thinker.tokens.total} tokens`);
 
       if (result.interrupted) {
-        console.log(systemColor('\n[interrupted]\n'));
+        console.log(systemColor('[interrupted]\n'));
 
         return result;
       }
@@ -203,8 +190,6 @@ while (true) {
     log.error(chalk.red(`The model call failed: ${describeError(error)}`));
 
     needsUserInput = true;
-  } finally {
-    inFlight = false;
   }
 
   if (nextThought.interrupted) {

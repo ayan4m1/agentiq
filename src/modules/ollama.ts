@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Message, Ollama } from 'ollama';
 import { dirname, resolve } from 'node:path';
+import { clearLine, cursorTo } from 'node:readline';
 import { TokenizerLoader } from '@lenml/tokenizers';
 
 import { ollama } from './config';
 import { getLogger } from './logging';
+import { watchForInterrupt } from './interrupt';
 import { ThoughtState, TokenStats } from '../types';
 import { tools } from '../tools';
 import { describeError, loadSystemPrompt, serializeResult } from '../utils';
@@ -148,12 +150,34 @@ export const makeThinker = () => {
 
     process.stdout.write('\n');
 
+    // the hint holds only while it is still the current line - the first token
+    // of output scrolls it out of reach - so whoever writes next clears it
+    let hintShown = false;
+
+    const clearHint = () => {
+      if (!hintShown) {
+        return;
+      }
+
+      hintShown = false;
+      clearLine(process.stdout, 0);
+      cursorTo(process.stdout, 0);
+    };
+
+    if (process.stdin.isTTY) {
+      process.stdout.write(chalk.dim('esc to interrupt'));
+      hintShown = true;
+    }
+
+    const stopWatching = watchForInterrupt(abort);
+
     // enter a read/print loop of text chunks from the model
     try {
       for await (const chunk of stream) {
         lastChunk = chunk;
 
         if (chunk.message?.content) {
+          clearHint();
           process.stdout.write(chalk.blue(chunk.message.content));
 
           assistantMessage.content += chunk.message.content;
@@ -173,6 +197,11 @@ export const makeThinker = () => {
       if (!aborted) {
         throw error;
       }
+    } finally {
+      stopWatching();
+      // a turn that only made tool calls, or one that ended before saying
+      // anything, never wrote over the hint
+      clearHint();
     }
 
     if (wroteOutput) {
@@ -319,8 +348,8 @@ export const makeThinker = () => {
     return freed;
   };
 
-  // only meaningful mid-turn: cancels the in-flight stream so think() can roll
-  // the turn back instead of the process dying with the conversation in it
+  // only meaningful mid-turn: escape during generation cancels the in-flight
+  // stream so think() can roll the turn back, leaving the conversation intact
   const abort = () => {
     aborted = true;
     client.abort();
