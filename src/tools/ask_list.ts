@@ -4,25 +4,25 @@ import { makeParameter, makeTool } from '../utils';
 
 export const definition = makeTool(
   'ask_list',
-  'Prompt the user to select from a list of choices',
+  'Use this when you need the user to make a decision from a list of choices',
   [
     makeParameter('array', 'choices', 'The list of choices', true, 'string'),
     makeParameter(
       'string',
-      'message',
-      'The message to display along with the choices',
+      'question',
+      'The question to display along with the choices',
       true
     )
   ]
 );
 
 type Args = {
-  message: string;
+  question: string;
   choices: string[];
 };
 
-export const handler = async ({ message, choices }: Args) =>
+export const handler = async ({ question, choices }: Args) =>
   `The user selected "${await select({
     choices,
-    message
+    message: question
   })}"`;
