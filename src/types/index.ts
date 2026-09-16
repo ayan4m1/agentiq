@@ -17,6 +17,11 @@ export type LoggingConfig = {
   level: LogLevel;
 };
 
+export type ShellConfig = {
+  path?: string;
+  timeout: number;
+};
+
 export type OllamaConfig = {
   host?: string;
   bearerToken?: string;
