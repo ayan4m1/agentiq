@@ -47,3 +47,9 @@ export const getTokenString = (value: number) =>
     fullform: true,
     fullforms: ['Tokens', 'kTokens', 'mTokens', 'gTokens']
   });
+
+// large files and HTML pages trivially exceed the context window, so tools cap
+// their output at a fraction of it. 3.33 chars/token is a rough average that
+// holds well enough across prose and code
+export const getContentBudget = (fraction = 0.3) =>
+  Math.floor(ollama.contextLimit * fraction * 3.33);
