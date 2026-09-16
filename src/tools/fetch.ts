@@ -54,7 +54,7 @@ export const handler = async ({ url }: Args) => {
   const byteCount = Buffer.byteLength(body);
   const content = contentType.includes('html') ? stripHtml(body) : body;
   // tool results arrive with no record of the call that produced them, so say
-  // which URL this is and how much of it the model is being shown
+  // which URL this is and how many bytes were returned
   const header = `Fetched ${url} (${contentType}, ${byteCount} bytes)`;
 
   log.info(
