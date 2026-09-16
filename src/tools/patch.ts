@@ -1,9 +1,9 @@
 import chalk from 'chalk';
-import inquirer from 'inquirer';
 import { structuredPatch } from 'diff';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { getLogger } from '../modules/logging';
+import { isPlanning, requestApproval } from '../modules/approval';
 import { makeParameter, makeTool } from '../utils';
 
 const log = getLogger('patch');
@@ -78,6 +78,10 @@ export const handler = async ({ path, oldText, newText, replaceAll }: Args) => {
     return `Cannot replace text in ${path} - it does not exist`;
   }
 
+  if (isPlanning()) {
+    return 'Plan mode is active, so no files can be changed. Use the present_plan tool to propose an approach and ask to start work.';
+  }
+
   const contents = readFileSync(path).toString();
   const occurrences = countOccurrences(contents, oldText);
 
@@ -101,14 +105,9 @@ export const handler = async ({ path, oldText, newText, replaceAll }: Args) => {
 
   renderDiff(path, contents, replaced);
 
-  const { proceed } = await inquirer.prompt({
-    type: 'confirm',
-    name: 'proceed',
-    message: `OK to write ${replaced.length} bytes to ${path}?`,
-    default: false
-  });
-
-  if (!proceed) {
+  if (
+    !(await requestApproval(`OK to write ${replaced.length} bytes to ${path}?`))
+  ) {
     return 'The user declined to make the change.';
   }
 

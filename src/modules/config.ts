@@ -4,10 +4,23 @@ try {
   // If there is no .env file, use the environment as-is
 }
 
-import { LoggingConfig, LogLevel, OllamaConfig, ShellConfig } from '../types';
+import {
+  ApprovalConfig,
+  ApprovalMode,
+  LoggingConfig,
+  LogLevel,
+  OllamaConfig,
+  ShellConfig
+} from '../types';
 
 export const logging: LoggingConfig = {
   level: (process.env.AQ_LOG_LEVEL || 'info') as unknown as LogLevel
+};
+
+// only the starting mode - shift+tab and present_plan move it at runtime, so
+// modules/approval.ts owns the live value from here on
+export const approval: ApprovalConfig = {
+  mode: (process.env.AQ_APPROVAL_MODE || ApprovalMode.Manual) as ApprovalMode
 };
 
 // undefined lets execSync pick the platform default - cmd.exe on Windows,

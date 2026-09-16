@@ -1,7 +1,7 @@
-import inquirer from 'inquirer';
 import { execSync } from 'node:child_process';
 
 import { shell } from '../modules/config';
+import { isPlanning, requestApproval } from '../modules/approval';
 import { getContentBudget, makeParameter, makeTool, truncate } from '../utils';
 
 const maxLength = getContentBudget(0.2);
@@ -24,14 +24,11 @@ interface ExecSyncError extends Error {
 }
 
 export const handler = async ({ command, cwd }: Args) => {
-  const { proceed } = await inquirer.prompt({
-    type: 'confirm',
-    name: 'proceed',
-    message: `OK to run command "${command}"?`,
-    default: false
-  });
+  if (isPlanning()) {
+    return 'Plan mode is active, so no commands can be run. Use the present_plan tool to propose an approach and ask to start work.';
+  }
 
-  if (!proceed) {
+  if (!(await requestApproval(`OK to run command "${command}"?`))) {
     return 'The user declined to run the command.';
   }
 

@@ -1,8 +1,8 @@
 import chalk from 'chalk';
-import inquirer from 'inquirer';
 import { existsSync, writeFileSync } from 'node:fs';
 
 import { getLogger } from '../modules/logging';
+import { isPlanning, requestApproval } from '../modules/approval';
 import { makeParameter, makeTool } from '../utils';
 
 const log = getLogger('write');
@@ -22,16 +22,15 @@ export const handler = async ({ path, content }: Args) => {
     return 'The path already exists - use the patch tool to modify it.';
   }
 
+  if (isPlanning()) {
+    return 'Plan mode is active, so no files can be written. Use the present_plan tool to propose an approach and ask to start work.';
+  }
+
   console.log(`\n\n${chalk.bgGreen.black(content)}\n\n`);
 
-  const { proceed } = await inquirer.prompt({
-    type: 'confirm',
-    name: 'proceed',
-    message: `OK to write ${content.length} bytes to ${path}?`,
-    default: false
-  });
-
-  if (proceed) {
+  if (
+    await requestApproval(`OK to write ${content.length} bytes to ${path}?`)
+  ) {
     writeFileSync(path, content);
     log.info('Wrote file!');
 

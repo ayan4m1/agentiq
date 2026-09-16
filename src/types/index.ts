@@ -17,6 +17,18 @@ export type LoggingConfig = {
   level: LogLevel;
 };
 
+// manual asks before every mutating action, auto asks for none, and plan
+// refuses them outright so the model has to propose an approach first
+export enum ApprovalMode {
+  Manual = 'manual',
+  Auto = 'auto',
+  Plan = 'plan'
+}
+
+export type ApprovalConfig = {
+  mode: ApprovalMode;
+};
+
 export type ShellConfig = {
   path?: string;
   timeout: number;
@@ -43,6 +55,8 @@ export type ToolParameter = {
   name: string;
   description: string;
   required: boolean;
+  // element type for an array param - models produce malformed arrays without it
+  items?: string;
 };
 
 export type ThoughtState = {

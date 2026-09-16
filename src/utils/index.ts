@@ -26,7 +26,8 @@ export const makeTool = (
           param.name,
           {
             type: param.type,
-            description: param.description
+            description: param.description,
+            ...(param.items ? { items: { type: param.items } } : {})
           }
         ])
       )
@@ -39,12 +40,14 @@ export const makeParameter = (
   type: string,
   name: string,
   description: string,
-  required: boolean = true
+  required: boolean = true,
+  items?: string
 ): ToolParameter => ({
   type,
   name,
   description,
-  required
+  required,
+  items
 });
 
 export const getTokenString = (value: number) =>

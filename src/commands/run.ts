@@ -1,15 +1,14 @@
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import Bottleneck from 'bottleneck';
-import InquirerCommandPrompt from 'inquirer-command-prompt';
+import InquirerCommandPrompt, { KeyEvent } from 'inquirer-command-prompt';
 
 import { ollama } from '../modules/config';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
+import { cycleMode, describeMode } from '../modules/approval';
 import { ThoughtState } from '../types';
 import { describeError, getTokenString } from '../utils';
-
-inquirer.registerPrompt('command', InquirerCommandPrompt);
 
 const log = getLogger('run');
 // compacting on the way to the limit rather than at it leaves room for the
@@ -21,6 +20,30 @@ const rateLimiter = new Bottleneck({
   maxConcurrent: 1,
   minTime: 1000
 });
+
+const renderPrompt = () =>
+  `${systemColor(`[${getTokenString(thinker.tokens.messages)}]`)}${describeMode()}${systemColor('>')}`;
+
+// the prompt's own tab branch has no shift guard, so shift+tab would otherwise
+// fall into autocompletion and leave a literal tab in the buffer
+class ModeCommandPrompt extends InquirerCommandPrompt {
+  async onKeypress(event: KeyEvent) {
+    if (event?.key?.name !== 'tab' || !event.key.shift) {
+      return super.onKeypress(event);
+    }
+
+    cycleMode();
+
+    // readline echoes the tab before the keypress reaches us
+    this.rl.line = this.rl.line.replace(/\t/g, '');
+    this.rl.cursor = this.rl.line.length;
+    this.opt.message = renderPrompt();
+
+    return this.render();
+  }
+}
+
+inquirer.registerPrompt('command', ModeCommandPrompt);
 
 let nextThought: ThoughtState = {
   messages: []
@@ -68,7 +91,7 @@ while (true) {
     const { userMessage } = await inquirer.prompt({
       type: 'command',
       name: 'userMessage',
-      message: systemColor(`[${getTokenString(thinker.tokens.messages)}]>`),
+      message: renderPrompt(),
       saveHistory: true
     });
 
@@ -89,6 +112,9 @@ while (true) {
           console.log(
             `${systemColor('{TOTAL    }')} - ${thinker.tokens.total} tokens / ${ollama.contextLimit} max (${Math.round((thinker.tokens.total / ollama.contextLimit) * 100)}%)`
           );
+          break;
+        case 'mode':
+          cycleMode();
           break;
         case 'compact':
           // an explicit request overrides an earlier stalled attempt
