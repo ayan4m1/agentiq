@@ -15,13 +15,19 @@ const client = new Ollama({
     : undefined,
   host: ollama.host
 });
+const modelDir = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../model'
+);
 
 export const makeTokenizer = () => {
   const tokenizer = TokenizerLoader.fromPreTrained({
     tokenizerConfig: JSON.parse(
-      readFileSync('./model/tokenizer_config.json').toString()
+      readFileSync(resolve(modelDir, 'tokenizer_config.json')).toString()
     ),
-    tokenizerJSON: JSON.parse(readFileSync('./model/tokenizer.json').toString())
+    tokenizerJSON: JSON.parse(
+      readFileSync(resolve(modelDir, 'tokenizer.json')).toString()
+    )
   });
 
   return (value: string) => tokenizer.encode(value).length;
