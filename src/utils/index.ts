@@ -1,6 +1,7 @@
 import { Tool } from 'ollama';
 
 import { ToolParameter } from '../types';
+import { filesize } from 'filesize';
 
 export const makeTool = (
   name: string,
@@ -40,3 +41,9 @@ export const makeParameter = (
   description,
   required
 });
+
+export const getTokenString = (value: number) =>
+  filesize(value, {
+    fullform: true,
+    fullforms: ['Tokens', 'kTokens', 'mTokens', 'gTokens']
+  });

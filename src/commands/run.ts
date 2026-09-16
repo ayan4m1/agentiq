@@ -1,3 +1,4 @@
+import chalk from 'chalk';
 import inquirer from 'inquirer';
 import Bottleneck from 'bottleneck';
 import { resolve } from 'node:path';
@@ -5,12 +6,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import InquirerCommandPrompt from 'inquirer-command-prompt';
 
 import { tools } from '../tools';
+import { ollama } from '../modules/config';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
 import { ThoughtState } from '../types';
-import chalk from 'chalk';
-import { filesize } from 'filesize';
-import { ollama } from '../modules/config';
+import { getTokenString } from '../utils';
 
 inquirer.registerPrompt('command', InquirerCommandPrompt);
 
@@ -45,12 +45,7 @@ while (true) {
     const { userMessage } = await inquirer.prompt({
       type: 'command',
       name: 'userMessage',
-      message: systemColor(
-        `[${filesize(thinker.tokens.messages, {
-          fullform: true,
-          fullforms: ['Tokens', 'kTokens', 'mTokens', 'gTokens']
-        })}]>`
-      ),
+      message: systemColor(`[${getTokenString(thinker.tokens.messages)}]>`),
       saveHistory: true
     });
 
@@ -69,7 +64,7 @@ while (true) {
             `${systemColor('{MESSAGES }')} - ${thinker.tokens.messages} tokens`
           );
           console.log(
-            `${systemColor('{TOTAL    }')} - ${thinker.tokens.total} tokens / ${ollama.contextLimit} total (${Math.round(thinker.tokens.total / ollama.contextLimit)}%)`
+            `${systemColor('{TOTAL    }')} - ${thinker.tokens.total} tokens / ${ollama.contextLimit} max (${Math.round(thinker.tokens.total / ollama.contextLimit)}%)`
           );
           break;
         case 'clear':
@@ -77,11 +72,15 @@ while (true) {
           nextThought.lastResponse = undefined;
           nextThought.messages = [];
 
-          log.info(`Freed ${thinker.reset()} tokens from context`);
+          log.info(
+            chalk.bgGreen(`Freed ${thinker.reset()} tokens from context`)
+          );
           break;
         }
         default:
-          log.warn(`Tried to use unknown command ${userMessage}!`);
+          log.error(
+            chalk.bgRed(`Tried to use unknown command ${userMessage}!`)
+          );
           break;
         case 'quit':
           process.exit(0);
