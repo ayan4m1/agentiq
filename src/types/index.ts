@@ -48,6 +48,9 @@ export type ToolParameter = {
 export type ThoughtState = {
   messages: Message[];
   lastResponse?: ChatResponse;
+  // set when the user interrupted generation - the turn is rolled back rather
+  // than kept, so the caller needs to know it should hand control back
+  interrupted?: boolean;
 };
 
 export type TokenStats = {

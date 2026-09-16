@@ -1,43 +1,66 @@
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import Bottleneck from 'bottleneck';
-import { resolve } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
 import InquirerCommandPrompt from 'inquirer-command-prompt';
 
-import { tools } from '../tools';
 import { ollama } from '../modules/config';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
 import { ThoughtState } from '../types';
-import { getTokenString } from '../utils';
+import { describeError, getTokenString } from '../utils';
 
 inquirer.registerPrompt('command', InquirerCommandPrompt);
 
 const log = getLogger('run');
+// compacting on the way to the limit rather than at it leaves room for the
+// summarization call itself, which still has to fit in the same window
+const compactThreshold = 0.8;
+const systemColor = chalk.yellow;
+const thinker = makeThinker();
 const rateLimiter = new Bottleneck({
   maxConcurrent: 1,
   minTime: 1000
 });
-const systemColor = chalk.yellow;
-
-let systemPrompt: string | undefined;
-
-const sysPromptPath = resolve(process.cwd(), 'AGENTIQ.md');
-if (existsSync(sysPromptPath)) {
-  log.debug(`Reading system prompt from ${sysPromptPath}`);
-
-  systemPrompt = readFileSync(sysPromptPath).toString();
-}
-
-const thinker = makeThinker({ tools, systemPrompt });
-
-log.debug(`Loaded ${tools.length} tools`);
 
 let nextThought: ThoughtState = {
   messages: []
 };
 let needsUserInput = true;
+let inFlight = false;
+
+// only intercept while the model is generating - at the prompt, inquirer's own
+// handling still applies, so ctrl+c there exits as it always did
+process.on('SIGINT', () => {
+  if (!inFlight) {
+    process.exit(0);
+  }
+
+  thinker.abort();
+});
+
+// set when compaction runs but cannot free anything, so the automatic trigger
+// below stops paying for a summarization call every single turn. asking for
+// /compact by hand clears it, as does dropping the history outright
+let compactionStalled = false;
+
+const compact = async () => {
+  const { messages, freed } = await thinker.compact(nextThought.messages);
+
+  nextThought.messages = messages;
+  compactionStalled = freed <= 0;
+
+  if (compactionStalled) {
+    log.warn(
+      chalk.red('Could not compact any further - use /clear to start over')
+    );
+  } else {
+    log.info(
+      chalk.bgGreen(
+        `Freed ${freed} tokens from context (${Math.round((freed / thinker.tokens.total) * 100)}%)`
+      )
+    );
+  }
+};
 
 while (true) {
   if (needsUserInput) {
@@ -64,26 +87,35 @@ while (true) {
             `${systemColor('{MESSAGES }')} - ${thinker.tokens.messages} tokens`
           );
           console.log(
-            `${systemColor('{TOTAL    }')} - ${thinker.tokens.total} tokens / ${ollama.contextLimit} max (${Math.round(thinker.tokens.total / ollama.contextLimit)}%)`
+            `${systemColor('{TOTAL    }')} - ${thinker.tokens.total} tokens / ${ollama.contextLimit} max (${Math.round((thinker.tokens.total / ollama.contextLimit) * 100)}%)`
           );
+          break;
+        case 'compact':
+          // an explicit request overrides an earlier stalled attempt
+          compactionStalled = false;
+          await compact();
           break;
         case 'clear':
         case 'reset': {
           nextThought.lastResponse = undefined;
           nextThought.messages = [];
+          compactionStalled = false;
+          const total = thinker.tokens.total;
+          const freed = thinker.reset();
 
           log.info(
-            chalk.bgGreen(`Freed ${thinker.reset()} tokens from context`)
+            chalk.bgGreen(
+              `Freed ${freed} tokens from context (${Math.round((freed / total) * 100)})%`
+            )
           );
           break;
         }
-        default:
-          log.error(
-            chalk.bgRed(`Tried to use unknown command ${userMessage}!`)
-          );
-          break;
         case 'quit':
           process.exit(0);
+        // eslint-disable-next-line no-fallthrough
+        default:
+          log.error(chalk.red(`Tried to use unknown command ${userMessage}!`));
+          break;
       }
 
       continue;
@@ -97,20 +129,43 @@ while (true) {
     needsUserInput = false;
   }
 
-  nextThought = await rateLimiter.schedule(async () => {
-    const result = await thinker.think(nextThought);
-    const latestThought = result.lastResponse?.message;
+  try {
+    inFlight = true;
 
-    log.debug(`Round ${thinker.turnCount} - ${thinker.tokens.total} tokens`);
+    nextThought = await rateLimiter.schedule(async () => {
+      const result = await thinker.think(nextThought);
 
-    // keep thinking while the model is still calling tools - it is only the
-    // user's turn again once a round comes back without any
-    needsUserInput = !latestThought?.tool_calls?.length;
+      log.debug(`Round ${thinker.turnCount} - ${thinker.tokens.total} tokens`);
 
-    if (latestThought?.content) {
-      console.log(`\n${chalk.blue(latestThought.content.toString())}\n`);
-    }
+      if (result.interrupted) {
+        console.log(systemColor('\n[interrupted]\n'));
 
-    return result;
-  });
+        return result;
+      }
+
+      // keep thinking while the model is still calling tools - it is only the
+      // user's turn again once a round comes back without any
+      needsUserInput = !result.lastResponse?.message?.tool_calls?.length;
+
+      return result;
+    });
+  } catch (error) {
+    // one bad response should cost the turn, not the conversation - the history
+    // is still intact, so hand control back and let the user retry
+    log.error(chalk.red(`The model call failed: ${describeError(error)}`));
+
+    needsUserInput = true;
+  } finally {
+    inFlight = false;
+  }
+
+  if (nextThought.interrupted) {
+    nextThought.interrupted = false;
+    needsUserInput = true;
+  } else if (
+    !compactionStalled &&
+    thinker.tokens.total > ollama.contextLimit * compactThreshold
+  ) {
+    await compact();
+  }
 }

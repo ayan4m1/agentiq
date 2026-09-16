@@ -1,8 +1,12 @@
 import { Tool } from 'ollama';
+import { filesize } from 'filesize';
+import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 
 import { ToolParameter } from '../types';
-import { filesize } from 'filesize';
+import { ollama } from '../modules/config';
 
+// create an Ollama-compatible tool definition
 export const makeTool = (
   name: string,
   description: string,
@@ -30,6 +34,7 @@ export const makeTool = (
   }
 });
 
+// create an Ollama-compatible tool parameter definition
 export const makeParameter = (
   type: string,
   name: string,
@@ -53,3 +58,30 @@ export const getTokenString = (value: number) =>
 // holds well enough across prose and code
 export const getContentBudget = (fraction = 0.3) =>
   Math.floor(ollama.contextLimit * fraction * 3.33);
+
+// tool results carry no record of the call that produced them, so say plainly
+// that output was cut rather than letting the model assume it saw everything
+export const truncate = (content: string, budget = getContentBudget()) =>
+  content.length <= budget
+    ? content
+    : `${content.slice(0, budget)}\n\n[truncated: showing ${budget} of ${content.length} characters]`;
+
+export const loadSystemPrompt = () => {
+  const sysPromptPath = resolve(process.cwd(), 'AGENTIQ.md');
+  if (existsSync(sysPromptPath)) {
+    return readFileSync(sysPromptPath).toString();
+  }
+};
+
+// extract error message from error object
+export const describeError = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
+// only JSON-encode results that are not already strings
+export const serializeResult = (result: unknown): string => {
+  if (result === undefined || result === null) {
+    return 'The tool returned no output.';
+  }
+
+  return typeof result === 'string' ? result : JSON.stringify(result);
+};

@@ -1,10 +1,15 @@
+import chalk from 'chalk';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Message, Ollama } from 'ollama';
+import { dirname, resolve } from 'node:path';
 import { TokenizerLoader } from '@lenml/tokenizers';
 
 import { ollama } from './config';
 import { getLogger } from './logging';
-import { ThoughtState, TokenStats, ToolCall } from '../types';
+import { ThoughtState, TokenStats } from '../types';
+import { tools } from '../tools';
+import { describeError, loadSystemPrompt, serializeResult } from '../utils';
 
 const log = getLogger('ollama');
 const client = new Ollama({
@@ -33,26 +38,11 @@ export const makeTokenizer = () => {
   return (value: string) => tokenizer.encode(value).length;
 };
 
-const describeError = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+const summaryPrompt =
+  "Summarize the conversation so far. Preserve the user's goals, every decision made, the paths of files read or changed, and any work still outstanding. Write it as notes for yourself, not as a reply to the user.";
 
-// handlers return whatever shape suits them, but a tool message needs a string.
-// strings pass through untouched - running a file through JSON.stringify would
-// hand the model a quoted, escape-mangled blob instead of its contents.
-const serializeResult = (result: unknown): string => {
-  if (result === undefined || result === null) {
-    return 'The tool returned no output.';
-  }
-
-  return typeof result === 'string' ? result : JSON.stringify(result);
-};
-
-type ThinkerOpts = {
-  tools: ToolCall[];
-  systemPrompt?: string;
-};
-
-export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
+export const makeThinker = () => {
+  const systemPrompt = loadSystemPrompt();
   const tokenizer = makeTokenizer();
   const toolDefs = tools.map((tool) => tool.definition);
   const toolNames = toolDefs.map((toolDef) => toolDef.function.name).join(', ');
@@ -63,11 +53,21 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
     total: 0
   };
   let turnCount = 0;
+  let aborted = false;
 
   // think() is re-entered with the array it returned last turn, so track which
-  // messages have already been charged rather than counting the whole history
-  // again every round. the system prompt is accounted for separately below.
-  const counted = new WeakSet<Message>();
+  // messages have already been counted
+  let counted = new WeakSet<Message>();
+
+  // a tool call's arguments are part of what gets sent back every turn
+  const measure = (message: Message) =>
+    tokenizer(message.content ?? '') +
+    (message.tool_name ? tokenizer(message.tool_name) : 0) +
+    (message.tool_calls?.length
+      ? tokenizer(JSON.stringify(message.tool_calls))
+      : 0);
+
+  // get the complete token cost of a message
   const countMessage = (message: Message) => {
     if (message.role === 'system' || counted.has(message)) {
       return 0;
@@ -75,7 +75,7 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
 
     counted.add(message);
 
-    const cost = tokenizer(message.content ?? '');
+    const cost = measure(message);
 
     tokens.messages += cost;
     tokens.total += cost;
@@ -83,6 +83,21 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
     return cost;
   };
 
+  // compaction replaces message objects outright, so the incremental counter
+  // cannot be trusted afterwards - start its bookkeeping over
+  const recount = (messages: Message[]) => {
+    counted = new WeakSet<Message>();
+    tokens.total -= tokens.messages;
+    tokens.messages = 0;
+
+    for (const message of messages) {
+      countMessage(message);
+    }
+
+    return tokens.messages;
+  };
+
+  log.debug(`Loaded ${tools.length} tools`);
   log.debug(`Context limit is ${ollama.contextLimit} tokens`);
 
   if (systemPrompt) {
@@ -113,11 +128,13 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
     }
 
     turnCount++;
+    aborted = false;
 
-    const response = await client.chat({
+    const stream = await client.chat({
       model: ollama.model,
       messages,
       tools: toolDefs,
+      stream: true,
       // without this ollama falls back to the model default - often 4096 - and
       // silently truncates the prompt, dropping messages the model needs
       options: {
@@ -125,16 +142,67 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
       }
     });
 
-    // append response before the tool call results - drop `thinking` so the
-    // model's own reasoning is not replayed back to it on every later turn
-    const assistantMessage: Message = { ...response.message };
+    const assistantMessage: Message = { role: 'assistant', content: '' };
+    let wroteOutput = false;
+    let lastChunk;
 
-    delete assistantMessage.thinking;
+    process.stdout.write('\n');
 
+    // enter a read/print loop of text chunks from the model
+    try {
+      for await (const chunk of stream) {
+        lastChunk = chunk;
+
+        if (chunk.message?.content) {
+          process.stdout.write(chalk.blue(chunk.message.content));
+
+          assistantMessage.content += chunk.message.content;
+          wroteOutput = true;
+        }
+
+        if (chunk.message?.tool_calls?.length) {
+          assistantMessage.tool_calls = [
+            ...(assistantMessage.tool_calls ?? []),
+            ...chunk.message.tool_calls
+          ];
+        }
+      }
+    } catch (error) {
+      // an abort surfaces here as a rejected iterator - anything else is a real
+      // failure and belongs to the caller
+      if (!aborted) {
+        throw error;
+      }
+    }
+
+    if (wroteOutput) {
+      process.stdout.write('\n\n');
+    }
+
+    // a half-streamed message can carry a truncated tool call, and dispatching
+    // it would push a result for a call the model never finished making. roll
+    // the whole turn back instead and let the user pick up from the last good
+    // state.
+    if (aborted) {
+      log.debug(`Round ${turnCount} interrupted`);
+
+      return { ...lastState, interrupted: true };
+    }
+
+    if (lastChunk?.eval_count && lastChunk?.eval_duration) {
+      // eval_duration is measured in nanoseconds
+      const rate = Math.round(
+        lastChunk.eval_count / (lastChunk.eval_duration / 1e9)
+      );
+
+      log.debug(`Generated ${lastChunk.eval_count} tokens at ${rate} tok/s`);
+    }
+
+    // append message before tool results
     messages.push(assistantMessage);
 
-    // append tool call results, if any
-    for (const toolCall of response.message.tool_calls ?? []) {
+    // execute and append tool call results, if any
+    for (const toolCall of assistantMessage.tool_calls ?? []) {
       const { name, arguments: args } = toolCall.function;
       const tool = tools.find(
         (candidate) => candidate.definition.function.name === name
@@ -151,7 +219,7 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
         } catch (error) {
           const message = describeError(error);
 
-          log.error(`The ${name} tool threw an error - ${message}`);
+          log.error(chalk.red(`The ${name} tool threw an error - ${message}`));
 
           content = `The ${name} tool failed: ${message}`;
         }
@@ -173,10 +241,71 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
 
     log.debug(`Turn cost ${turnCost} tokens`);
 
+    // the final chunk carries an empty message, but callers expect the response
+    // to hold what the model actually said - including any tool calls
+    if (lastChunk) {
+      lastChunk.message = assistantMessage;
+    }
+
     return {
-      lastResponse: response,
+      lastResponse: lastChunk,
       messages
     };
+  };
+
+  // replace the older part of the conversation with a summary of it, so a long
+  // session degrades into notes rather than reaching num_ctx and being silently
+  // truncated by ollama
+  const compact = async (messages: Message[]) => {
+    // measure the array we were handed rather than trusting the running total.
+    // it is the only baseline guaranteed to describe these exact messages, and
+    // comparing against a stale one makes the check below fire at random
+    const before = recount(messages);
+    // cutting mid-turn would orphan a tool result from the call that produced
+    // it, so split on the last user message - everything from there is intact
+    const splitAt = messages.findLastIndex(
+      (message) => message.role === 'user'
+    );
+
+    if (splitAt < 1) {
+      return { messages, freed: 0 };
+    }
+
+    const older = messages.slice(0, splitAt);
+    const recent = messages.slice(splitAt);
+    // no tools on this call - the model is writing notes, not taking another
+    // turn, and offering it tools invites it to start working again
+    const response = await client.chat({
+      model: ollama.model,
+      messages: [...older, { role: 'user', content: summaryPrompt }],
+      options: {
+        num_ctx: ollama.contextLimit
+      }
+    });
+    const compacted: Message[] = [
+      {
+        role: 'user',
+        content: `Here are notes on everything that happened earlier in this conversation:\n\n${response.message.content}`
+      },
+      ...recent
+    ];
+
+    recount(compacted);
+
+    // a summary of a short exchange can easily come back longer than the turns
+    // it replaced. keeping it would both waste context and leave the caller
+    // above its threshold, so it would ask again next turn and never stop
+    if (tokens.messages >= before) {
+      log.warn(
+        `Summary was no smaller than the ${older.length} messages it replaced - keeping them`
+      );
+
+      recount(messages);
+
+      return { messages, freed: 0 };
+    }
+
+    return { messages: compacted, freed: before - tokens.messages };
   };
 
   // drop the conversation from the running totals, leaving the system prompt
@@ -184,16 +313,24 @@ export const makeThinker = ({ tools, systemPrompt }: ThinkerOpts) => {
   const reset = () => {
     const freed = tokens.messages;
 
-    tokens.messages = 0;
-    tokens.total -= freed;
+    recount([]);
     turnCount = 0;
 
     return freed;
   };
 
+  // only meaningful mid-turn: cancels the in-flight stream so think() can roll
+  // the turn back instead of the process dying with the conversation in it
+  const abort = () => {
+    aborted = true;
+    client.abort();
+  };
+
   return {
     think,
     reset,
+    compact,
+    abort,
     tokens,
     get turnCount() {
       return turnCount;
