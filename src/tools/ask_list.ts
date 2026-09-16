@@ -22,7 +22,7 @@ type Args = {
 };
 
 export const handler = async ({ message, choices }: Args) =>
-  `The user selected ${await select({
+  `The user selected "${await select({
     choices,
     message
-  })}`;
+  })}"`;
