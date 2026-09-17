@@ -22,10 +22,6 @@ type Args = {
 };
 
 export const handler = async ({ path, content }: Args) => {
-  if (existsSync(path)) {
-    return 'The path already exists - use the patch tool to modify it.';
-  }
-
   if (isPlanning()) {
     return 'Plan mode is active, so no files can be written. Use the present_plan tool to propose an approach and ask to start work.';
   }
@@ -33,7 +29,7 @@ export const handler = async ({ path, content }: Args) => {
   console.log(`\n${chalk.bgGreen(content.replace(/\n{2,}/, '\n'))}\n`);
 
   const { approved, reason } = await requestApproval(
-    `OK to write ${content.length} bytes to ${path}?`
+    `OK to ${existsSync(path) ? 'OVERWRITE' : 'write'} ${content.length} bytes to ${path}?`
   );
 
   if (!approved) {
