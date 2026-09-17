@@ -161,7 +161,7 @@ const compact = async () => {
     );
   } else {
     log.info(
-      chalk.bgGreen(
+      chalk.green(
         `Freed ${freed} tokens from context (${Math.round((freed / thinker.tokens.total) * 100)}%)`
       )
     );
@@ -216,7 +216,7 @@ while (true) {
           const freed = thinker.reset();
 
           log.info(
-            chalk.bgGreen(
+            chalk.green(
               `Freed ${freed} tokens from context (${Math.round((freed / total) * 100)})%`
             )
           );
