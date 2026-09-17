@@ -54,6 +54,11 @@ let persisted = new WeakSet<Message>();
 
 const pathFor = (id: string) => resolve(sessionDir, `${id}${extension}`);
 
+// the working directory goes into the file name, so anything that is not
+// safe in one on every platform becomes a dash - C:\code\agentiq turns into
+// C--code-agentiq
+const slugFor = (cwd: string) => cwd.replace(/[^A-Za-z0-9]/g, '-');
+
 const encode = (record: Meta | Record) => `${JSON.stringify(record)}\n`;
 
 // the system prompt is rebuilt from AGENTIQ.md on every run, so persisting it
@@ -75,14 +80,17 @@ const ensureFile = () => {
 };
 
 export const startSession = () => {
-  const id = randomUUID();
+  const cwd = process.cwd();
+  // the slug can never contain an underscore, so it and the uuid stay
+  // separable even though both are full of dashes
+  const id = `${slugFor(cwd)}_${randomUUID()}`;
 
   meta = {
     type: 'meta',
     id,
     startedAt: new Date().toISOString(),
     model: ollama.model,
-    cwd: process.cwd()
+    cwd
   };
   activePath = pathFor(id);
   persisted = new WeakSet<Message>();
@@ -210,8 +218,13 @@ const sessionFiles = () => {
 
 export const listSessions = (limit = 10) => {
   const summaries: SessionSummary[] = [];
+  // only this directory's sessions - a conversation about another project is
+  // not something to pick up here. filtering on the name before parsing keeps
+  // the limit meaning the newest few for this directory
+  const prefix = `${slugFor(process.cwd())}_`;
+  const files = sessionFiles().filter(({ id }) => id.startsWith(prefix));
 
-  for (const { id, path } of sessionFiles()) {
+  for (const { id, path } of files) {
     if (summaries.length >= limit) {
       break;
     }
