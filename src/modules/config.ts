@@ -35,7 +35,10 @@ export const ollama: OllamaConfig = {
   bearerToken: process.env.AQ_OLLAMA_BEARER_TOKEN,
   host: process.env.AQ_OLLAMA_HOST,
   model: process.env.AQ_OLLAMA_MODEL ?? '',
-  contextLimit: parseInt(process.env.AQ_OLLAMA_CONTEXT_LIMIT ?? '131072', 10)
+  contextLimit: parseInt(process.env.AQ_OLLAMA_CONTEXT_LIMIT ?? '131072', 10),
+  // ollama's own default is five minutes, which is short enough that a pause
+  // to read something costs a full reload of the model on the next turn
+  keepAlive: process.env.AQ_OLLAMA_KEEP_ALIVE ?? '30m'
 };
 
 export const tokenizer: TokenizerConfig = {

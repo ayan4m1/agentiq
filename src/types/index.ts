@@ -39,6 +39,9 @@ export type OllamaConfig = {
   bearerToken?: string;
   model: string;
   contextLimit: number;
+  // how long ollama keeps the model in memory after a call - "-1" never
+  // unloads it, "0" unloads it immediately
+  keepAlive: string;
 };
 
 export type TokenizerConfig = {

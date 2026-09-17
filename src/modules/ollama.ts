@@ -136,6 +136,7 @@ export const makeThinker = () => {
       messages,
       tools: toolDefs,
       stream: true,
+      keep_alive: ollama.keepAlive,
       // without this ollama falls back to the model default - often 4096 - and
       // silently truncates the prompt, dropping messages the model needs
       options: {
@@ -287,6 +288,7 @@ export const makeThinker = () => {
     const response = await client.chat({
       model: ollama.model,
       messages: [...older, { role: 'user', content: summaryPrompt }],
+      keep_alive: ollama.keepAlive,
       options: {
         num_ctx: ollama.contextLimit
       }
