@@ -56,8 +56,11 @@ export const watchForInterrupt = (onInterrupt: () => void) => {
   }
 
   stdin.setRawMode(true);
-  // a data listener puts the stream back into flowing mode on its own
   stdin.on('data', onData);
+  // the prompt that just closed its readline paused stdin, and a data listener
+  // does not restart a stream that was explicitly paused - without this the
+  // escape byte is never delivered
+  stdin.resume();
 
   return stop;
 };

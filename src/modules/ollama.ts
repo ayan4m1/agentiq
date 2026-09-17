@@ -132,6 +132,8 @@ export const makeThinker = () => {
       hintShown = true;
     }
 
+    const stopWatching = watchForInterrupt(abort);
+
     const stream = await client.chat({
       model: ollama.model,
       messages,
@@ -150,8 +152,6 @@ export const makeThinker = () => {
     let lastChunk;
 
     process.stdout.write('\n');
-
-    const stopWatching = watchForInterrupt(abort);
 
     // enter a read/print loop of text chunks from the model
     try {
