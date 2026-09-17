@@ -2,7 +2,7 @@ import chalk from 'chalk';
 
 import { shell } from '../modules/config';
 import { watchForInterrupt } from '../modules/interrupt';
-import { killTree, spawnCommand } from '../modules/process';
+import { killTree, spawnCommand } from '../modules/jobs';
 import {
   describeDenial,
   isPlanning,
