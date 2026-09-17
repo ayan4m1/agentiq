@@ -9,7 +9,9 @@ import {
   requestApproval
 } from '../modules/approval';
 import { getContentBudget, makeParameter, makeTool, truncate } from '../utils';
+import { getLogger } from '../modules/logging';
 
+const log = getLogger('shell');
 const maxLength = getContentBudget(0.2);
 
 export const definition = makeTool('shell', 'Access a shell to run commands', [
@@ -80,18 +82,22 @@ export const handler = async ({ command, cwd }: Args) => {
   const body = truncate(output.trim(), maxLength);
 
   if (outcome.error) {
+    log.debug(outcome.error);
     return `The command could not be started: ${outcome.error}`;
   }
 
   if (timedOut) {
+    log.debug(`Command ${command} timed out after ${shell.timeout}ms`);
     return `The command timed out after ${shell.timeout}ms and was killed.${body ? `\n\nOutput so far:\n${body}` : ''}`;
   }
 
   if (interrupted) {
+    log.debug(`User interrupted command after ${elapsed}ms`);
     return `The user interrupted the command after ${elapsed}ms.${body ? `\n\nOutput so far:\n${body}` : ''}`;
   }
 
   if (outcome.code) {
+    log.debug(`Process exited with code ${outcome.code}`);
     return `The command exited with code ${outcome.code}.${body ? `\n\nOutput:\n${body}` : ''}`;
   }
 

@@ -79,10 +79,12 @@ const renderDiff = (path: string, before: string, after: string) => {
 
 export const handler = async ({ path, oldText, newText, replaceAll }: Args) => {
   if (!existsSync(path)) {
+    log.debug('Path does not exist');
     return `Cannot replace text in ${path} - it does not exist`;
   }
 
   if (isPlanning()) {
+    log.debug('Plan mode is active');
     return 'Plan mode is active, so no files can be changed. Use the present_plan tool to propose an approach and ask to start work.';
   }
 
@@ -90,12 +92,14 @@ export const handler = async ({ path, oldText, newText, replaceAll }: Args) => {
   const occurrences = countOccurrences(contents, oldText);
 
   if (!occurrences) {
+    log.debug('Patch oldText does not appear in document');
     return `That text does not appear in ${path}; no change was made. Read the file again and copy the snippet exactly.`;
   }
 
   // replacing the wrong one of several identical snippets is a silent
   // corruption, so make the model disambiguate rather than guessing for it
   if (occurrences > 1 && !replaceAll) {
+    log.debug('Require only one match for it to work');
     return `That text appears ${occurrences} times in ${path}; no change was made. Include more surrounding context to identify a single occurrence, or set replaceAll to true.`;
   }
 
