@@ -1,7 +1,13 @@
-import { execSync } from 'node:child_process';
+import chalk from 'chalk';
 
 import { shell } from '../modules/config';
-import { isPlanning, requestApproval } from '../modules/approval';
+import { watchForInterrupt } from '../modules/interrupt';
+import { killTree, spawnCommand } from '../modules/process';
+import {
+  describeDenial,
+  isPlanning,
+  requestApproval
+} from '../modules/approval';
 import { getContentBudget, makeParameter, makeTool, truncate } from '../utils';
 
 const maxLength = getContentBudget(0.2);
@@ -16,52 +22,78 @@ type Args = {
   cwd: string;
 };
 
-interface ExecSyncError extends Error {
-  status: number;
-  pid: number;
-  stdout: string | Buffer;
-  stderr: string | Buffer;
-}
-
 export const handler = async ({ command, cwd }: Args) => {
   if (isPlanning()) {
     return 'Plan mode is active, so no commands can be run. Use the present_plan tool to propose an approach and ask to start work.';
   }
 
-  if (!(await requestApproval(`OK to run command "${command}"?`))) {
-    return 'The user declined to run the command.';
+  const { approved, reason } = await requestApproval(
+    `OK to run command "${command}"?`
+  );
+
+  if (!approved) {
+    return describeDenial(`run "${command}"`, reason);
   }
+
+  const startedAt = Date.now();
+  let output = '';
+
+  // the user watches the command work rather than a frozen prompt, which is
+  // most of the point of not blocking on it
+  const onData = (chunk: string) => {
+    output += chunk;
+    process.stdout.write(chalk.dim(chunk));
+  };
+
+  const { child, finished } = spawnCommand({ command, cwd, onData });
+
+  let timedOut = false;
+  let interrupted = false;
+
+  // the model's turn is over by the time a tool runs, so nothing else owns
+  // stdin and escape can be watched for here as well as during generation
+  const stopWatching = watchForInterrupt(() => {
+    interrupted = true;
+    killTree(child);
+  });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    killTree(child);
+  }, shell.timeout);
+
+  let outcome;
 
   try {
-    // handing the command to execSync's own shell option avoids wrapping it in
-    // quotes we would then have to escape - the command the user approved is
-    // the exact string that runs
-    return truncate(
-      execSync(command, {
-        cwd,
-        shell: shell.path,
-        // execSync is blocking, so a dev server or a hung install would wedge
-        // the agent with no way back to the prompt
-        timeout: shell.timeout,
-        maxBuffer: maxLength * 4,
-        encoding: 'utf-8'
-      }).trim(),
-      maxLength
-    );
-  } catch (error) {
-    if (error instanceof Error) {
-      const execError = error as ExecSyncError;
-
-      if ('signal' in execError && execError.signal === 'SIGTERM') {
-        return `The command timed out after ${shell.timeout}ms and was killed.`;
-      }
-
-      return truncate(
-        `Error: ${execError.stderr}\n\nOutput: ${execError.stdout}`,
-        maxLength
-      );
-    }
-
-    return `The command failed: ${String(error)}`;
+    outcome = await finished;
+  } finally {
+    clearTimeout(timer);
+    stopWatching();
   }
+
+  // whatever ran last probably did not end on a newline, and the next thing
+  // printed is a prompt
+  if (output && !output.endsWith('\n')) {
+    process.stdout.write('\n');
+  }
+
+  const elapsed = Date.now() - startedAt;
+  const body = truncate(output.trim(), maxLength);
+
+  if (outcome.error) {
+    return `The command could not be started: ${outcome.error}`;
+  }
+
+  if (timedOut) {
+    return `The command timed out after ${shell.timeout}ms and was killed.${body ? `\n\nOutput so far:\n${body}` : ''}`;
+  }
+
+  if (interrupted) {
+    return `The user interrupted the command after ${elapsed}ms.${body ? `\n\nOutput so far:\n${body}` : ''}`;
+  }
+
+  if (outcome.code) {
+    return `The command exited with code ${outcome.code}.${body ? `\n\nOutput:\n${body}` : ''}`;
+  }
+
+  return body || 'The command produced no output.';
 };

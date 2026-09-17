@@ -7,6 +7,9 @@ import * as shell from './shell';
 import * as askList from './ask_list';
 import * as askBoolean from './ask_boolean';
 import * as presentPlan from './present_plan';
+import * as runBackground from './run_background';
+import * as readJob from './read_job';
+import * as stopJob from './stop_job';
 
 import { ToolCall } from '../types';
 
@@ -17,6 +20,9 @@ export const tools: ToolCall[] = [
   find,
   fetch,
   shell,
+  runBackground,
+  readJob,
+  stopJob,
   askList,
   askBoolean,
   presentPlan

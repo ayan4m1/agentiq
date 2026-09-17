@@ -6,6 +6,7 @@ import { select } from '@inquirer/prompts';
 import InquirerCommandPrompt, { KeyEvent } from 'inquirer-command-prompt';
 
 import { ollama } from '../modules/config';
+import { killAllJobs } from '../modules/jobs';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
 import { ensureTokenizer } from '../modules/tokenizer';
@@ -45,6 +46,16 @@ const thinker = makeThinker();
 const rateLimiter = new Bottleneck({
   maxConcurrent: 1,
   minTime: 1000
+});
+
+// a dev server that outlives the session holds its port and is only noticed
+// much later, so every way out of here goes through killAllJobs first
+process.on('exit', killAllJobs);
+// ^C during generation is raised as a signal by modules/interrupt.ts, and
+// listening for it replaces the default termination - so exit deliberately
+process.on('SIGINT', () => {
+  killAllJobs();
+  process.exit(130);
 });
 
 // the switch below and the /help listing both read from here, so a new
@@ -235,6 +246,7 @@ while (true) {
           console.log(systemColor('---------------------------\n'));
           break;
         case Command.Quit:
+          killAllJobs();
           process.exit(0);
         // eslint-disable-next-line no-fallthrough
         default:
