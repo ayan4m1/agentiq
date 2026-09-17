@@ -47,14 +47,9 @@ const renderPlan = ({ title, steps }: Args) => {
 };
 
 export const handler = async ({ title, steps }: Args) => {
-  // a model that ignored the schema and sent a bare string still gets a
-  // readable plan rather than a crash on .entries()
-  const plan = {
-    title,
-    steps: Array.isArray(steps) ? steps : [String(steps)]
-  };
-
-  renderPlan(plan);
+  // arguments are coerced against the schema before they get here, so steps is
+  // an array of strings whatever the model actually sent
+  renderPlan({ title, steps });
 
   // deliberately not requestApproval - that answers itself in auto mode, which
   // would let the model grant itself the very permission it is asking for

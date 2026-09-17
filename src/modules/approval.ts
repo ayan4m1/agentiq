@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { input } from '@inquirer/prompts';
 import {
   createPrompt,
   isEnterKey,
@@ -8,7 +9,7 @@ import {
 } from '@inquirer/core';
 
 import { approval as config } from './config';
-import { ApprovalMode } from '../types';
+import { ApprovalMode, ApprovalResult } from '../types';
 
 // the one piece of mutable session state - every mutating tool reads it, and
 // shift+tab writes it from whichever prompt happens to be on screen
@@ -108,18 +109,42 @@ const prompt = createPrompt<boolean, ApprovalRequest>(({ message }, done) => {
   });
 
   if (status === 'done') {
-    return `${chalk.green('?')} ${message} ${chalk.cyan(value)}`;
+    return `${message} ${chalk.cyan(value)}`;
   }
 
-  return `${chalk.green('?')} ${message} ${badges[mode]} ${chalk.dim('(y/N)')} ${value}`;
+  return `${message} ${badges[mode]} ${chalk.dim('(y/N)')} ${value}`;
 });
 
-// true means go ahead. auto answers itself; manual asks. plan never reaches
-// here - mutating tools refuse before they have anything to confirm
-export const requestApproval = async (message: string) => {
+// asked once after every refusal, so no tool has to remember to do it. a bare
+// no leaves the model guessing and it tends to retry the identical call
+const askReason = async () => {
+  const reason = await input({
+    message: chalk.dim('Why not? (optional, enter to skip)')
+  });
+
+  return reason.trim() || undefined;
+};
+
+// the one way a tool reports a refusal, so the wording the model sees is the
+// same whichever action was turned down
+export const describeDenial = (action: string, reason?: string) =>
+  `The user declined to ${action}.${reason ? ` They said: "${reason}"` : ''}`;
+
+// approved means go ahead. auto answers itself; manual asks, and collects a
+// reason when the answer is no. plan never reaches here - mutating tools refuse
+// before they have anything to confirm
+export const requestApproval = async (
+  message: string
+): Promise<ApprovalResult> => {
   if (approval.mode === ApprovalMode.Auto) {
-    return true;
+    return { approved: true };
   }
 
-  return prompt({ message });
+  // shift+tab out of the prompt and into auto counts as a yes, so this covers
+  // that path too
+  if (await prompt({ message })) {
+    return { approved: true };
+  }
+
+  return { approved: false, reason: await askReason() };
 };

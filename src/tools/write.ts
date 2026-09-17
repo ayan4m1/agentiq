@@ -2,7 +2,11 @@ import chalk from 'chalk';
 import { existsSync, writeFileSync } from 'node:fs';
 
 import { getLogger } from '../modules/logging';
-import { isPlanning, requestApproval } from '../modules/approval';
+import {
+  describeDenial,
+  isPlanning,
+  requestApproval
+} from '../modules/approval';
 import { makeParameter, makeTool } from '../utils';
 
 const log = getLogger('write');
@@ -28,14 +32,16 @@ export const handler = async ({ path, content }: Args) => {
 
   console.log(`\n${chalk.bgGreen(content.replace(/\n{2,}/, '\n'))}\n`);
 
-  if (
-    await requestApproval(`OK to write ${content.length} bytes to ${path}?`)
-  ) {
-    writeFileSync(path, content);
-    log.info('Wrote file!');
+  const { approved, reason } = await requestApproval(
+    `OK to write ${content.length} bytes to ${path}?`
+  );
 
-    return `Wrote ${content.length} bytes to ${path}`;
-  } else {
-    return 'User declined to write file.';
+  if (!approved) {
+    return describeDenial(`write ${path}`, reason);
   }
+
+  writeFileSync(path, content);
+  log.info('Wrote file!');
+
+  return `Wrote ${content.length} bytes to ${path}`;
 };

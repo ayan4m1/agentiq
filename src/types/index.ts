@@ -29,6 +29,13 @@ export type ApprovalConfig = {
   mode: ApprovalMode;
 };
 
+// a refusal the user explained is worth far more to the model than a bare no -
+// without one it tends to retry the identical call
+export type ApprovalResult = {
+  approved: boolean;
+  reason?: string;
+};
+
 export type ShellConfig = {
   path?: string;
   timeout: number;

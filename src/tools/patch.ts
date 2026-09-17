@@ -3,7 +3,11 @@ import { structuredPatch } from 'diff';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { getLogger } from '../modules/logging';
-import { isPlanning, requestApproval } from '../modules/approval';
+import {
+  describeDenial,
+  isPlanning,
+  requestApproval
+} from '../modules/approval';
 import { makeParameter, makeTool } from '../utils';
 
 const log = getLogger('patch');
@@ -105,10 +109,12 @@ export const handler = async ({ path, oldText, newText, replaceAll }: Args) => {
 
   renderDiff(path, contents, replaced);
 
-  if (
-    !(await requestApproval(`OK to write ${replaced.length} bytes to ${path}?`))
-  ) {
-    return 'The user declined to make the change.';
+  const { approved, reason } = await requestApproval(
+    `OK to write ${replaced.length} bytes to ${path}?`
+  );
+
+  if (!approved) {
+    return describeDenial(`change ${path}`, reason);
   }
 
   writeFileSync(path, replaced);
