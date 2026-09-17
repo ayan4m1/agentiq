@@ -132,29 +132,31 @@ export const makeThinker = () => {
       hintShown = true;
     }
 
-    const stopWatching = watchForInterrupt(abort);
-
-    const stream = await client.chat({
-      model: ollama.model,
-      messages,
-      tools: toolDefs,
-      stream: true,
-      keep_alive: ollama.keepAlive,
-      // without this ollama falls back to the model default - often 4096 - and
-      // silently truncates the prompt, dropping messages the model needs
-      options: {
-        num_ctx: ollama.contextLimit
-      }
-    });
-
     const assistantMessage: Message = { role: 'assistant', content: '' };
     let wroteOutput = false;
     let lastChunk;
 
-    process.stdout.write('\n');
+    const stopWatching = watchForInterrupt(abort);
 
-    // enter a read/print loop of text chunks from the model
+    // the request itself is inside the try too - a failed connection, or an
+    // escape before the stream opens, must still hand stdin back
     try {
+      const stream = await client.chat({
+        model: ollama.model,
+        messages,
+        tools: toolDefs,
+        stream: true,
+        keep_alive: ollama.keepAlive,
+        // without this ollama falls back to the model default - often 4096 -
+        // and silently truncates the prompt, dropping messages the model needs
+        options: {
+          num_ctx: ollama.contextLimit
+        }
+      });
+
+      process.stdout.write('\n');
+
+      // enter a read/print loop of text chunks from the model
       for await (const chunk of stream) {
         lastChunk = chunk;
 

@@ -5,6 +5,19 @@ const noop = () => {};
 const escape = 0x1b;
 const endOfText = 0x03;
 
+// the libuv handle behind a tty stream, and the stream's own record of whether
+// it asked that handle for data - node has no public way to stop the read
+// without also destroying the stream, and the two have to be stopped together
+type InternalStdin = {
+  _handle?: {
+    reading: boolean;
+    readStop: () => number;
+  };
+  _readableState: {
+    reading: boolean;
+  };
+};
+
 // nothing owns stdin while the model streams - inquirer builds a readline per
 // prompt and closes it again - so escape has to be watched for directly. the
 // bytes are read raw rather than through emitKeypressEvents: readline's keypress
@@ -31,13 +44,30 @@ export const watchForInterrupt = (onInterrupt: () => void) => {
     stdin.off('data', onData);
 
     // hand the terminal back exactly as it was found - the prompt that comes
-    // next sets up its own mode, and undoing more than we did breaks it
-    if (stdin.isRaw !== wasRaw) {
-      stdin.setRawMode(wasRaw);
-    }
-
+    // next sets up its own mode, and undoing more than we did breaks it.
+    // the read has to stop before the mode changes: pause() alone leaves the
+    // handle reading, and on windows libuv re-queues a live read in whatever
+    // mode it finds - a cooked ReadConsole that swallows every key until enter
     if (wasPaused) {
       stdin.pause();
+
+      const internal = stdin as unknown as InternalStdin;
+      const handle = internal._handle;
+
+      // the same thing node does itself when a paused stream refuses a push.
+      // the stream's flag is normally cleared by the push itself, and none has
+      // happened - left set, the next resume() believes a read is already under
+      // way and never restarts the handle, so the event loop drains and the
+      // process exits mid-prompt
+      if (handle?.reading) {
+        handle.reading = false;
+        handle.readStop();
+        internal._readableState.reading = false;
+      }
+    }
+
+    if (stdin.isRaw !== wasRaw) {
+      stdin.setRawMode(wasRaw);
     }
   };
 
