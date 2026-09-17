@@ -20,7 +20,7 @@ export const definition = makeTool(
     makeParameter(
       'string',
       'oldText',
-      'The exact text to replace, copied verbatim from the document. Include enough surrounding lines to make it unique'
+      'The exact text to replace, copied verbatim from the document. Include enough surrounding text to make it unique'
     ),
     makeParameter('string', 'newText', 'The text to put in its place'),
     makeParameter(
