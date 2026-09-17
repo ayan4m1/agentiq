@@ -131,7 +131,7 @@ const restore = (id?: string) => {
   thinker.load(messages);
 
   log.info(
-    chalk.bgGreen(
+    chalk.green(
       `Resumed ${messages.length} message(s) using ${thinker.tokens.messages} tokens`
     )
   );
