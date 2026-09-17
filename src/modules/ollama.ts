@@ -5,6 +5,7 @@ import { clearLine, cursorTo } from 'node:readline';
 import { ollama } from './config';
 import { getLogger } from './logging';
 import { makeTokenizer } from './tokenizer';
+import { validateArgs } from './validate';
 import { watchForInterrupt } from './interrupt';
 import { ThoughtState, TokenStats } from '../types';
 import { tools } from '../tools';
@@ -224,14 +225,30 @@ export const makeThinker = () => {
 
         content = `There is no tool called ${name}. The available tools are: ${toolNames}`;
       } else {
-        try {
-          content = serializeResult(await tool.handler(args as never));
-        } catch (error) {
-          const message = describeError(error);
+        // arguments are untyped JSON from the model, so they are checked here
+        // rather than in every handler - a malformed call comes back as a
+        // message the model can correct instead of an exception
+        const validation = validateArgs(name, args);
 
-          log.error(chalk.red(`The ${name} tool threw an error - ${message}`));
+        if (!validation.ok) {
+          log.warn(`Rejected a malformed call to ${name}`);
 
-          content = `The ${name} tool failed: ${message}`;
+          content =
+            validation.message ?? 'An unknown validation error occurred';
+        } else {
+          try {
+            content = serializeResult(
+              await tool.handler(validation.args as never)
+            );
+          } catch (error) {
+            const message = describeError(error);
+
+            log.error(
+              chalk.red(`The ${name} tool threw an error - ${message}`)
+            );
+
+            content = `The ${name} tool failed: ${message}`;
+          }
         }
       }
 

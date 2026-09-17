@@ -6,34 +6,45 @@ import { existsSync, readFileSync } from 'node:fs';
 import { ToolParameter } from '../types';
 import { ollama } from '../modules/config';
 
+// the schema handed to ollama describes a parameter well enough for the model
+// but not well enough to check an answer against, so keep the list that built
+// it - the tool definitions stay the one place a parameter is declared
+const declared = new Map<string, ToolParameter[]>();
+
+export const getParameters = (name: string) => declared.get(name);
+
 // create an Ollama-compatible tool definition
 export const makeTool = (
   name: string,
   description: string,
   parameters: ToolParameter[] = []
-): Tool => ({
-  type: 'function',
-  function: {
-    name,
-    description,
-    parameters: {
-      type: 'object',
-      required: parameters
-        .filter((param) => param.required)
-        .map((param) => param.name),
-      properties: Object.fromEntries(
-        parameters.map((param) => [
-          param.name,
-          {
-            type: param.type,
-            description: param.description,
-            ...(param.items ? { items: { type: param.items } } : {})
-          }
-        ])
-      )
+): Tool => {
+  declared.set(name, parameters);
+
+  return {
+    type: 'function',
+    function: {
+      name,
+      description,
+      parameters: {
+        type: 'object',
+        required: parameters
+          .filter((param) => param.required)
+          .map((param) => param.name),
+        properties: Object.fromEntries(
+          parameters.map((param) => [
+            param.name,
+            {
+              type: param.type,
+              description: param.description,
+              ...(param.items ? { items: { type: param.items } } : {})
+            }
+          ])
+        )
+      }
     }
-  }
-});
+  };
+};
 
 // create an Ollama-compatible tool parameter definition
 export const makeParameter = (

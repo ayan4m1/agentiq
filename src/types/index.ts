@@ -67,6 +67,15 @@ export type ToolParameter = {
   items?: string;
 };
 
+// args is what survived validation, which is what the handler is called with -
+// coercion may have rewritten it. message is set instead when ok is false, and
+// is written for the model to read
+export type Validation = {
+  ok: boolean;
+  args?: Record<string, unknown>;
+  message?: string;
+};
+
 export type ThoughtState = {
   messages: Message[];
   lastResponse?: ChatResponse;
