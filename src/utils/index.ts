@@ -61,6 +61,29 @@ export const makeParameter = (
   items
 });
 
+// rough relative time, for picking a session out of a list - "3h ago" says
+// which conversation it was in a way a timestamp does not
+export const describeAge = (timestamp: number) => {
+  const seconds = Math.max((Date.now() - timestamp) / 1000, 0);
+  const scales: [number, string][] = [
+    [60, 's'],
+    [60, 'm'],
+    [24, 'h'],
+    [Infinity, 'd']
+  ];
+  let value = seconds;
+
+  for (const [size, unit] of scales) {
+    if (value < size) {
+      return `${Math.floor(value)}${unit} ago`;
+    }
+
+    value /= size;
+  }
+
+  return 'just now';
+};
+
 export const getTokenString = (value: number) =>
   `[${filesize(value, {
     fullform: true,

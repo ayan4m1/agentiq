@@ -336,6 +336,14 @@ export const makeThinker = () => {
     return { messages: compacted, freed: before - tokens.messages };
   };
 
+  // adopt a conversation that was not built by think() - a resumed session -
+  // so the token stats describe the history the model is about to be sent
+  const load = (messages: Message[]) => {
+    turnCount = 0;
+
+    return recount(messages);
+  };
+
   // drop the conversation from the running totals, leaving the system prompt
   // and tool definitions - they are still sent on every turn
   const reset = () => {
@@ -356,6 +364,7 @@ export const makeThinker = () => {
 
   return {
     think,
+    load,
     reset,
     compact,
     abort,

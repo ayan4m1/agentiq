@@ -1,6 +1,8 @@
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import Bottleneck from 'bottleneck';
+import { program } from 'commander';
+import { select } from '@inquirer/prompts';
 import InquirerCommandPrompt, { KeyEvent } from 'inquirer-command-prompt';
 
 import { ollama } from '../modules/config';
@@ -8,15 +10,32 @@ import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
 import { ensureTokenizer } from '../modules/tokenizer';
 import { cycleMode, describeMode } from '../modules/approval';
+import {
+  append,
+  listSessions,
+  loadSession,
+  rewrite,
+  startSession
+} from '../modules/session';
 import { takeYield } from '../modules/turn';
 import { ThoughtState } from '../types';
-import { describeError, getTokenString } from '../utils';
+import { describeAge, describeError, getTokenString } from '../utils';
 
 const log = getLogger('run');
 // compacting on the way to the limit rather than at it leaves room for the
 // summarization call itself, which still has to fit in the same window
 const compactThreshold = 0.8;
 const systemColor = chalk.yellow;
+
+// commander runs this file as its own executable, so the options it was given
+// arrive here rather than in src/index.ts - the supported spelling is
+// `agentiq run --resume`, since the parent program owns the bare argv
+const { resume } = program
+  .allowUnknownOption()
+  .allowExcessArguments()
+  .option('--resume [id]', 'resume the most recent session, or one by id')
+  .parse(process.argv)
+  .opts();
 
 // makeThinker() tokenizes the system prompt and every tool definition up front,
 // so the tokenizer has to be on disk before it runs
@@ -36,6 +55,7 @@ enum Command {
   Compact = 'compact',
   Clear = 'clear',
   Reset = 'reset',
+  Resume = 'resume',
   Help = 'help',
   Quit = 'quit'
 }
@@ -74,11 +94,52 @@ let needsUserInput = true;
 // /compact by hand clears it, as does dropping the history outright
 let compactionStalled = false;
 
+// loading an earlier conversation also hands the session file back to it, so
+// the resumed history keeps growing where it left off
+const restore = (id?: string) => {
+  const target = id ?? listSessions(1)[0]?.id;
+
+  if (!target) {
+    log.warn(chalk.red('There are no saved sessions to resume'));
+
+    return false;
+  }
+
+  const messages = loadSession(target);
+
+  if (!messages) {
+    log.error(chalk.red(`There is no session called ${target}`));
+
+    return false;
+  }
+
+  nextThought = { messages };
+  needsUserInput = true;
+  compactionStalled = false;
+  thinker.load(messages);
+
+  log.info(
+    chalk.bgGreen(
+      `Resumed ${messages.length} message(s) using ${thinker.tokens.messages} tokens`
+    )
+  );
+
+  return true;
+};
+
+// a failed resume still needs somewhere to write what happens next
+if (!resume || !restore(typeof resume === 'string' ? resume : undefined)) {
+  startSession();
+}
+
 const compact = async () => {
   const { messages, freed } = await thinker.compact(nextThought.messages);
 
   nextThought.messages = messages;
   compactionStalled = freed <= 0;
+  // summarizing replaces the messages outright, so there is nothing left to
+  // append to - the file has to be written again from what survived
+  rewrite(messages);
 
   if (compactionStalled) {
     log.warn(
@@ -134,6 +195,9 @@ while (true) {
           nextThought.lastResponse = undefined;
           nextThought.messages = [];
           compactionStalled = false;
+          // a new file rather than an emptied one - starting over should not
+          // destroy the conversation being walked away from
+          startSession();
           const total = thinker.tokens.total;
           const freed = thinker.reset();
 
@@ -141,6 +205,25 @@ while (true) {
             chalk.bgGreen(
               `Freed ${freed} tokens from context (${Math.round((freed / total) * 100)})%`
             )
+          );
+          break;
+        }
+        case Command.Resume: {
+          const summaries = listSessions();
+
+          if (!summaries.length) {
+            log.warn(chalk.red('There are no saved sessions to resume'));
+            break;
+          }
+
+          restore(
+            await select({
+              message: 'Which session?',
+              choices: summaries.map((summary) => ({
+                name: `${describeAge(summary.updatedAt).padStart(8)}  ${summary.label} ${chalk.dim(`(${summary.messages} messages)`)}`,
+                value: summary.id
+              }))
+            })
           );
           break;
         }
@@ -197,6 +280,11 @@ while (true) {
 
     needsUserInput = true;
   }
+
+  // written after the turn rather than as it happens, so a crash costs at most
+  // the round that caused it. a failed call leaves the user's message here to
+  // be picked up by the next one
+  append(nextThought.messages);
 
   if (nextThought.interrupted) {
     nextThought.interrupted = false;
