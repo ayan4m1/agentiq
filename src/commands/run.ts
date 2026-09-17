@@ -230,15 +230,23 @@ while (true) {
             break;
           }
 
-          restore(
-            await select({
-              message: 'Which session?',
-              choices: summaries.map((summary) => ({
-                name: `${describeAge(summary.updatedAt).padStart(8)}  ${summary.label} ${chalk.dim(`(${summary.messages} messages)`)}`,
-                value: summary.id
-              }))
-            })
-          );
+          try {
+            restore(
+              await select({
+                message: 'Which session?',
+                choices: summaries.map((summary) => ({
+                  name: `${describeAge(summary.updatedAt).padStart(8)}  ${summary.label} ${chalk.dim(`(${summary.messages} messages)`)}`,
+                  value: summary.id
+                }))
+              })
+            );
+          } catch (error) {
+            // log but swallow an error (if the user cancelled the prompt)
+            if (error instanceof Error) {
+              log.error(error.message);
+            }
+          }
+
           break;
         }
         case Command.Help:
