@@ -263,12 +263,12 @@ export const makeThinker = () => {
       });
     }
 
-    const turnCost = messages.reduce(
+    const tokenCount = messages.reduce(
       (total, message) => total + countMessage(message),
       0
     );
 
-    log.debug(`Turn cost ${turnCost} tokens`);
+    log.debug(`Context grew by ${tokenCount} tokens`);
 
     // the final chunk carries an empty message, but callers expect the response
     // to hold what the model actually said - including any tool calls
