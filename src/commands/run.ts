@@ -15,6 +15,7 @@ import {
   append,
   listSessions,
   loadSession,
+  pruneSessions,
   rewrite,
   startSession
 } from '../modules/session';
@@ -137,6 +138,8 @@ const restore = (id?: string) => {
 
   return true;
 };
+
+pruneSessions();
 
 // a failed resume still needs somewhere to write what happens next
 if (!resume || !restore(typeof resume === 'string' ? resume : undefined)) {

@@ -9,10 +9,11 @@ import {
   readFileSync,
   readdirSync,
   statSync,
+  unlinkSync,
   writeFileSync
 } from 'node:fs';
 
-import { ollama } from './config';
+import { ollama, session as config } from './config';
 import { getLogger } from './logging';
 import { describeError } from '../utils';
 
@@ -177,12 +178,14 @@ const summarize = (path: string, id: string): SessionSummary => {
   };
 };
 
-export const listSessions = (limit = 10) => {
+// newest first, going by mtime alone - cheap enough to run over every file
+// without parsing any of them
+const sessionFiles = () => {
   if (!existsSync(sessionDir)) {
     return [];
   }
 
-  const summaries: SessionSummary[] = [];
+  const files: { id: string; path: string; updatedAt: number }[] = [];
 
   for (const file of readdirSync(sessionDir)) {
     if (!file.endsWith(extension)) {
@@ -192,15 +195,51 @@ export const listSessions = (limit = 10) => {
     const path = resolve(sessionDir, file);
 
     try {
-      summaries.push(summarize(path, file.slice(0, -extension.length)));
+      files.push({
+        id: file.slice(0, -extension.length),
+        path,
+        updatedAt: statSync(path).mtimeMs
+      });
     } catch (error) {
       log.warn(`Could not read ${path}: ${describeError(error)}`);
     }
   }
 
-  return summaries
-    .sort((left, right) => right.updatedAt - left.updatedAt)
-    .slice(0, limit);
+  return files.sort((left, right) => right.updatedAt - left.updatedAt);
+};
+
+export const listSessions = (limit = 10) => {
+  const summaries: SessionSummary[] = [];
+
+  for (const { id, path } of sessionFiles()) {
+    if (summaries.length >= limit) {
+      break;
+    }
+
+    try {
+      summaries.push(summarize(path, id));
+    } catch (error) {
+      log.warn(`Could not read ${path}: ${describeError(error)}`);
+    }
+  }
+
+  return summaries;
+};
+
+// runs before a session is started or resumed, so a --resume that names a
+// pruned session fails the same way one that never existed does
+export const pruneSessions = () => {
+  if (!Number.isFinite(config.limit) || config.limit <= 0) {
+    return;
+  }
+
+  for (const { path } of sessionFiles().slice(config.limit)) {
+    try {
+      unlinkSync(path);
+    } catch (error) {
+      log.warn(`Could not delete ${path}: ${describeError(error)}`);
+    }
+  }
 };
 
 // picks up an earlier session and keeps writing to the same file, so resuming

@@ -51,6 +51,11 @@ export type OllamaConfig = {
   keepAlive: string;
 };
 
+export type SessionConfig = {
+  // how many saved sessions survive the prune at startup - 0 keeps them all
+  limit: number;
+};
+
 export type TokenizerConfig = {
   repo?: string;
   hfToken?: string;

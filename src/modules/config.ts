@@ -10,6 +10,7 @@ import {
   LoggingConfig,
   LogLevel,
   OllamaConfig,
+  SessionConfig,
   ShellConfig,
   TokenizerConfig
 } from '../types';
@@ -39,6 +40,10 @@ export const ollama: OllamaConfig = {
   // ollama's own default is five minutes, which is short enough that a pause
   // to read something costs a full reload of the model on the next turn
   keepAlive: process.env.AQ_OLLAMA_KEEP_ALIVE ?? '30m'
+};
+
+export const session: SessionConfig = {
+  limit: parseInt(process.env.AQ_SESSION_LIMIT ?? '50', 10)
 };
 
 export const tokenizer: TokenizerConfig = {
