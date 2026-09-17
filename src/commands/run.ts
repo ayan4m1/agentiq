@@ -6,6 +6,7 @@ import InquirerCommandPrompt, { KeyEvent } from 'inquirer-command-prompt';
 import { ollama } from '../modules/config';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
+import { ensureTokenizer } from '../modules/tokenizer';
 import { cycleMode, describeMode } from '../modules/approval';
 import { takeYield } from '../modules/turn';
 import { ThoughtState } from '../types';
@@ -16,6 +17,11 @@ const log = getLogger('run');
 // summarization call itself, which still has to fit in the same window
 const compactThreshold = 0.8;
 const systemColor = chalk.yellow;
+
+// makeThinker() tokenizes the system prompt and every tool definition up front,
+// so the tokenizer has to be on disk before it runs
+await ensureTokenizer();
+
 const thinker = makeThinker();
 const rateLimiter = new Bottleneck({
   maxConcurrent: 1,

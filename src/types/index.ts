@@ -41,6 +41,11 @@ export type OllamaConfig = {
   contextLimit: number;
 };
 
+export type TokenizerConfig = {
+  repo?: string;
+  hfToken?: string;
+};
+
 // handlers declare their own argument type, so the parameter here is `never` -
 // it is the one shape every handler is assignable to regardless of variance
 // rules. Tool arguments arrive as untyped JSON from the model, so the call site

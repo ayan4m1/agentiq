@@ -1,13 +1,10 @@
 import chalk from 'chalk';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { Message, Ollama } from 'ollama';
-import { dirname, resolve } from 'node:path';
 import { clearLine, cursorTo } from 'node:readline';
-import { TokenizerLoader } from '@lenml/tokenizers';
 
 import { ollama } from './config';
 import { getLogger } from './logging';
+import { makeTokenizer } from './tokenizer';
 import { watchForInterrupt } from './interrupt';
 import { ThoughtState, TokenStats } from '../types';
 import { tools } from '../tools';
@@ -22,23 +19,6 @@ const client = new Ollama({
     : undefined,
   host: ollama.host
 });
-const modelDir = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../model'
-);
-
-export const makeTokenizer = () => {
-  const tokenizer = TokenizerLoader.fromPreTrained({
-    tokenizerConfig: JSON.parse(
-      readFileSync(resolve(modelDir, 'tokenizer_config.json')).toString()
-    ),
-    tokenizerJSON: JSON.parse(
-      readFileSync(resolve(modelDir, 'tokenizer.json')).toString()
-    )
-  });
-
-  return (value: string) => tokenizer.encode(value).length;
-};
 
 const summaryPrompt =
   "Summarize the conversation so far. Preserve the user's goals, every decision made, the paths of files read or changed, and any work still outstanding. Write it as notes for yourself, not as a reply to the user.";

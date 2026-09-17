@@ -10,7 +10,8 @@ import {
   LoggingConfig,
   LogLevel,
   OllamaConfig,
-  ShellConfig
+  ShellConfig,
+  TokenizerConfig
 } from '../types';
 
 export const logging: LoggingConfig = {
@@ -35,4 +36,10 @@ export const ollama: OllamaConfig = {
   host: process.env.AQ_OLLAMA_HOST,
   model: process.env.AQ_OLLAMA_MODEL ?? '',
   contextLimit: parseInt(process.env.AQ_OLLAMA_CONTEXT_LIMIT ?? '131072', 10)
+};
+
+export const tokenizer: TokenizerConfig = {
+  repo: process.env.AQ_HF_TOKENIZER_REPO,
+  // HF_TOKEN is the name the huggingface CLI already writes, so honour it
+  hfToken: process.env.AQ_HF_TOKEN || process.env.HF_TOKEN
 };
