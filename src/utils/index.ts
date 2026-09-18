@@ -97,6 +97,10 @@ export const getTokenString = (value: number) =>
 export const getContentBudget = (fraction = 0.3) =>
   Math.floor(ollama.contextLimit * fraction * 3.33);
 
+// what a command may hand back, whether it ran in the foreground or is still
+// running in the background - one number so the two cannot drift apart
+export const commandOutputBudget = getContentBudget(0.2);
+
 // tool results carry no record of the call that produced them, so say plainly
 // that output was cut rather than letting the model assume it saw everything
 export const truncate = (content: string, budget = getContentBudget()) =>

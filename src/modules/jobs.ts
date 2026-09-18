@@ -2,12 +2,11 @@ import { ChildProcess, execFileSync, spawn } from 'node:child_process';
 
 import { shell } from './config';
 import { getLogger } from './logging';
-import { getContentBudget } from '../utils';
+import { commandOutputBudget } from '../utils';
 
 const log = getLogger('jobs');
 // a watch build left running all session would otherwise grow without bound,
 // and it is the end of its output that says what went wrong
-const bufferLimit = getContentBudget(0.2);
 // how long a process gets to honour SIGTERM before it is taken out
 const graceMs = 2000;
 
@@ -79,11 +78,11 @@ const record = (id: number, chunk: string) => {
 
   job.buffer += chunk;
 
-  if (job.buffer.length <= bufferLimit) {
+  if (job.buffer.length <= commandOutputBudget) {
     return;
   }
 
-  const excess = job.buffer.length - bufferLimit;
+  const excess = job.buffer.length - commandOutputBudget;
 
   job.buffer = job.buffer.slice(excess);
   job.dropped += excess;

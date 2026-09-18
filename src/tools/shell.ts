@@ -8,11 +8,15 @@ import {
   refusePlanning,
   requestApproval
 } from '../modules/approval';
-import { getContentBudget, makeParameter, makeTool, truncate } from '../utils';
+import {
+  commandOutputBudget,
+  makeParameter,
+  makeTool,
+  truncate
+} from '../utils';
 import { getLogger } from '../modules/logging';
 
 const log = getLogger('shell');
-const maxLength = getContentBudget(0.2);
 
 export const definition = makeTool('shell', 'Access a shell to run commands', [
   makeParameter('string', 'command', 'The command to execute', true),
@@ -81,7 +85,7 @@ export const handler = async ({ command, cwd }: Args) => {
   }
 
   const elapsed = Date.now() - startedAt;
-  const body = truncate(output.trim(), maxLength);
+  const body = truncate(output.trim(), commandOutputBudget);
 
   if (outcome.error) {
     log.debug(outcome.error);

@@ -1,7 +1,7 @@
 import { parse } from 'node-html-parser';
 
 import { getLogger } from '../modules/logging';
-import { getContentBudget, makeParameter, makeTool } from '../utils';
+import { getContentBudget, makeParameter, makeTool, truncate } from '../utils';
 
 const log = getLogger('fetch');
 const maxLength = getContentBudget();
@@ -60,9 +60,7 @@ export const handler = async ({ url }: Args) => {
 
   if (content.length > maxLength) {
     log.warn(`Truncating ${url} to ${maxLength} characters`);
-
-    return `${header}\n\n${content.slice(0, maxLength)}\n\n[truncated: showing ${maxLength} of ${content.length} characters]`;
   }
 
-  return `${header}\n\n${content}`;
+  return `${header}\n\n${truncate(content, maxLength)}`;
 };
