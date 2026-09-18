@@ -63,15 +63,16 @@ export const makeParameter = (
 
 // rough relative time, for picking a session out of a list - "3h ago" says
 // which conversation it was in a way a timestamp does not
+// how many of the previous unit make up one of the next. days are not here
+// because nothing rolls over into weeks - whatever is left is days
+const scales: [number, string][] = [
+  [60, 's'],
+  [60, 'm'],
+  [24, 'h']
+];
+
 export const describeAge = (timestamp: number) => {
-  const seconds = Math.max((Date.now() - timestamp) / 1000, 0);
-  const scales: [number, string][] = [
-    [60, 's'],
-    [60, 'm'],
-    [24, 'h'],
-    [Infinity, 'd']
-  ];
-  let value = seconds;
+  let value = Math.max((Date.now() - timestamp) / 1000, 0);
 
   for (const [size, unit] of scales) {
     if (value < size) {
@@ -81,7 +82,7 @@ export const describeAge = (timestamp: number) => {
     value /= size;
   }
 
-  return 'just now';
+  return `${Math.floor(value)}d ago`;
 };
 
 export const getTokenString = (value: number) =>
