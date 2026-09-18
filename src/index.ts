@@ -8,7 +8,7 @@ const commandDir = resolve(__dirname, 'commands');
 await program
   .name('agentiq')
   .executableDir(commandDir)
-  .description('Upgrade dependencies')
+  .description('Service-based AI agent')
   .command('run', 'Start the service in the foreground', {
     isDefault: true,
     executableFile: 'run.js'
