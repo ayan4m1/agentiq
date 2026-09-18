@@ -102,6 +102,13 @@ export const handler = async ({ command, cwd }: Args) => {
     return `The user interrupted the command after ${elapsed}ms.${body ? `\n\nOutput so far:\n${body}` : ''}`;
   }
 
+  // killed by something other than our own timeout or interrupt - the exit code
+  // is empty in that case, so without this the run reads as a clean success
+  if (outcome.signal) {
+    log.debug(`Process was killed by ${outcome.signal}`);
+    return `The command was killed by ${outcome.signal} after ${elapsed}ms.${body ? `\n\nOutput so far:\n${body}` : ''}`;
+  }
+
   if (outcome.code) {
     log.debug(`Process exited with code ${outcome.code}`);
     return `The command exited with code ${outcome.code}.${body ? `\n\nOutput:\n${body}` : ''}`;
