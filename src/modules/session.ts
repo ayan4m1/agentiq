@@ -216,13 +216,21 @@ const sessionFiles = () => {
   return files.sort((left, right) => right.updatedAt - left.updatedAt);
 };
 
+// only this directory's sessions - a conversation about another project is
+// neither something to pick up here nor something to delete from here. both
+// callers go through this, so listing and pruning can never disagree about
+// which files belong to this directory
+const localSessionFiles = () => {
+  const prefix = `${slugFor(process.cwd())}_`;
+
+  return sessionFiles().filter(({ id }) => id.startsWith(prefix));
+};
+
 export const listSessions = (limit = 10) => {
   const summaries: SessionSummary[] = [];
-  // only this directory's sessions - a conversation about another project is
-  // not something to pick up here. filtering on the name before parsing keeps
-  // the limit meaning the newest few for this directory
-  const prefix = `${slugFor(process.cwd())}_`;
-  const files = sessionFiles().filter(({ id }) => id.startsWith(prefix));
+  // filtering on the name before parsing keeps the limit meaning the newest
+  // few for this directory
+  const files = localSessionFiles();
 
   for (const { id, path } of files) {
     if (summaries.length >= limit) {
@@ -240,13 +248,15 @@ export const listSessions = (limit = 10) => {
 };
 
 // runs before a session is started or resumed, so a --resume that names a
-// pruned session fails the same way one that never existed does
+// pruned session fails the same way one that never existed does. the limit is
+// per directory, matching what listSessions shows - a busy project must not
+// delete the history of one that has been quiet
 export const pruneSessions = () => {
   if (!Number.isFinite(config.limit) || config.limit <= 0) {
     return;
   }
 
-  for (const { path } of sessionFiles().slice(config.limit)) {
+  for (const { path } of localSessionFiles().slice(config.limit)) {
     try {
       unlinkSync(path);
     } catch (error) {
