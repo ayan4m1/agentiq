@@ -11,38 +11,32 @@ type CustomLogInfo = TransformableInfo & {
 const { Console } = transports;
 const { combine, label, prettyPrint, printf } = format;
 
-const loggers = new Map<string, Logger>();
+// winston's Container is already a cache keyed by category - add() is what
+// registers one and get() returns whatever is registered, creating it only the
+// first time. a Map alongside it would be a second copy of the same bookkeeping
 const container = new Container();
 
-const createLogger = (category: string, categoryLabel: string) => {
-  const formatters = [label({ label: categoryLabel })];
-
-  formatters.push(
-    prettyPrint(),
-    printf(
-      (data: CustomLogInfo) => `[${data.level}][${data.label}] ${data.message}`
-    )
-  );
-  container.add(category, {
-    transports: [
-      new Console({
-        level: config.level,
-        format: combine(...formatters)
-      })
-    ]
-  });
-
-  return container.get(category);
-};
-
-export const getLogger = (category: string, categoryLabel = category) => {
-  if (!loggers.has(category)) {
-    const newLogger = createLogger(category, categoryLabel);
-
-    loggers.set(category, newLogger);
-
-    return newLogger;
+export const getLogger = (
+  category: string,
+  categoryLabel = category
+): Logger => {
+  if (!container.has(category)) {
+    container.add(category, {
+      transports: [
+        new Console({
+          level: config.level,
+          format: combine(
+            label({ label: categoryLabel }),
+            prettyPrint(),
+            printf(
+              (data: CustomLogInfo) =>
+                `[${data.level}][${data.label}] ${data.message}`
+            )
+          )
+        })
+      ]
+    });
   }
 
-  return loggers.get(category) as Logger;
+  return container.get(category);
 };
