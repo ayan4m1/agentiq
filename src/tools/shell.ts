@@ -26,6 +26,7 @@ type Args = {
 
 export const handler = async ({ command, cwd }: Args) => {
   if (isPlanning()) {
+    log.debug('Plan mode is active');
     return 'Plan mode is active, so no commands can be run. Use the present_plan tool to propose an approach and ask to start work.';
   }
 

@@ -5,6 +5,9 @@ import {
   requestApproval
 } from '../modules/approval';
 import { makeParameter, makeTool } from '../utils';
+import { getLogger } from '../modules/logging';
+
+const log = getLogger('run_background');
 
 export const definition = makeTool(
   'run_background',
@@ -22,6 +25,7 @@ type Args = {
 
 export const handler = async ({ command, cwd }: Args) => {
   if (isPlanning()) {
+    log.debug('Plan mode is active');
     return 'Plan mode is active, so no commands can be run. Use the present_plan tool to propose an approach and ask to start work.';
   }
 
