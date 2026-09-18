@@ -9,7 +9,7 @@ export type ModelConfig = {
 export enum LogLevel {
   Debug = 'debug',
   Info = 'info',
-  Warning = 'warning',
+  Warning = 'warn',
   Error = 'error'
 }
 
