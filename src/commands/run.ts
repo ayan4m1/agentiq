@@ -146,7 +146,18 @@ if (!resume || !restore(typeof resume === 'string' ? resume : undefined)) {
   startSession();
 }
 
+// the share has to be measured against what the context held beforehand -
+// reading thinker.tokens.total afterwards divides by the already-shrunken
+// total and reports well over 100%
+const logFreed = (freed: number, before: number) =>
+  log.info(
+    chalk.green(
+      `Freed ${freed} tokens from context (${Math.round((freed / before) * 100)}%)`
+    )
+  );
+
 const compact = async () => {
+  const before = thinker.tokens.total;
   const { messages, freed } = await thinker.compact(nextThought.messages);
 
   nextThought.messages = messages;
@@ -160,11 +171,7 @@ const compact = async () => {
       chalk.red('Could not compact any further - use /clear to start over')
     );
   } else {
-    log.info(
-      chalk.green(
-        `Freed ${freed} tokens from context (${Math.round((freed / thinker.tokens.total) * 100)}%)`
-      )
-    );
+    logFreed(freed, before);
   }
 };
 
@@ -212,14 +219,9 @@ while (true) {
           // a new file rather than an emptied one - starting over should not
           // destroy the conversation being walked away from
           startSession();
-          const total = thinker.tokens.total;
-          const freed = thinker.reset();
+          const before = thinker.tokens.total;
 
-          log.info(
-            chalk.green(
-              `Freed ${freed} tokens from context (${Math.round((freed / total) * 100)})%`
-            )
-          );
+          logFreed(thinker.reset(), before);
           break;
         }
         case Command.Resume: {
