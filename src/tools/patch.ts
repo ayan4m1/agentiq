@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { getLogger } from '../modules/logging';
 import {
   describeDenial,
-  isPlanning,
+  refusePlanning,
   requestApproval
 } from '../modules/approval';
 import { makeParameter, makeTool } from '../utils';
@@ -78,14 +78,17 @@ const renderDiff = (path: string, before: string, after: string) => {
 };
 
 export const handler = async ({ path, oldText, newText, replaceAll }: Args) => {
+  // plan mode first, as in every other mutating tool - in a mode that refuses
+  // the call outright there is no reason to go to disk at all
+  const refusal = refusePlanning('no files can be changed');
+
+  if (refusal) {
+    return refusal;
+  }
+
   if (!existsSync(path)) {
     log.debug('Path does not exist');
     return `Cannot replace text in ${path} - it does not exist`;
-  }
-
-  if (isPlanning()) {
-    log.debug('Plan mode is active');
-    return 'Plan mode is active, so no files can be changed. Use the present_plan tool to propose an approach and ask to start work.';
   }
 
   const contents = readFileSync(path).toString();

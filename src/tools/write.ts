@@ -4,7 +4,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { getLogger } from '../modules/logging';
 import {
   describeDenial,
-  isPlanning,
+  refusePlanning,
   requestApproval
 } from '../modules/approval';
 import { makeParameter, makeTool } from '../utils';
@@ -22,9 +22,10 @@ type Args = {
 };
 
 export const handler = async ({ path, content }: Args) => {
-  if (isPlanning()) {
-    log.debug('Plan mode is active');
-    return 'Plan mode is active, so no files can be written. Use the present_plan tool to propose an approach and ask to start work.';
+  const refusal = refusePlanning('no files can be written');
+
+  if (refusal) {
+    return refusal;
   }
 
   console.log(`\n${chalk.bgGreen(content.replace(/\n{2,}/, '\n'))}\n`);

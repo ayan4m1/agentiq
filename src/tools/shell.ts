@@ -5,7 +5,7 @@ import { watchForInterrupt } from '../modules/interrupt';
 import { killTree, spawnCommand } from '../modules/jobs';
 import {
   describeDenial,
-  isPlanning,
+  refusePlanning,
   requestApproval
 } from '../modules/approval';
 import { getContentBudget, makeParameter, makeTool, truncate } from '../utils';
@@ -25,9 +25,10 @@ type Args = {
 };
 
 export const handler = async ({ command, cwd }: Args) => {
-  if (isPlanning()) {
-    log.debug('Plan mode is active');
-    return 'Plan mode is active, so no commands can be run. Use the present_plan tool to propose an approach and ask to start work.';
+  const refusal = refusePlanning('no commands can be run');
+
+  if (refusal) {
+    return refusal;
   }
 
   const { approved, reason } = await requestApproval(

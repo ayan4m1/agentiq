@@ -8,8 +8,11 @@ import {
   type Status
 } from '@inquirer/core';
 
+import { getLogger } from './logging';
 import { approval as config } from './config';
 import { ApprovalMode, ApprovalResult } from '../types';
+
+const log = getLogger('approval');
 
 // the one piece of mutable session state - every mutating tool reads it, and
 // shift+tab writes it from whichever prompt happens to be on screen
@@ -33,11 +36,11 @@ const banners: Record<ApprovalMode, string> = {
   [ApprovalMode.Plan]: chalk.bgCyan.black('no changes can be made')
 };
 
-export const hint = chalk.dim('shift+tab to cycle');
+const hint = chalk.dim('shift+tab to cycle');
 
 export const describeMode = () => badges[approval.mode];
 
-export const isPlanning = () => approval.mode === ApprovalMode.Plan;
+const isPlanning = () => approval.mode === ApprovalMode.Plan;
 
 export const setMode = (mode: ApprovalMode) => {
   approval.mode = mode;
@@ -129,6 +132,19 @@ const askReason = async () => {
 // same whichever action was turned down
 export const describeDenial = (action: string, reason?: string) =>
   `The user declined to ${action}.${reason ? ` They said: "${reason}"` : ''}`;
+
+// the sibling of describeDenial for the refusal that happens before there is
+// anything to confirm. `subject` completes "Plan mode is active, so ..." -
+// every mutating tool returns this when it is set, and nothing else
+export const refusePlanning = (subject: string) => {
+  if (!isPlanning()) {
+    return;
+  }
+
+  log.debug('Plan mode is active');
+
+  return `Plan mode is active, so ${subject}. Use the present_plan tool to propose an approach and ask to start work.`;
+};
 
 // approved means go ahead. auto answers itself; manual asks, and collects a
 // reason when the answer is no. plan never reaches here - mutating tools refuse
