@@ -228,7 +228,7 @@ while (true) {
           const summaries = listSessions();
 
           if (!summaries.length) {
-            log.warn(chalk.red('There are no saved sessions to resume'));
+            restore();
             break;
           }
 
