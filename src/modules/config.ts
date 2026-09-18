@@ -12,8 +12,29 @@ import {
   TokenizerConfig
 } from '../types';
 
+// an unrecognised level is not rejected by winston - it silently fails every
+// comparison, so nothing is logged at all. fall back rather than go quiet
+const toLogLevel = (value?: string) => {
+  if (!value) {
+    return LogLevel.Info;
+  }
+
+  const levels = Object.values(LogLevel);
+  const found = levels.find((level) => level === value);
+
+  if (!found) {
+    console.warn(
+      `Ignoring AQ_LOG_LEVEL "${value}" - expected one of ${levels.join(', ')}`
+    );
+
+    return LogLevel.Info;
+  }
+
+  return found;
+};
+
 export const logging: LoggingConfig = {
-  level: (process.env.AQ_LOG_LEVEL || 'info') as unknown as LogLevel
+  level: toLogLevel(process.env.AQ_LOG_LEVEL)
 };
 
 // only the starting mode - shift+tab and present_plan move it at runtime, so
