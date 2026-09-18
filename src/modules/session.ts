@@ -34,7 +34,7 @@ type Meta = {
 };
 
 // one JSON object per line: the meta record first, then a record per message
-type Record = {
+type SessionRecord = {
   type: string;
   message?: Message;
 };
@@ -59,7 +59,7 @@ const pathFor = (id: string) => resolve(sessionDir, `${id}${extension}`);
 // C--code-agentiq
 const slugFor = (cwd: string) => cwd.replace(/[^A-Za-z0-9]/g, '-');
 
-const encode = (record: Meta | Record) => `${JSON.stringify(record)}\n`;
+const encode = (record: Meta | SessionRecord) => `${JSON.stringify(record)}\n`;
 
 // the system prompt is rebuilt from AGENTIQ.md on every run, so persisting it
 // would resume a stale copy of a file that may since have changed. leaving it
@@ -152,7 +152,7 @@ export const rewrite = (messages: Message[]) => {
 // a line that will not parse is one turn of one session, and refusing to open
 // the file over it would lose all the others
 const readRecords = (path: string) => {
-  const records: Record[] = [];
+  const records: SessionRecord[] = [];
 
   for (const line of readFileSync(path).toString().split('\n')) {
     if (!line.trim()) {
