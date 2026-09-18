@@ -1,8 +1,5 @@
-try {
-  process.loadEnvFile();
-} catch {
-  // If there is no .env file, use the environment as-is
-}
+// must come first - it populates process.env for every read below
+import './env';
 
 import {
   ApprovalConfig,
