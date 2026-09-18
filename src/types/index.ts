@@ -1,11 +1,5 @@
 import { ChatResponse, Message, Tool } from 'ollama';
 
-export type ModelConfig = {
-  id: string;
-  name: string;
-  contextLimit?: number;
-};
-
 export enum LogLevel {
   Debug = 'debug',
   Info = 'info',
