@@ -28,7 +28,7 @@ export const handler = async ({ path, content }: Args) => {
     return refusal;
   }
 
-  console.log(`\n${chalk.bgGreen(content.replace(/\n{2,}/, '\n'))}\n`);
+  console.log(`\n${chalk.green(content.replace(/\n{2,}/g, '\n'))}\n`);
 
   const { approved, reason } = await requestApproval(
     `OK to ${existsSync(path) ? 'OVERWRITE' : 'write'} ${content.length} bytes to ${path}?`
