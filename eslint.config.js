@@ -12,6 +12,9 @@ export default [
   {
     languageOptions: {
       globals: globals.node
+    },
+    rules: {
+      'no-control-regex': 0
     }
   },
   eslintPluginPrettier

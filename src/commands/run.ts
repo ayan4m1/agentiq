@@ -2,31 +2,18 @@ import chalk from 'chalk';
 import inquirer from 'inquirer';
 import Bottleneck from 'bottleneck';
 import { program } from 'commander';
-import { select } from '@inquirer/prompts';
 import InquirerCommandPrompt, { type KeyEvent } from 'inquirer-command-prompt';
 
 import { ollama } from '../modules/config';
 import { killAllJobs } from '../modules/jobs';
-import { changes, discardCheckpoints, undo } from '../modules/checkpoints';
-import { getLogger } from '../modules/logging';
+import { discardCheckpoints } from '../modules/checkpoints';
 import { compactThreshold, makeThinker } from '../modules/ollama';
 import { preflight } from '../modules/preflight';
 import { ensureTokenizer } from '../modules/tokenizer';
 import { cycleMode, describeMode } from '../modules/approval';
-import {
-  append,
-  listSessions,
-  loadSession,
-  pruneSessions,
-  rewrite,
-  startSession
-} from '../modules/session';
-import { takeYield } from '../modules/turn';
-import type { ThoughtState } from '../types';
-import { describeAge, describeError, getTokenString } from '../utils';
-
-const log = getLogger('run');
-const systemColor = chalk.yellow;
+import { pruneSessions, startSession } from '../modules/session';
+import { Command, createController, systemColor } from '../modules/repl';
+import { getTokenString } from '../utils';
 
 // commander runs this file as its own executable, so the options it was given
 // arrive here rather than in src/index.ts - the supported spelling is
@@ -74,21 +61,6 @@ process.on('SIGINT', () => {
   process.exit(130);
 });
 
-// the switch below and the /help listing both read from here, so a new
-// command only has to be added in one place
-const Command = {
-  Context: 'context',
-  Mode: 'mode',
-  Compact: 'compact',
-  Clear: 'clear',
-  Reset: 'reset',
-  Resume: 'resume',
-  Undo: 'undo',
-  Changes: 'changes',
-  Help: 'help',
-  Quit: 'quit'
-} as const;
-
 const renderPrompt = () =>
   `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.messages)}`)}${chalk.blue('>')}`;
 
@@ -113,87 +85,23 @@ class ModeCommandPrompt extends InquirerCommandPrompt {
 
 inquirer.registerPrompt('command', ModeCommandPrompt);
 
-let nextThought: ThoughtState = {
-  messages: []
-};
-let needsUserInput = true;
-
-// set when compaction runs but cannot free anything, so the automatic trigger
-// below stops paying for a summarization call every single turn. asking for
-// /compact by hand clears it, as does dropping the history outright
-let compactionStalled = false;
-
-// loading an earlier conversation also hands the session file back to it, so
-// the resumed history keeps growing where it left off
-const restore = (id?: string) => {
-  const target = id ?? listSessions(1)[0]?.id;
-
-  if (!target) {
-    log.warn(chalk.red('There are no saved sessions to resume'));
-
-    return false;
-  }
-
-  const messages = loadSession(target);
-
-  if (!messages) {
-    log.error(chalk.red(`There is no session called ${target}`));
-
-    return false;
-  }
-
-  nextThought = { messages };
-  needsUserInput = true;
-  compactionStalled = false;
-  thinker.load(messages);
-
-  log.info(
-    chalk.green(
-      `Resumed ${messages.length} message(s) using ${thinker.tokens.messages} tokens`
-    )
-  );
-
-  return true;
-};
+const controller = createController({
+  thinker,
+  compactAt: ollama.contextLimit * compactThreshold
+});
 
 pruneSessions();
 
 // a failed resume still needs somewhere to write what happens next
-if (!resume || !restore(typeof resume === 'string' ? resume : undefined)) {
+if (
+  !resume ||
+  !controller.restore(typeof resume === 'string' ? resume : undefined)
+) {
   startSession();
 }
 
-// the share has to be measured against what the context held beforehand -
-// reading thinker.tokens.total afterwards divides by the already-shrunken
-// total and reports well over 100%
-const logFreed = (freed: number, before: number) =>
-  log.info(
-    chalk.green(
-      `Freed ${freed} tokens from context (${Math.round((freed / before) * 100)}%)`
-    )
-  );
-
-const compact = async () => {
-  const before = thinker.tokens.total;
-  const { messages, freed } = await thinker.compact(nextThought.messages);
-
-  nextThought.messages = messages;
-  compactionStalled = freed <= 0;
-  // summarizing replaces the messages outright, so there is nothing left to
-  // append to - the file has to be written again from what survived
-  rewrite(messages);
-
-  if (compactionStalled) {
-    log.warn(
-      chalk.red('Could not compact any further - use /clear to start over')
-    );
-  } else {
-    logFreed(freed, before);
-  }
-};
-
 while (true) {
-  if (needsUserInput) {
+  if (controller.needsUserInput) {
     //@ts-expect-error saveHistory must be a bool but inquirer doesn't allow that
     const { userMessage } = await inquirer.prompt({
       type: 'command',
@@ -203,155 +111,18 @@ while (true) {
     });
 
     if (userMessage.startsWith('/')) {
-      switch (userMessage.substring(1)) {
-        case Command.Context: {
-          const { measured, messages, system, tools, total } = thinker.tokens;
-          const share = Math.round((total / ollama.contextLimit) * 100);
-          const estimated = chalk.dim('(estimated)');
-
-          // the three parts are always the tokenizer's estimate, while the
-          // total is ollama's own count of the last prompt once there has been
-          // one - so they deliberately do not add up
-          console.log(
-            `${systemColor('{SYSTEM   }')} - ${system} tokens ${estimated}`
-          );
-          console.log(
-            `${systemColor('{TOOLS    }')} - ${tools} tokens ${estimated}`
-          );
-          console.log(
-            `${systemColor('{MESSAGES }')} - ${messages} tokens ${estimated}`
-          );
-          console.log(
-            `${systemColor('{TOTAL    }')} - ${total} tokens / ${ollama.contextLimit} max (${share}%) ${
-              measured ? chalk.dim('(counted by ollama)') : estimated
-            }`
-          );
-          break;
-        }
-        case Command.Mode:
-          cycleMode();
-          break;
-        case Command.Compact:
-          // an explicit request overrides an earlier stalled attempt
-          compactionStalled = false;
-          await compact();
-          break;
-        case Command.Clear:
-        case Command.Reset: {
-          nextThought.lastResponse = undefined;
-          nextThought.messages = [];
-          compactionStalled = false;
-          // a new file rather than an emptied one - starting over should not
-          // destroy the conversation being walked away from
-          startSession();
-          const before = thinker.tokens.total;
-
-          logFreed(thinker.reset(), before);
-          break;
-        }
-        case Command.Resume: {
-          const summaries = listSessions();
-
-          if (!summaries.length) {
-            restore();
-            break;
-          }
-
-          try {
-            restore(
-              await select({
-                message: 'Which session?',
-                choices: summaries.map((summary) => ({
-                  name: `${describeAge(summary.updatedAt).padStart(8)}  ${summary.label} ${chalk.dim(`(${summary.messages} messages)`)}`,
-                  value: summary.id
-                }))
-              })
-            );
-          } catch (error) {
-            // log but swallow an error (if the user cancelled the prompt)
-            if (error instanceof Error) {
-              log.error(error.message);
-            }
-          }
-
-          break;
-        }
-        case Command.Undo:
-          // the model is told nothing about this: the file going back to what
-          // it was is the user's business, and a note in the transcript would
-          // only invite it to put the change back
-          console.log(systemColor(undo()));
-          break;
-        case Command.Changes:
-          console.log(systemColor(changes()));
-          break;
-        case Command.Help:
-          console.log(systemColor('\n--- Available Commands ---'));
-          Object.values(Command).forEach((cmd) =>
-            console.log(`${systemColor('*')} /${cmd}`)
-          );
-          console.log(systemColor('---------------------------\n'));
-          break;
-        case Command.Quit:
-          cleanUp();
-          process.exit(0);
-        // eslint-disable-next-line no-fallthrough
-        default:
-          log.error(chalk.red(`Tried to use unknown command ${userMessage}!`));
-          break;
+      if (
+        (await controller.runCommand(userMessage.substring(1))) === Command.Quit
+      ) {
+        cleanUp();
+        process.exit(0);
       }
 
       continue;
     }
 
-    nextThought.messages.push({
-      role: 'user',
-      content: userMessage
-    });
-
-    needsUserInput = false;
+    controller.addUserMessage(userMessage);
   }
 
-  try {
-    nextThought = await rateLimiter.schedule(async () => {
-      const result = await thinker.think(nextThought);
-
-      log.debug(`Round ${thinker.turnCount} - ${thinker.tokens.total} tokens`);
-
-      if (result.interrupted) {
-        console.log(systemColor('[interrupted]\n'));
-
-        return result;
-      }
-
-      // keep thinking while the model is still calling tools - it is only the
-      // user's turn again once a round comes back without any, or a tool that
-      // already spoke to the user asked for the keyboard back
-      needsUserInput =
-        takeYield() || !result.lastResponse?.message?.tool_calls?.length;
-
-      return result;
-    });
-  } catch (error) {
-    // one bad response should cost the turn, not the conversation - the history
-    // is still intact, so hand control back and let the user retry
-    log.error(chalk.red(`The model call failed: ${describeError(error)}`));
-
-    needsUserInput = true;
-  }
-
-  // written after the turn rather than as it happens, so a crash costs at most
-  // the round that caused it. a failed call leaves the user's message here to
-  // be picked up by the next one
-  append(nextThought.messages);
-
-  if (nextThought.interrupted) {
-    nextThought.interrupted = false;
-    needsUserInput = true;
-  } else if (
-    !compactionStalled &&
-    thinker.tokens.total > ollama.contextLimit * compactThreshold
-  ) {
-    await compact();
-  }
+  await controller.takeTurn((work) => rateLimiter.schedule(work));
 }
