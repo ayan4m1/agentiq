@@ -35,6 +35,18 @@ export type ShellConfig = {
   timeout: number;
 };
 
+// how hard a reasoning model should think. ollama also accepts a plain
+// boolean, which is what an unlevelled model understands
+export const ThinkLevel = {
+  High: 'high',
+  Medium: 'medium',
+  Low: 'low'
+} as const;
+
+export type ThinkLevel = (typeof ThinkLevel)[keyof typeof ThinkLevel];
+
+export type ThinkSetting = boolean | ThinkLevel;
+
 export type OllamaConfig = {
   host?: string;
   bearerToken?: string;
@@ -43,6 +55,17 @@ export type OllamaConfig = {
   // how long ollama keeps the model in memory after a call - "-1" never
   // unloads it, "0" unloads it immediately
   keepAlive: string;
+  // milliseconds enforced between turns. zero for a local server, which has no
+  // rate limit to respect - it is here for a metered remote endpoint
+  minTurnDelay: number;
+  // left undefined when unset, so the field is not sent at all and the choice
+  // falls to whatever the model does by default
+  think?: ThinkSetting;
+  // whether the text a model writes on its way to a tool call is sent back on
+  // the turns that follow. off by default: some renderers, ollama's gemma one
+  // among them, read a tool call that arrives with text beside it as a turn
+  // already answered, and reply to the result with a single end token
+  replayPreamble: boolean;
 };
 
 export type SessionConfig = {
