@@ -9,6 +9,7 @@ import { ollama } from '../modules/config';
 import { killAllJobs } from '../modules/jobs';
 import { getLogger } from '../modules/logging';
 import { makeThinker } from '../modules/ollama';
+import { preflight } from '../modules/preflight';
 import { ensureTokenizer } from '../modules/tokenizer';
 import { cycleMode, describeMode } from '../modules/approval';
 import {
@@ -38,6 +39,13 @@ const { resume } = program
   .option('--resume [id]', 'resume the most recent session, or one by id')
   .parse(process.argv)
   .opts();
+
+// a missing model or an unreachable host is worth saying now rather than
+// after the user has typed their first message - and before the tokenizer
+// download, which is the slow part of starting up
+if (!(await preflight())) {
+  process.exit(1);
+}
 
 // makeThinker() tokenizes the system prompt and every tool definition up front,
 // so the tokenizer has to be on disk before it runs
