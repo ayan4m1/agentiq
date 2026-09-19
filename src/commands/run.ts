@@ -44,9 +44,11 @@ const { resume } = program
 await ensureTokenizer();
 
 const thinker = makeThinker();
+// maxConcurrent is what matters here: turns must not overlap. minTime is for
+// a metered remote endpoint and is zero by default
 const rateLimiter = new Bottleneck({
   maxConcurrent: 1,
-  minTime: 1000
+  minTime: ollama.minTurnDelay
 });
 
 // a dev server that outlives the session holds its port and is only noticed

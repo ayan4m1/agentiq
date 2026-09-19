@@ -57,7 +57,13 @@ export const ollama: OllamaConfig = {
   contextLimit: parseInt(process.env.AQ_OLLAMA_CONTEXT_LIMIT ?? '131072', 10),
   // ollama's own default is five minutes, which is short enough that a pause
   // to read something costs a full reload of the model on the next turn
-  keepAlive: process.env.AQ_OLLAMA_KEEP_ALIVE ?? '30m'
+  keepAlive: process.env.AQ_OLLAMA_KEEP_ALIVE ?? '30m',
+  minTurnDelay: parseInt(process.env.AQ_OLLAMA_MIN_TURN_DELAY ?? '0', 10),
+  think: toThink(process.env.AQ_OLLAMA_THINK),
+  replayPreamble: toBoolean(
+    process.env.AQ_OLLAMA_REPLAY_PREAMBLE,
+    'AQ_OLLAMA_REPLAY_PREAMBLE'
+  )
 };
 
 export const session: SessionConfig = {
