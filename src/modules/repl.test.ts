@@ -36,6 +36,7 @@ const { append, listSessions, loadSession, startSession } =
 const log = mock.method(console, 'log', () => {});
 const printed = () =>
   log.mock.calls
+    // strip ANSI colors
     .map((call) => String(call.arguments[0].replaceAll(/\x1B\[[0-9;]*m/g, '')))
     .join('\n');
 
