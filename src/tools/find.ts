@@ -2,18 +2,10 @@ import { join } from 'node:path';
 import { glob, readFile, stat } from 'node:fs/promises';
 
 import { getLogger } from '../modules/logging';
+import { alwaysExclude, gitVisible, toPosix } from '../modules/ignore';
 import { makeParameter, makeTool } from '../utils';
 
 const log = getLogger('find');
-
-// directories whose contents are never what the model is looking for - a single
-// unfiltered glob over node_modules returns tens of thousands of paths
-const exclude = [
-  '**/node_modules/**',
-  '**/.git/**',
-  '**/lib/**',
-  '**/.yarn/**'
-];
 
 // an unbounded search is its own context bomb, so cap files and matches
 const maxFiles = 100;
@@ -64,9 +56,21 @@ export const handler = async ({
 }: Args) => {
   const cwd = path || process.cwd();
   const paths: string[] = [];
+  // undefined outside a repository, where the list above is all there is
+  const visible = gitVisible(cwd);
   let truncatedFiles = false;
 
-  for await (const match of glob(pattern, { cwd, exclude })) {
+  if (visible) {
+    log.debug(`git reports ${visible.size} visible path(s) in ${cwd}`);
+  }
+
+  for await (const match of glob(pattern, { cwd, exclude: alwaysExclude })) {
+    // whatever git will not show is not part of the project, and listing it
+    // wastes both the search and the context it comes back in
+    if (visible && !visible.has(toPosix(match))) {
+      continue;
+    }
+
     // glob yields directories too, and reading one throws EISDIR
     try {
       if (!(await stat(join(cwd, match))).isFile()) {
