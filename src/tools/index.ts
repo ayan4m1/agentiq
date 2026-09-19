@@ -2,6 +2,7 @@ import * as patch from './patch';
 import * as read from './read';
 import * as write from './write';
 import * as find from './find';
+import * as list from './list';
 import * as fetch from './fetch';
 import * as shell from './shell';
 import * as askList from './ask_list';
@@ -11,13 +12,14 @@ import * as runBackground from './run_background';
 import * as readJob from './read_job';
 import * as stopJob from './stop_job';
 
-import { ToolCall } from '../types';
+import type { ToolCall } from '../types';
 
 export const tools: ToolCall[] = [
   read,
   write,
   patch,
   find,
+  list,
   fetch,
   shell,
   runBackground,
