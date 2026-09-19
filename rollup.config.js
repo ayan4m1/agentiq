@@ -6,8 +6,9 @@ import typescript from '@rollup/plugin-typescript';
 
 export default {
   // declarations match the glob but have nothing to emit, so excluding them
-  // keeps rollup from making an empty chunk out of each one
-  input: ['./src/**/*.ts', '!./src/**/*.d.ts'],
+  // keeps rollup from making an empty chunk out of each one. tests sit beside
+  // what they cover and are not part of the shipped bundle
+  input: ['./src/**/*.ts', '!./src/**/*.d.ts', '!./src/**/*.test.ts'],
   output: {
     dir: './lib',
     format: 'esm',

@@ -21,6 +21,7 @@
     "build": "rollup -c --configPlugin typescript",
     "dev": "rollup -c -w --configPlugin typescript",
     "lint": "eslint ./src",
+    "test": "node --experimental-test-coverage --import ./test/register.mjs --test \"src/**/*.test.ts\"",
     "prepare": "rollup -c --configPlugin typescript"
   },
   "engines": {
