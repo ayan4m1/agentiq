@@ -1,9 +1,7 @@
-import { Tool } from 'ollama';
+import type { Tool } from 'ollama';
 import { filesize } from 'filesize';
-import { resolve } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
 
-import { ToolParameter } from '../types';
+import type { ToolParameter } from '../types';
 import { ollama } from '../modules/config';
 
 // the schema handed to ollama describes a parameter well enough for the model
@@ -99,11 +97,12 @@ export const getTokenString = (value: number) =>
 // session id keep the slug and its uuid separable
 export const slugFor = (cwd: string) => cwd.replace(/[^A-Za-z0-9]/g, '-');
 
+export const charsPerToken = 3.33;
+
 // large files and HTML pages trivially exceed the context window, so tools cap
-// their output at a fraction of it. 3.33 chars/token is a rough average that
-// holds well enough across prose and code
+// their output at a fraction of it
 export const getContentBudget = (fraction = 0.3) =>
-  Math.floor(ollama.contextLimit * fraction * 3.33);
+  Math.floor(ollama.contextLimit * fraction * charsPerToken);
 
 // what a command may hand back, whether it ran in the foreground or is still
 // running in the background - one number so the two cannot drift apart
@@ -115,13 +114,6 @@ export const truncate = (content: string, budget = getContentBudget()) =>
   content.length <= budget
     ? content
     : `${content.slice(0, budget)}\n\n[truncated: showing ${budget} of ${content.length} characters]`;
-
-export const loadSystemPrompt = () => {
-  const sysPromptPath = resolve(process.cwd(), 'AGENTIQ.md');
-  if (existsSync(sysPromptPath)) {
-    return readFileSync(sysPromptPath).toString();
-  }
-};
 
 // extract error message from error object
 export const describeError = (error: unknown) =>
