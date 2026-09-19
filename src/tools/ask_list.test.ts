@@ -15,10 +15,10 @@ describe('ask_list', () => {
   test('offers the choices along with the question', async () => {
     select.mock.mockImplementationOnce(async () => 'red');
 
-    await handler({ question: 'Which colour?', choices: ['red', 'blue'] });
+    await handler({ question: 'Which color?', choices: ['red', 'blue'] });
 
     assert.deepEqual(select.mock.calls[0].arguments[0], {
-      message: 'Which colour?',
+      message: 'Which color?',
       choices: ['red', 'blue']
     });
   });
@@ -27,7 +27,7 @@ describe('ask_list', () => {
     select.mock.mockImplementationOnce(async () => 'blue');
 
     assert.equal(
-      await handler({ question: 'Which colour?', choices: ['red', 'blue'] }),
+      await handler({ question: 'Which color?', choices: ['red', 'blue'] }),
       'The user selected "blue"'
     );
   });
