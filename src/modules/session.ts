@@ -1,5 +1,4 @@
-import { Message } from 'ollama';
-import { homedir } from 'node:os';
+import type { Message } from 'ollama';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -13,13 +12,13 @@ import {
   writeFileSync
 } from 'node:fs';
 
-import { ollama, session as config } from './config';
+import { home, ollama, session as config } from './config';
 import { getLogger } from './logging';
-import { describeError } from '../utils';
+import { describeError, slugFor } from '../utils';
 
 const log = getLogger('session');
-// alongside the tokenizer cache, which already lives under ~/.agentiq
-const sessionDir = resolve(homedir(), '.agentiq', 'sessions');
+// alongside the tokenizer cache, which already lives under the same root
+const sessionDir = resolve(home, 'sessions');
 const extension = '.jsonl';
 // a session is identified by its first user message, so it has to be short
 // enough to list and long enough to recognise
@@ -57,8 +56,6 @@ const pathFor = (id: string) => resolve(sessionDir, `${id}${extension}`);
 // the working directory goes into the file name, so anything that is not
 // safe in one on every platform becomes a dash - C:\code\agentiq turns into
 // C--code-agentiq
-const slugFor = (cwd: string) => cwd.replace(/[^A-Za-z0-9]/g, '-');
-
 const encode = (record: Meta | SessionRecord) => `${JSON.stringify(record)}\n`;
 
 // the system prompt is rebuilt from AGENTIQ.md on every run, so persisting it

@@ -1,7 +1,7 @@
 import { type TransformableInfo } from 'logform';
-import { Container, Logger, format, transports } from 'winston';
+import { Container, type Logger, format, transports } from 'winston';
 
-import { logging as config } from './config.js';
+import { logging as config } from './config';
 
 type CustomLogInfo = TransformableInfo & {
   label?: string;

@@ -91,6 +91,14 @@ export const getTokenString = (value: number) =>
     fullforms: ['tok', 'kTok', 'mTok', 'gTok']
   })}]`;
 
+// a rough average that holds well enough across prose and code. it sizes the
+// budgets below, and stands in for a tokenizer when none is configured
+// the working directory goes into a file name, so anything that is not safe
+// in one on every platform becomes a dash - C:/code/agentiq turns into
+// C--code-agentiq. it can never contain an underscore, which is what lets a
+// session id keep the slug and its uuid separable
+export const slugFor = (cwd: string) => cwd.replace(/[^A-Za-z0-9]/g, '-');
+
 // large files and HTML pages trivially exceed the context window, so tools cap
 // their output at a fraction of it. 3.33 chars/token is a rough average that
 // holds well enough across prose and code
