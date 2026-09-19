@@ -28,7 +28,8 @@ export const handler = async ({ command, cwd }: Args) => {
   }
 
   const { approved, reason } = await requestApproval(
-    `OK to run "${command}" in the background?`
+    `OK to run "${command}" in the background?`,
+    { kind: 'command', value: command }
   );
 
   if (!approved) {

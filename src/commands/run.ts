@@ -3,12 +3,13 @@ import inquirer from 'inquirer';
 import Bottleneck from 'bottleneck';
 import { program } from 'commander';
 import { select } from '@inquirer/prompts';
-import InquirerCommandPrompt, { KeyEvent } from 'inquirer-command-prompt';
+import InquirerCommandPrompt, { type KeyEvent } from 'inquirer-command-prompt';
 
 import { ollama } from '../modules/config';
 import { killAllJobs } from '../modules/jobs';
+import { changes, discardCheckpoints, undo } from '../modules/checkpoints';
 import { getLogger } from '../modules/logging';
-import { makeThinker } from '../modules/ollama';
+import { compactThreshold, makeThinker } from '../modules/ollama';
 import { preflight } from '../modules/preflight';
 import { ensureTokenizer } from '../modules/tokenizer';
 import { cycleMode, describeMode } from '../modules/approval';
@@ -21,13 +22,10 @@ import {
   startSession
 } from '../modules/session';
 import { takeYield } from '../modules/turn';
-import { ThoughtState } from '../types';
+import type { ThoughtState } from '../types';
 import { describeAge, describeError, getTokenString } from '../utils';
 
 const log = getLogger('run');
-// compacting on the way to the limit rather than at it leaves room for the
-// summarization call itself, which still has to fit in the same window
-const compactThreshold = 0.8;
 const systemColor = chalk.yellow;
 
 // commander runs this file as its own executable, so the options it was given
@@ -60,27 +58,36 @@ const rateLimiter = new Bottleneck({
 });
 
 // a dev server that outlives the session holds its port and is only noticed
-// much later, so every way out of here goes through killAllJobs first
-process.on('exit', killAllJobs);
+// much later, so every way out of here goes through killAllJobs first. the
+// snapshots go the same way: they exist so this session can be undone, and
+// nothing reads them once it is over
+const cleanUp = () => {
+  killAllJobs();
+  discardCheckpoints();
+};
+
+process.on('exit', cleanUp);
 // ^C during generation is raised as a signal by modules/interrupt.ts, and
 // listening for it replaces the default termination - so exit deliberately
 process.on('SIGINT', () => {
-  killAllJobs();
+  cleanUp();
   process.exit(130);
 });
 
 // the switch below and the /help listing both read from here, so a new
 // command only has to be added in one place
-enum Command {
-  Context = 'context',
-  Mode = 'mode',
-  Compact = 'compact',
-  Clear = 'clear',
-  Reset = 'reset',
-  Resume = 'resume',
-  Help = 'help',
-  Quit = 'quit'
-}
+const Command = {
+  Context: 'context',
+  Mode: 'mode',
+  Compact: 'compact',
+  Clear: 'clear',
+  Reset: 'reset',
+  Resume: 'resume',
+  Undo: 'undo',
+  Changes: 'changes',
+  Help: 'help',
+  Quit: 'quit'
+} as const;
 
 const renderPrompt = () =>
   `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.messages)}`)}${chalk.blue('>')}`;
@@ -197,22 +204,30 @@ while (true) {
 
     if (userMessage.startsWith('/')) {
       switch (userMessage.substring(1)) {
-        case Command.Context:
-          // system prompt
+        case Command.Context: {
+          const { measured, messages, system, tools, total } = thinker.tokens;
+          const share = Math.round((total / ollama.contextLimit) * 100);
+          const estimated = chalk.dim('(estimated)');
+
+          // the three parts are always the tokenizer's estimate, while the
+          // total is ollama's own count of the last prompt once there has been
+          // one - so they deliberately do not add up
           console.log(
-            `${systemColor('{SYSTEM   }')} - ${thinker.tokens.system} tokens`
+            `${systemColor('{SYSTEM   }')} - ${system} tokens ${estimated}`
           );
-          // tool definitions
           console.log(
-            `${systemColor('{TOOLS    }')} - ${thinker.tokens.tools} tokens`
+            `${systemColor('{TOOLS    }')} - ${tools} tokens ${estimated}`
           );
           console.log(
-            `${systemColor('{MESSAGES }')} - ${thinker.tokens.messages} tokens`
+            `${systemColor('{MESSAGES }')} - ${messages} tokens ${estimated}`
           );
           console.log(
-            `${systemColor('{TOTAL    }')} - ${thinker.tokens.total} tokens / ${ollama.contextLimit} max (${Math.round((thinker.tokens.total / ollama.contextLimit) * 100)}%)`
+            `${systemColor('{TOTAL    }')} - ${total} tokens / ${ollama.contextLimit} max (${share}%) ${
+              measured ? chalk.dim('(counted by ollama)') : estimated
+            }`
           );
           break;
+        }
         case Command.Mode:
           cycleMode();
           break;
@@ -261,6 +276,15 @@ while (true) {
 
           break;
         }
+        case Command.Undo:
+          // the model is told nothing about this: the file going back to what
+          // it was is the user's business, and a note in the transcript would
+          // only invite it to put the change back
+          console.log(systemColor(undo()));
+          break;
+        case Command.Changes:
+          console.log(systemColor(changes()));
+          break;
         case Command.Help:
           console.log(systemColor('\n--- Available Commands ---'));
           Object.values(Command).forEach((cmd) =>
@@ -269,7 +293,7 @@ while (true) {
           console.log(systemColor('---------------------------\n'));
           break;
         case Command.Quit:
-          killAllJobs();
+          cleanUp();
           process.exit(0);
         // eslint-disable-next-line no-fallthrough
         default:

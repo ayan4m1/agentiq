@@ -1,4 +1,3 @@
-import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { filesize } from 'filesize';
 import { Readable } from 'node:stream';
@@ -15,7 +14,8 @@ import {
 } from 'node:fs';
 
 import { getLogger } from './logging';
-import { tokenizer as config } from './config';
+import { home, tokenizer as config } from './config';
+import { charsPerToken, describeError } from '../utils';
 
 const log = getLogger('tokenizer');
 const fileNames = ['tokenizer.json', 'tokenizer_config.json'];
@@ -23,20 +23,28 @@ const fileNames = ['tokenizer.json', 'tokenizer_config.json'];
 // owner/name pair - a `..` segment above all - has to be rejected outright
 const repoPattern = /^[\w.-]+\/[\w.-]+$/;
 
+// a rough count for when no real tokenizer is available. ollama reports the
+// true size of every prompt it renders, so this only has to be close enough to
+// get as far as the first response
+export const estimateTokens = (value: string) =>
+  Math.ceil(value.length / charsPerToken);
+
+// undefined rather than a throw: counting falls back to an estimate that the
+// server corrects on the first turn, which is not worth refusing to start over
 const getCacheDir = () => {
   if (!config.repo) {
-    throw new Error(
-      'No tokenizer is configured - set AQ_HF_TOKENIZER_REPO to a huggingface.co repository, e.g. google/gemma-3-12b-it'
-    );
+    return;
   }
 
   if (!repoPattern.test(config.repo)) {
-    throw new Error(
-      `AQ_HF_TOKENIZER_REPO must be an owner/name pair, got "${config.repo}"`
+    log.warn(
+      `Ignoring AQ_HF_TOKENIZER_REPO "${config.repo}" - expected an owner/name pair`
     );
+
+    return;
   }
 
-  return resolve(homedir(), '.agentiq', 'tokenizers', config.repo);
+  return resolve(home, 'tokenizers', config.repo);
 };
 
 const download = async (fileName: string, targetDir: string) => {
@@ -83,31 +91,66 @@ const download = async (fileName: string, targetDir: string) => {
 // is awaited at startup rather than lazily on first encode
 export const ensureTokenizer = async () => {
   const cacheDir = getCacheDir();
+
+  if (!cacheDir) {
+    log.warn(
+      'No tokenizer is configured - set AQ_HF_TOKENIZER_REPO to a huggingface.co repository, e.g. google/gemma-3-12b-it. Context will be estimated until ollama reports a count of its own'
+    );
+
+    return false;
+  }
+
   const missing = fileNames.filter(
     (fileName) => !existsSync(resolve(cacheDir, fileName))
   );
 
   if (!missing.length) {
-    return;
+    return true;
   }
 
-  mkdirSync(cacheDir, { recursive: true });
+  try {
+    mkdirSync(cacheDir, { recursive: true });
 
-  for (const fileName of missing) {
-    await download(fileName, cacheDir);
+    for (const fileName of missing) {
+      await download(fileName, cacheDir);
+    }
+
+    return true;
+  } catch (error) {
+    // a gated repo, a typo, or no network - none of which should stop the
+    // session before it has started
+    log.warn(
+      `Could not fetch the tokenizer: ${describeError(error)} - context will be estimated instead`
+    );
+
+    return false;
   }
 };
 
 export const makeTokenizer = () => {
   const cacheDir = getCacheDir();
-  const tokenizer = TokenizerLoader.fromPreTrained({
-    tokenizerConfig: JSON.parse(
-      readFileSync(resolve(cacheDir, 'tokenizer_config.json')).toString()
-    ),
-    tokenizerJSON: JSON.parse(
-      readFileSync(resolve(cacheDir, 'tokenizer.json')).toString()
-    )
-  });
 
-  return (value: string) => tokenizer.encode(value).length;
+  if (!cacheDir) {
+    return estimateTokens;
+  }
+
+  try {
+    const tokenizer = TokenizerLoader.fromPreTrained({
+      tokenizerConfig: JSON.parse(
+        readFileSync(resolve(cacheDir, 'tokenizer_config.json')).toString()
+      ),
+      tokenizerJSON: JSON.parse(
+        readFileSync(resolve(cacheDir, 'tokenizer.json')).toString()
+      )
+    });
+
+    return (value: string) => tokenizer.encode(value).length;
+  } catch (error) {
+    // a half-written cache, or a tokenizer.json this loader cannot read
+    log.warn(
+      `Could not load the tokenizer: ${describeError(error)} - context will be estimated instead`
+    );
+
+    return estimateTokens;
+  }
 };

@@ -1,6 +1,6 @@
 import { getLogger } from './logging';
 import { getParameters } from '../utils';
-import { ToolParameter, Validation } from '../types';
+import type { ToolParameter, Validation } from '../types';
 
 const log = getLogger('validate');
 

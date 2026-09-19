@@ -1,31 +1,62 @@
 import chalk from 'chalk';
-import { Message, Ollama } from 'ollama';
+import type { Message } from 'ollama';
 import { clearLine, cursorTo } from 'node:readline';
 
+import { client } from './client';
 import { ollama } from './config';
+import { describeElision, findSplit, isElided, pairCalls } from './compaction';
 import { getLogger } from './logging';
 import { makeTokenizer } from './tokenizer';
 import { validateArgs } from './validate';
+import { buildSystemPrompt } from './prompt';
 import { watchForInterrupt } from './interrupt';
-import { ThoughtState, TokenStats } from '../types';
+import { supportsThinking } from './preflight';
+import type { ThoughtState, TokenStats } from '../types';
 import { tools } from '../tools';
-import { describeError, loadSystemPrompt, serializeResult } from '../utils';
+import { describeError, serializeResult } from '../utils';
 
 const log = getLogger('ollama');
-const client = new Ollama({
-  headers: ollama.bearerToken
-    ? {
-        Authorization: `Bearer ${ollama.bearerToken}`
-      }
-    : undefined,
-  host: ollama.host
-});
+
+// compacting on the way to the limit rather than at it leaves room for the
+// summarization call itself, which still has to fit in the same window
+export const compactThreshold = 0.8;
+// and it aims well below the trigger, so the turns that follow do not cross it
+// again straight away and pay for another round each time
+const compactTarget = 0.5;
+
+// an explicit setting wins, including an explicit false. otherwise a model
+// that reports it can reason is asked to, because the alternative is that it
+// reasons anyway and buries the result in its reply - where it is streamed as
+// though it were the answer, and then re-sent on every turn that follows
+const resolveThink = () => {
+  if (ollama.think !== undefined) {
+    return ollama.think;
+  }
+
+  return supportsThinking() ? true : undefined;
+};
+
+// what is left of a finished turn once it is history rather than output. the
+// preamble a model writes on its way to a tool call has already been streamed
+// to the user, and sending it back alongside the call is what ollama's gemma
+// renderer turns into a prompt that reads as already answered - the round after
+// it comes back as a single end token and nothing else. the call is the part
+// that has to survive, so unless AQ_OLLAMA_REPLAY_PREAMBLE says otherwise the
+// text goes the way the reasoning already does. a turn that neither spoke nor
+// called anything has nothing to replay whatever that setting says
+export const replayable = (message: Message, replayPreamble: boolean) => {
+  if (message.tool_calls?.length) {
+    return replayPreamble ? message : { ...message, content: '' };
+  }
+
+  return message.content?.trim() ? message : undefined;
+};
 
 const summaryPrompt =
   "Summarize the conversation so far. Preserve the user's goals, every decision made, the paths of files read or changed, and any work still outstanding. Write it as notes for yourself, not as a reply to the user.";
 
 export const makeThinker = () => {
-  const systemPrompt = loadSystemPrompt();
+  const systemPrompt = buildSystemPrompt();
   const tokenizer = makeTokenizer();
   const toolDefs = tools.map((tool) => tool.definition);
   const toolNames = toolDefs.map((toolDef) => toolDef.function.name).join(', ');
@@ -33,7 +64,9 @@ export const makeThinker = () => {
     messages: 0,
     system: 0,
     tools: 0,
-    total: 0
+    total: 0,
+    // until ollama has answered once, every number here is a tokenizer estimate
+    measured: false
   };
   let turnCount = 0;
   let aborted = false;
@@ -78,6 +111,28 @@ export const makeThinker = () => {
     }
 
     return tokens.messages;
+  };
+
+  // ollama counts the prompt it actually rendered - chat template scaffolding,
+  // tool schemas, special tokens and all - which is the number it compares
+  // against num_ctx before it decides to truncate. our own figure is a
+  // tokenizer's guess at the same thing, and the tokenizer may not even be the
+  // model's, so once the server has spoken believe it over the estimate
+  const reconcile = (promptTokens: number, messagesAtSend: number) => {
+    // the count describes the prompt as it was sent, so whatever the turn
+    // appended afterwards - the reply and its tool results - is still estimated
+    const appendedSinceSend = tokens.messages - messagesAtSend;
+    const grounded = promptTokens + appendedSinceSend;
+    const drift = grounded - tokens.total;
+
+    if (drift) {
+      log.debug(
+        `Corrected the context estimate by ${drift} token(s) - ollama counted ${promptTokens} in the prompt`
+      );
+    }
+
+    tokens.total = grounded;
+    tokens.measured = true;
   };
 
   log.debug(`Loaded ${tools.length} tools`);
@@ -134,8 +189,16 @@ export const makeThinker = () => {
 
     const assistantMessage: Message = { role: 'assistant', content: '' };
     let wroteOutput = false;
+    let wroteThinking = false;
     let lastChunk;
 
+    // counting before the call rather than only after it gives reconcile() a
+    // baseline that covers exactly the messages ollama is about to be shown
+    for (const message of messages) {
+      countMessage(message);
+    }
+
+    const messagesAtSend = tokens.messages;
     const stopWatching = watchForInterrupt(abort);
 
     // the request itself is inside the try too - a failed connection, or an
@@ -146,6 +209,7 @@ export const makeThinker = () => {
         messages,
         tools: toolDefs,
         stream: true,
+        think: resolveThink(),
         keep_alive: ollama.keepAlive,
         // without this ollama falls back to the model default - often 4096 -
         // and silently truncates the prompt, dropping messages the model needs
@@ -160,8 +224,29 @@ export const makeThinker = () => {
       for await (const chunk of stream) {
         lastChunk = chunk;
 
+        // reasoning arrives in its own field when the model separates it, and
+        // is deliberately not kept: it describes how this one answer was
+        // reached, and re-sending it on every later turn buys nothing
+        if (chunk.message?.thinking) {
+          clearHint();
+
+          if (!wroteThinking) {
+            process.stdout.write(chalk.dim('thinking\n'));
+            wroteThinking = true;
+          }
+
+          process.stdout.write(chalk.dim(chunk.message.thinking));
+        }
+
         if (chunk.message?.content) {
           clearHint();
+
+          // put the answer on its own, rather than running it straight on from
+          // the reasoning that led to it
+          if (wroteThinking && !wroteOutput) {
+            process.stdout.write('\n\n');
+          }
+
           process.stdout.write(chalk.blue(chunk.message.content));
 
           assistantMessage.content += chunk.message.content;
@@ -188,7 +273,9 @@ export const makeThinker = () => {
       clearHint();
     }
 
-    if (wroteOutput) {
+    // a turn that only reasoned before calling a tool still has to close the
+    // line it was writing on
+    if (wroteOutput || wroteThinking) {
       process.stdout.write('\n\n');
     }
 
@@ -212,7 +299,15 @@ export const makeThinker = () => {
     }
 
     // append message before tool results
-    messages.push(assistantMessage);
+    const replay = replayable(assistantMessage, ollama.replayPreamble);
+
+    if (replay) {
+      messages.push(replay);
+    } else {
+      // nothing was streamed either, so the round would otherwise end without
+      // a single character to explain why
+      log.warn(chalk.red('The model returned an empty response'));
+    }
 
     // execute and append tool call results, if any
     for (const toolCall of assistantMessage.tool_calls ?? []) {
@@ -270,6 +365,10 @@ export const makeThinker = () => {
 
     log.debug(`Context grew by ${tokenCount} tokens`);
 
+    if (lastChunk?.prompt_eval_count) {
+      reconcile(lastChunk.prompt_eval_count, messagesAtSend);
+    }
+
     // the final chunk carries an empty message, but callers expect the response
     // to hold what the model actually said - including any tool calls
     if (lastChunk) {
@@ -282,19 +381,55 @@ export const makeThinker = () => {
     };
   };
 
+  // the cheapest tier: a long run fills its window with tool output - files
+  // read, commands run - and dropping the oldest of it costs nothing but the
+  // text itself. the message stays where it is so that call and result remain
+  // paired and the conversation stays well formed
+  const elideToolResults = (messages: Message[], target: number) => {
+    const calls = pairCalls(messages);
+    const startedAt = tokens.total;
+    let projected = tokens.total;
+    let count = 0;
+
+    for (const [index, message] of messages.entries()) {
+      if (projected <= target) {
+        break;
+      }
+
+      if (message.role !== 'tool' || !message.content || isElided(message)) {
+        continue;
+      }
+
+      const was = measure(message);
+
+      message.content = describeElision(
+        message.content,
+        message.tool_name,
+        calls.get(index)
+      );
+      projected -= was - measure(message);
+      count++;
+    }
+
+    if (!count) {
+      return 0;
+    }
+
+    // the contents changed underneath the per-message cache, so the counts
+    // have to be rebuilt before any of them are trusted again
+    recount(messages);
+    log.debug(`Elided ${count} tool result(s)`);
+
+    return startedAt - tokens.total;
+  };
+
   // replace the older part of the conversation with a summary of it, so a long
   // session degrades into notes rather than reaching num_ctx and being silently
   // truncated by ollama
-  const compact = async (messages: Message[]) => {
-    // measure the array we were handed rather than trusting the running total.
-    // it is the only baseline guaranteed to describe these exact messages, and
-    // comparing against a stale one makes the check below fire at random
-    const before = recount(messages);
+  const summarize = async (messages: Message[], before: number) => {
     // cutting mid-turn would orphan a tool result from the call that produced
-    // it, so split on the last user message - everything from there is intact
-    const splitAt = messages.findLastIndex(
-      (message) => message.role === 'user'
-    );
+    // it, so the split has to land where nothing straddles it
+    const splitAt = findSplit(messages);
 
     if (splitAt < 1) {
       return { messages, freed: 0 };
@@ -338,12 +473,48 @@ export const makeThinker = () => {
     return { messages: compacted, freed: before - tokens.messages };
   };
 
+  // cheapest first: drop old tool output, and only pay for a summarization
+  // call if that was not enough. either tier freeing something is what keeps
+  // the caller from deciding that nothing can be done
+  const compact = async (messages: Message[]) => {
+    // measure the array we were handed rather than trusting the running total.
+    // it is the only baseline guaranteed to describe these exact messages
+    recount(messages);
+
+    const target = Math.floor(ollama.contextLimit * compactTarget);
+    const before = tokens.total;
+    const elided = elideToolResults(messages, target);
+
+    if (tokens.total <= target) {
+      return { messages, freed: elided };
+    }
+
+    // measured against the messages as they stand now, which is what the
+    // summary will be compared with
+    const summarized = await summarize(messages, tokens.messages);
+
+    return {
+      messages: summarized.messages,
+      // a summary that came back no smaller still leaves whatever tier one
+      // reclaimed, and that is real progress rather than a dead end
+      freed: summarized.freed ? before - tokens.total : elided
+    };
+  };
+
   // adopt a conversation that was not built by think() - a resumed session -
   // so the token stats describe the history the model is about to be sent
   const load = (messages: Message[]) => {
     turnCount = 0;
 
-    return recount(messages);
+    const counted = recount(messages);
+
+    // ollama has not seen this conversation, so the correction it gave for the
+    // last one does not describe this one - drop back to a self-consistent
+    // estimate and let the next turn measure it again
+    tokens.measured = false;
+    tokens.total = tokens.system + tokens.tools + tokens.messages;
+
+    return counted;
   };
 
   // drop the conversation from the running totals, leaving the system prompt
@@ -353,6 +524,10 @@ export const makeThinker = () => {
 
     recount([]);
     turnCount = 0;
+    // as in load(): nothing measured describes an empty conversation, so the
+    // total goes back to what the tokenizer says the fixed parts cost
+    tokens.measured = false;
+    tokens.total = tokens.system + tokens.tools;
 
     return freed;
   };

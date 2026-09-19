@@ -1,4 +1,4 @@
-import { ChildProcess, execFileSync, spawn } from 'node:child_process';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 
 import { shell } from './config';
 import { getLogger } from './logging';
@@ -26,7 +26,16 @@ export type Outcome = {
 
 type JobStatus = 'running' | 'exited' | 'killed' | 'failed';
 
-type Job = {
+// everything a job has produced that has not yet been dropped, plus how far
+// into it the model has already read. split out from Job so the trimming rule
+// below can be exercised without starting a process
+export type OutputBuffer = {
+  buffer: string;
+  cursor: number;
+  dropped: number;
+};
+
+type Job = OutputBuffer & {
   id: number;
   command: string;
   cwd: string;
@@ -35,11 +44,6 @@ type Job = {
   code?: number;
   error?: string;
   startedAt: number;
-  // everything the job has produced that has not yet been dropped, plus how
-  // far into it the model has already read
-  buffer: string;
-  cursor: number;
-  dropped: number;
 };
 
 const jobs = new Map<number, Job>();
@@ -67,26 +71,36 @@ const missing = (id: number) => {
 };
 
 // keep the tail rather than the head, and remember how much went, so the model
-// is never quietly shown a gap. the job is looked up rather than captured -
-// output starts arriving only after startJob has registered it
+// is never quietly shown a gap. the cursor moves back with the text it was
+// pointing into, so a read that follows a trim does not replay old output
+export const appendOutput = (
+  target: OutputBuffer,
+  chunk: string,
+  budget = commandOutputBudget
+) => {
+  target.buffer += chunk;
+
+  if (target.buffer.length <= budget) {
+    return target;
+  }
+
+  const excess = target.buffer.length - budget;
+
+  target.buffer = target.buffer.slice(excess);
+  target.dropped += excess;
+  target.cursor = Math.max(target.cursor - excess, 0);
+
+  return target;
+};
+
+// the job is looked up rather than captured - output starts arriving only
+// after startJob has registered it
 const record = (id: number, chunk: string) => {
   const job = jobs.get(id);
 
-  if (!job) {
-    return;
+  if (job) {
+    appendOutput(job, chunk);
   }
-
-  job.buffer += chunk;
-
-  if (job.buffer.length <= commandOutputBudget) {
-    return;
-  }
-
-  const excess = job.buffer.length - commandOutputBudget;
-
-  job.buffer = job.buffer.slice(excess);
-  job.dropped += excess;
-  job.cursor = Math.max(job.cursor - excess, 0);
 };
 
 export const startJob = (command: string, cwd: string) => {

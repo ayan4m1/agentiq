@@ -9,8 +9,15 @@ import {
 } from '@inquirer/core';
 
 import { getLogger } from './logging';
+import { yieldToUser } from './turn';
 import { approval as config } from './config';
-import { ApprovalMode, ApprovalResult } from '../types';
+import { isRemembered, remember } from './rules';
+import {
+  ApprovalAnswer,
+  ApprovalMode,
+  type ApprovalResult,
+  type ApprovalSubject
+} from '../types';
 
 const log = getLogger('approval');
 
@@ -58,65 +65,85 @@ type ApprovalRequest = {
   message: string;
 };
 
+// what a typed answer means. an empty line keeps the old default of no
+const answers: Record<string, ApprovalAnswer> = {
+  y: ApprovalAnswer.Once,
+  yes: ApprovalAnswer.Once,
+  a: ApprovalAnswer.Always,
+  always: ApprovalAnswer.Always,
+  s: ApprovalAnswer.Stop,
+  stop: ApprovalAnswer.Stop
+};
+
+const spoken: Record<ApprovalAnswer, string> = {
+  [ApprovalAnswer.Once]: 'Yes',
+  [ApprovalAnswer.Always]: 'Always',
+  [ApprovalAnswer.No]: 'No',
+  [ApprovalAnswer.Stop]: 'Stopped'
+};
+
 // @inquirer/confirm cannot be used here: its isTabKey is a bare name check, so
 // it swallows shift+tab to toggle yes/no and there is no way to hook the key
-const prompt = createPrompt<boolean, ApprovalRequest>(({ message }, done) => {
-  const [status, setStatus] = useState<Status>('idle');
-  const [value, setValue] = useState('');
-  const [mode, setCurrentMode] = useState(approval.mode);
+const prompt = createPrompt<ApprovalAnswer, ApprovalRequest>(
+  ({ message }, done) => {
+    const [status, setStatus] = useState<Status>('idle');
+    const [value, setValue] = useState('');
+    const [mode, setCurrentMode] = useState(approval.mode);
 
-  const finish = (answer: boolean) => {
-    setValue(answer ? 'Yes' : 'No');
-    setStatus('done');
-    done(answer);
-  };
+    const finish = (answer: ApprovalAnswer) => {
+      setValue(spoken[answer]);
+      setStatus('done');
+      done(answer);
+    };
 
-  useKeypress((key, rl) => {
-    if (status !== 'idle') {
-      return;
-    }
-
-    if (key.name === 'tab') {
-      // readline echoes the tab into the line buffer before we see the key, so
-      // strip it by rewriting the line as it stood beforehand
-      rl.clearLine(0);
-      rl.write(value);
-
-      if (!key.shift) {
+    useKeypress((key, rl) => {
+      if (status !== 'idle') {
         return;
       }
 
-      const next = cycleMode();
+      if (key.name === 'tab') {
+        // readline echoes the tab into the line buffer before we see the key, so
+        // strip it by rewriting the line as it stood beforehand
+        rl.clearLine(0);
+        rl.write(value);
 
-      setCurrentMode(next);
+        if (!key.shift) {
+          return;
+        }
 
-      // landing in auto means the user just said yes to everything, including
-      // the action they are being asked about right now
-      if (next === ApprovalMode.Auto) {
-        finish(true);
+        const next = cycleMode();
+
+        setCurrentMode(next);
+
+        // landing in auto means the user just said yes to everything, including
+        // the action they are being asked about right now
+        if (next === ApprovalMode.Auto) {
+          finish(ApprovalAnswer.Once);
+        }
+
+        return;
       }
 
-      return;
+      if (isEnterKey(key)) {
+        const typed = value.trim().toLowerCase();
+
+        finish(answers[typed] ?? ApprovalAnswer.No);
+
+        return;
+      }
+
+      setValue(rl.line);
+    });
+
+    if (status === 'done') {
+      return `${message} ${chalk.cyan(value)}`;
     }
 
-    if (isEnterKey(key)) {
-      const answer = value.trim().toLowerCase();
-
-      // nothing typed keeps the old default of no
-      finish('yes'.startsWith(answer) && answer !== '');
-
-      return;
-    }
-
-    setValue(rl.line);
-  });
-
-  if (status === 'done') {
-    return `${message} ${chalk.cyan(value)}`;
+    return `${message} ${badges[mode]} ${chalk.dim(
+      '(y)es / (N)o / (a)lways / (s)top'
+    )} ${value}`;
   }
-
-  return `${message} ${badges[mode]} ${chalk.dim('(y/N)')} ${value}`;
-});
+);
 
 // asked once after every refusal, so no tool has to remember to do it. a bare
 // no leaves the model guessing and it tends to retry the identical call
@@ -146,20 +173,48 @@ export const refusePlanning = (subject: string) => {
   return `Plan mode is active, so ${subject}. Use the present_plan tool to propose an approach and ask to start work.`;
 };
 
-// approved means go ahead. auto answers itself; manual asks, and collects a
-// reason when the answer is no. plan never reaches here - mutating tools refuse
+// approved means go ahead. auto answers itself, a remembered answer answers
+// itself, and manual asks. plan never reaches here - mutating tools refuse
 // before they have anything to confirm
 export const requestApproval = async (
-  message: string
+  message: string,
+  subject?: ApprovalSubject
 ): Promise<ApprovalResult> => {
   if (approval.mode === ApprovalMode.Auto) {
     return { approved: true };
   }
 
+  // an answer given earlier about this exact command or path stands until the
+  // rules file says otherwise, which is what keeps a long task from asking
+  // about the same test command twenty times
+  if (subject && isRemembered(subject.kind, subject.value)) {
+    log.debug(`Remembered approval for ${subject.kind} ${subject.value}`);
+
+    return { approved: true };
+  }
+
   // shift+tab out of the prompt and into auto counts as a yes, so this covers
   // that path too
-  if (await prompt({ message })) {
+  const answer = await prompt({ message });
+
+  if (answer === ApprovalAnswer.Always) {
+    if (subject) {
+      remember(subject.kind, subject.value);
+    }
+
     return { approved: true };
+  }
+
+  if (answer === ApprovalAnswer.Once) {
+    return { approved: true };
+  }
+
+  if (answer === ApprovalAnswer.Stop) {
+    // the run loop hands the keyboard back rather than letting the model try
+    // again with a slightly different call
+    yieldToUser();
+
+    return { approved: false, stopped: true };
   }
 
   return { approved: false, reason: await askReason() };

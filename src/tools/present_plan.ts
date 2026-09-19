@@ -30,11 +30,13 @@ type Args = {
   steps: string[];
 };
 
-enum Answer {
-  Auto = 'auto',
-  Manual = 'manual',
-  Keep = 'keep'
-}
+const Answer = {
+  Auto: 'auto',
+  Manual: 'manual',
+  Keep: 'keep'
+} as const;
+
+type Answer = (typeof Answer)[keyof typeof Answer];
 
 const renderPlan = ({ title, steps }: Args) => {
   console.log(`\n${chalk.cyan.bold(title)}\n`);

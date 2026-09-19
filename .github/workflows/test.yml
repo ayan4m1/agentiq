@@ -1,0 +1,22 @@
+name: Lint and test
+on:
+  push:
+    branches: ['main']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: corepack enable
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+      - run: yarn install --immutable
+      - run: yarn lint
+      - run: yarn test
+      # the tests run against the sources, so a build that no longer succeeds
+      # would otherwise only be noticed at publish time
+      - run: yarn build

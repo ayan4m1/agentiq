@@ -36,7 +36,8 @@ export const handler = async ({ command, cwd }: Args) => {
   }
 
   const { approved, reason } = await requestApproval(
-    `OK to run command "${command}"?`
+    `OK to run command "${command}"?`,
+    { kind: 'command', value: command }
   );
 
   if (!approved) {
