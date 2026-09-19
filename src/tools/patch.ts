@@ -1,5 +1,3 @@
-import chalk from 'chalk';
-import { structuredPatch } from 'diff';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { record } from '../modules/checkpoints';
@@ -9,7 +7,7 @@ import {
   refusePlanning,
   requestApproval
 } from '../modules/approval';
-import { makeParameter, makeTool } from '../utils';
+import { makeParameter, makeTool, renderDiff } from '../utils';
 
 const log = getLogger('patch');
 
@@ -114,32 +112,6 @@ export const collectEdits = ({
   }
 
   return [{ oldText, newText, replaceAll: replaceAll === true }];
-};
-
-// the whole file on a colored background buries the change it is meant to show,
-// so render only the hunks the patch actually touches
-const renderDiff = (path: string, before: string, after: string) => {
-  const { hunks } = structuredPatch(path, path, before, after, '', '', {
-    context: 3
-  });
-
-  for (const hunk of hunks) {
-    console.log(
-      chalk.cyan(
-        `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`
-      )
-    );
-
-    for (const line of hunk.lines) {
-      if (line.startsWith('+')) {
-        console.log(chalk.green(line));
-      } else if (line.startsWith('-')) {
-        console.log(chalk.red(line));
-      } else {
-        console.log(chalk.dim(line));
-      }
-    }
-  }
 };
 
 // applies every edit to the text in memory, refusing the whole batch the

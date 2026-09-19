@@ -6,6 +6,7 @@ import { client } from './client';
 import { ollama } from './config';
 import { describeElision, findSplit, isElided, pairCalls } from './compaction';
 import { getLogger } from './logging';
+import { describeRoadmap } from './roadmap';
 import { makeTokenizer } from './tokenizer';
 import { validateArgs } from './validate';
 import { buildSystemPrompt } from './prompt';
@@ -56,6 +57,11 @@ const summaryPrompt =
   "Summarize the conversation so far. Preserve the user's goals, every decision made, the paths of files read or changed, and any work still outstanding. Write it as notes for yourself, not as a reply to the user.";
 
 export const makeThinker = () => {
+  // AGENTIQ.md is how the project instructs the model; the roadmap is what the
+  // project has been doing. both are standing context, so they arrive together,
+  // and composing here rather than per turn is what lets the token accounting
+  // below count it once.
+  const roadmap = describeRoadmap();
   let systemPrompt = buildSystemPrompt();
   let tokenizer = makeTokenizer();
   const toolDefs = tools.map((tool) => tool.definition);

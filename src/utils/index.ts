@@ -1,5 +1,7 @@
 import type { Tool } from 'ollama';
+import chalk from 'chalk';
 import { filesize } from 'filesize';
+import { structuredPatch } from 'diff';
 
 import type { ToolParameter } from '../types';
 import { ollama } from '../modules/config';
@@ -126,4 +128,32 @@ export const serializeResult = (result: unknown): string => {
   }
 
   return typeof result === 'string' ? result : JSON.stringify(result);
+};
+
+// the whole file on a colored background buries the change it is meant to show,
+// so render only the hunks that were actually touched. shared rather than
+// private to the patch tool because the roadmap tools write without asking, so
+// this diff is the only account the user gets of what changed
+export const renderDiff = (path: string, before: string, after: string) => {
+  const { hunks } = structuredPatch(path, path, before, after, '', '', {
+    context: 3
+  });
+
+  for (const hunk of hunks) {
+    console.log(
+      chalk.cyan(
+        `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`
+      )
+    );
+
+    for (const line of hunk.lines) {
+      if (line.startsWith('+')) {
+        console.log(chalk.green(line));
+      } else if (line.startsWith('-')) {
+        console.log(chalk.red(line));
+      } else {
+        console.log(chalk.dim(line));
+      }
+    }
+  }
 };
