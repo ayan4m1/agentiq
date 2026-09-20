@@ -117,6 +117,19 @@ export const createController = ({
     thinker.load(messages);
     rememberPrompts?.(typedPrompts(messages));
 
+    const lastResponse = messages.findLast(
+      (message) => message.role === 'assistant'
+    );
+
+    // print out last response to establish context with user
+    if (lastResponse) {
+      log.info(
+        lastResponse.thinking
+          ? chalk.blue(lastResponse.thinking)
+          : chalk.dim(lastResponse.content)
+      );
+    }
+
     log.info(
       chalk.green(
         `Resumed ${messages.length} message(s) using ${thinker.tokens.messages} tokens`
