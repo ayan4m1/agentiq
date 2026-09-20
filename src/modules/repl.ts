@@ -117,6 +117,12 @@ export const createController = ({
     thinker.load(messages);
     rememberPrompts?.(typedPrompts(messages));
 
+    log.info(
+      chalk.green(
+        `Resumed ${messages.length} message(s) using ${thinker.tokens.messages} tokens`
+      )
+    );
+
     const lastResponse = messages.findLast(
       (message) => message.role === 'assistant'
     );
@@ -129,12 +135,6 @@ export const createController = ({
           : chalk.dim(lastResponse.content)
       );
     }
-
-    log.info(
-      chalk.green(
-        `Resumed ${messages.length} message(s) using ${thinker.tokens.messages} tokens`
-      )
-    );
 
     return true;
   };
