@@ -100,6 +100,9 @@ export type OllamaConfig = {
 export type SessionConfig = {
   // how many saved sessions survive the prune at startup - 0 keeps them all
   limit: number;
+  // how many of a resumed session's prompts the up arrow reaches back through -
+  // 0 seeds them all
+  historyLimit: number;
 };
 
 export type TokenizerConfig = {
@@ -132,6 +135,15 @@ export type Validation = {
   ok: boolean;
   args?: Record<string, unknown>;
   message?: string;
+};
+
+// ollama's Message plus what agentiq needs to remember about one of its own.
+// the extra field rides along into the session file, so a resumed conversation
+// still knows which of its user messages the agent wrote for itself
+export type AgentMessage = Message & {
+  // set by compaction, so nothing downstream has to recognise its notes by
+  // what they happen to say
+  summary?: boolean;
 };
 
 export type ThoughtState = {

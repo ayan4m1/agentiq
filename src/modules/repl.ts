@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { select } from '@inquirer/prompts';
 
-import { ollama } from './config';
+import { ollama, session } from './config';
 import { getLogger } from './logging';
 import { cycleMode } from './approval';
 import { changes, undo } from './checkpoints';
@@ -14,7 +14,7 @@ import {
 } from './session';
 import { takeYield } from './turn';
 import type { makeThinker } from './ollama';
-import type { ThoughtState } from '../types';
+import type { AgentMessage, ThoughtState } from '../types';
 import { describeAge, describeError } from '../utils';
 
 // the label stays that of the command it was lifted out of, so the log reads
@@ -51,11 +51,37 @@ type ControllerOptions = {
   thinker: Thinker;
   // the context size past which the history is compacted after a turn
   compactAt: number;
+  // handed everything the user typed in a session that was just restored, so
+  // the prompt they type into next can offer it back. the prompt itself is the
+  // caller's business - this module never touches it
+  rememberPrompts?: (prompts: string[]) => void;
+};
+
+// what the user typed, oldest first - so the last thing they said is one press
+// away. tool output and the notes compaction flags as its own are not prompts,
+// and a multi-line one cannot be recalled into readline's single-line buffer
+// without corrupting the display, so it is dropped rather than truncated
+const typedPrompts = (messages: AgentMessage[]) => {
+  const prompts = messages
+    .filter(
+      ({ role, content, summary }) =>
+        role === 'user' && content.trim() && !summary && !content.includes('\n')
+    )
+    .map(({ content }) => content);
+  const { historyLimit } = session;
+
+  return Number.isFinite(historyLimit) && historyLimit > 0
+    ? prompts.slice(-historyLimit)
+    : prompts;
 };
 
 // everything the run loop keeps between turns, and everything it does to it -
 // the loop itself is only the prompt, and the prompt cannot be tested
-export const createController = ({ thinker, compactAt }: ControllerOptions) => {
+export const createController = ({
+  thinker,
+  compactAt,
+  rememberPrompts
+}: ControllerOptions) => {
   let nextThought: ThoughtState = {
     messages: []
   };
@@ -89,6 +115,7 @@ export const createController = ({ thinker, compactAt }: ControllerOptions) => {
     needsUserInput = true;
     compactionStalled = false;
     thinker.load(messages);
+    rememberPrompts?.(typedPrompts(messages));
 
     log.info(
       chalk.green(

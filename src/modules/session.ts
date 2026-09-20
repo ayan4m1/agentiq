@@ -1,4 +1,3 @@
-import type { Message } from 'ollama';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -14,6 +13,7 @@ import {
 
 import { home, ollama, session as config } from './config';
 import { getLogger } from './logging';
+import type { AgentMessage } from '../types';
 import { describeError, slugFor } from '../utils';
 
 const log = getLogger('session');
@@ -35,7 +35,7 @@ type Meta = {
 // one JSON object per line: the meta record first, then a record per message
 type SessionRecord = {
   type: string;
-  message?: Message;
+  message?: AgentMessage;
 };
 
 export type SessionSummary = {
@@ -49,7 +49,7 @@ let meta: Meta;
 let activePath: string;
 // messages already on disk, tracked the same way modules/ollama.ts tracks the
 // ones it has already counted
-let persisted = new WeakSet<Message>();
+let persisted = new WeakSet<AgentMessage>();
 
 const pathFor = (id: string) => resolve(sessionDir, `${id}${extension}`);
 
@@ -62,7 +62,7 @@ const encode = (record: Meta | SessionRecord) => `${JSON.stringify(record)}\n`;
 // would resume a stale copy of a file that may since have changed. leaving it
 // out also means a restored history starts on a user message, which is what
 // think() expects before it prepends the current prompt
-const persistable = (messages: Message[]) =>
+const persistable = (messages: AgentMessage[]) =>
   messages.filter((message) => message.role !== 'system');
 
 // the file is created by the first message rather than at startup, so a session
@@ -90,14 +90,14 @@ export const startSession = () => {
     cwd
   };
   activePath = pathFor(id);
-  persisted = new WeakSet<Message>();
+  persisted = new WeakSet<AgentMessage>();
 
   return id;
 };
 
 // appends whatever is not on disk yet. a failure here must not cost the turn -
 // losing the transcript is bad, losing the conversation is worse
-export const append = (messages: Message[]) => {
+export const append = (messages: AgentMessage[]) => {
   const fresh = persistable(messages).filter(
     (message) => !persisted.has(message)
   );
@@ -123,7 +123,7 @@ export const append = (messages: Message[]) => {
 
 // compaction replaces the message objects outright, so there is nothing to
 // append to - the file has to be written again from what is left
-export const rewrite = (messages: Message[]) => {
+export const rewrite = (messages: AgentMessage[]) => {
   const kept = persistable(messages);
 
   try {
@@ -136,7 +136,7 @@ export const rewrite = (messages: Message[]) => {
       ].join('')
     );
 
-    persisted = new WeakSet<Message>();
+    persisted = new WeakSet<AgentMessage>();
 
     for (const message of kept) {
       persisted.add(message);
@@ -275,7 +275,7 @@ export const loadSession = (id: string) => {
   const found = records.find((record) => record.type === 'meta') as Meta;
   const messages = records
     .filter((record) => record.type === 'message' && record.message)
-    .map((record) => record.message as Message);
+    .map((record) => record.message as AgentMessage);
 
   meta = found ?? {
     type: 'meta',
@@ -285,7 +285,7 @@ export const loadSession = (id: string) => {
     cwd: process.cwd()
   };
   activePath = path;
-  persisted = new WeakSet<Message>();
+  persisted = new WeakSet<AgentMessage>();
 
   for (const message of messages) {
     persisted.add(message);

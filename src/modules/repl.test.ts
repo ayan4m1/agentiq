@@ -16,6 +16,10 @@ const original = process.cwd();
 let projects = 0;
 
 process.env.AQ_HOME = resolve(root, 'home');
+// the cap is read as the config module is evaluated, so it has to be set here
+// too. a small one keeps the test that checks it short, and every other test
+// stays well under it
+process.env.AQ_HISTORY_LIMIT = '3';
 
 // /resume picks from a list in the terminal, so it picks what the test says to
 const select =
@@ -62,9 +66,19 @@ const makeThinker = () => ({
 
 let thinker: ReturnType<typeof makeThinker>;
 
-const make = (compactAt = 1000) =>
+const make = (
+  compactAt = 1000,
+  rememberPrompts?: (prompts: string[]) => void
+) =>
   // the fake covers what the controller uses, not every field of a thinker
-  createController({ thinker: thinker as never, compactAt });
+  createController({ thinker: thinker as never, compactAt, rememberPrompts });
+
+// what a restore handed to the prompt, for the tests that care
+const seeded = () => {
+  const remember = mock.fn<(prompts: string[]) => void>();
+
+  return { remember, prompts: () => remember.mock.calls[0]?.arguments[0] };
+};
 
 // the model's answer to the next turn, added to what it was sent
 const answers = (response: { message: object }) =>
@@ -326,6 +340,70 @@ describe('restore', () => {
     assert.equal(controller.restore(id), true);
     assert.equal(controller.messages[0].content, 'by id');
   });
+
+  test('offers back what the user typed, oldest first', () => {
+    append([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'reply' },
+      { role: 'tool', tool_name: 'read', content: 'file contents' },
+      { role: 'user', content: 'second' }
+    ]);
+
+    const { remember, prompts } = seeded();
+
+    assert.equal(make(1000, remember).restore(), true);
+    assert.deepEqual(prompts(), ['first', 'second']);
+  });
+
+  test('leaves out the notes compaction wrote', () => {
+    append([
+      { role: 'user', content: 'typed' },
+      // deliberately one line: a multi-line fixture would be dropped by the
+      // check below it, and this would pass without the flag being read at all
+      { role: 'user', content: 'what happened earlier', summary: true }
+    ]);
+
+    const { remember, prompts } = seeded();
+
+    assert.equal(make(1000, remember).restore(), true);
+    assert.deepEqual(prompts(), ['typed']);
+  });
+
+  test('leaves out blank and multi-line prompts', () => {
+    append([
+      { role: 'user', content: '   ' },
+      { role: 'user', content: 'pasted\nover two lines' },
+      { role: 'user', content: 'typed' }
+    ]);
+
+    const { remember, prompts } = seeded();
+
+    assert.equal(make(1000, remember).restore(), true);
+    assert.deepEqual(prompts(), ['typed']);
+  });
+
+  test('offers back only the most recent prompts', () => {
+    append(
+      ['oldest', 'older', 'newer', 'newest'].map((content) => ({
+        role: 'user',
+        content
+      }))
+    );
+
+    const { remember, prompts } = seeded();
+
+    assert.equal(make(1000, remember).restore(), true);
+    // AQ_HISTORY_LIMIT is 3 for this run
+    assert.deepEqual(prompts(), ['older', 'newer', 'newest']);
+  });
+
+  test('offers nothing back when there is nothing to resume', () => {
+    const { remember } = seeded();
+
+    assert.equal(make(1000, remember).restore(), false);
+    assert.equal(make(1000, remember).restore('no-such-session'), false);
+    assert.equal(remember.mock.callCount(), 0);
+  });
 });
 
 describe('commands', () => {
@@ -395,7 +473,8 @@ describe('commands', () => {
     append([{ role: 'user', content: 'chosen' }]);
     select.mock.mockImplementationOnce(async () => id);
 
-    const controller = make();
+    const { remember, prompts } = seeded();
+    const controller = make(1000, remember);
 
     await controller.runCommand(Command.Resume);
 
@@ -404,6 +483,8 @@ describe('commands', () => {
       [id]
     );
     assert.equal(controller.messages[0].content, 'chosen');
+    // the slash command reaches the prompt history the same way --resume does
+    assert.deepEqual(prompts(), ['chosen']);
   });
 
   test('keeps the conversation when /resume is cancelled', async () => {

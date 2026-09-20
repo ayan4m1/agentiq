@@ -140,7 +140,8 @@ export const ollama: OllamaConfig = {
 };
 
 export const session: SessionConfig = {
-  limit: parseInt(process.env.AQ_SESSION_LIMIT ?? '50', 10)
+  limit: parseInt(process.env.AQ_SESSION_LIMIT ?? '50', 10),
+  historyLimit: parseInt(process.env.AQ_HISTORY_LIMIT ?? '100', 10)
 };
 
 export const tokenizer: TokenizerConfig = {

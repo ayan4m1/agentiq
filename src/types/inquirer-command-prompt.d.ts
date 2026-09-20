@@ -12,6 +12,8 @@ declare module 'inquirer-command-prompt' {
   export default class CommandPrompt {
     constructor(question: unknown, readLine: unknown, answers: unknown);
 
+    static addToHistory(context: string, value: string): void;
+
     rl: { line: string; cursor: number };
     opt: { message: string };
 

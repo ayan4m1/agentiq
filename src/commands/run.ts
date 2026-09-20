@@ -85,9 +85,21 @@ class ModeCommandPrompt extends InquirerCommandPrompt {
 
 inquirer.registerPrompt('command', ModeCommandPrompt);
 
+// the library files history under a context key, and gives no way to move its
+// cursor back - so a resume starts a fresh key rather than emptying the old
+// one, which would leave the up arrow pointing off the end of it
+let historyGeneration = 0;
+let historyContext = `history-${historyGeneration}`;
+
 const controller = createController({
   thinker,
-  compactAt: ollama.contextLimit * compactThreshold
+  compactAt: ollama.contextLimit * compactThreshold,
+  rememberPrompts: (prompts) => {
+    historyContext = `history-${++historyGeneration}`;
+    prompts.forEach((prompt) =>
+      InquirerCommandPrompt.addToHistory(historyContext, prompt)
+    );
+  }
 });
 
 pruneSessions();
@@ -102,12 +114,14 @@ if (
 
 while (true) {
   if (controller.needsUserInput) {
-    //@ts-expect-error saveHistory must be a bool but inquirer doesn't allow that
+    //@ts-expect-error inquirer has a context of its own that means something
+    // else entirely, so its type rejects the history key the command prompt
+    // reads from here
     const { userMessage } = await inquirer.prompt({
       type: 'command',
       name: 'userMessage',
       message: renderPrompt(),
-      saveHistory: true
+      context: historyContext
     });
 
     if (userMessage.startsWith('/')) {

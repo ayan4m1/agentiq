@@ -11,7 +11,7 @@ import { validateArgs } from './validate';
 import { buildSystemPrompt } from './prompt';
 import { watchForInterrupt } from './interrupt';
 import { supportsThinking } from './preflight';
-import type { ThoughtState, TokenStats } from '../types';
+import type { AgentMessage, ThoughtState, TokenStats } from '../types';
 import { tools } from '../tools';
 import { describeError, serializeResult } from '../utils';
 
@@ -447,10 +447,11 @@ export const makeThinker = () => {
         num_ctx: ollama.contextLimit
       }
     });
-    const compacted: Message[] = [
+    const compacted: AgentMessage[] = [
       {
         role: 'user',
-        content: `Here are notes on everything that happened earlier in this conversation:\n\n${response.message.content}`
+        content: `Here are notes on everything that happened earlier in this conversation:\n\n${response.message.content}`,
+        summary: true
       },
       ...recent
     ];
