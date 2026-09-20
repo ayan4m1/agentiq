@@ -25,14 +25,16 @@ export const getLogger = (
       transports: [
         new Console({
           level: config.level,
-          format: combine(
-            label({ label: categoryLabel }),
-            prettyPrint(),
-            printf(
-              (data: CustomLogInfo) =>
-                `[${data.level}][${data.label}] ${data.message}`
-            )
-          )
+          format: config.detailed
+            ? combine(
+                label({ label: categoryLabel }),
+                prettyPrint(),
+                printf(
+                  (data: CustomLogInfo) =>
+                    `[${data.level}][${data.label}] ${data.message}`
+                )
+              )
+            : prettyPrint()
         })
       ]
     });

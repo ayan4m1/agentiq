@@ -107,7 +107,8 @@ export const toBoolean = (
 };
 
 export const logging: LoggingConfig = {
-  level: toLogLevel(process.env.AQ_LOG_LEVEL)
+  level: toLogLevel(process.env.AQ_LOG_LEVEL),
+  detailed: toBoolean(process.env.AQ_LOG_DETAILED, 'AQ_LOG_DETAILED')
 };
 
 // only the starting mode - shift+tab and present_plan move it at runtime, so
