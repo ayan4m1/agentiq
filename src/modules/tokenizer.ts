@@ -94,7 +94,7 @@ export const ensureTokenizer = async () => {
 
   if (!cacheDir) {
     log.warn(
-      'No tokenizer is configured - set AQ_HF_TOKENIZER_REPO to a huggingface.co repository, e.g. google/gemma-3-12b-it. Context will be estimated until ollama reports a count of its own'
+      'No tokenizer is configured - set AQ_HF_TOKENIZER_REPO to a huggingface.co repository, e.g. google/gemma-3-12b-it.'
     );
 
     return false;
@@ -119,9 +119,7 @@ export const ensureTokenizer = async () => {
   } catch (error) {
     // a gated repo, a typo, or no network - none of which should stop the
     // session before it has started
-    log.warn(
-      `Could not fetch the tokenizer: ${describeError(error)} - context will be estimated instead`
-    );
+    log.warn(`Could not fetch the tokenizer: ${describeError(error)}`);
 
     return false;
   }
@@ -147,9 +145,7 @@ export const makeTokenizer = () => {
     return (value: string) => tokenizer.encode(value).length;
   } catch (error) {
     // a half-written cache, or a tokenizer.json this loader cannot read
-    log.warn(
-      `Could not load the tokenizer: ${describeError(error)} - context will be estimated instead`
-    );
+    log.warn(`Could not load the tokenizer: ${describeError(error)}`);
 
     return estimateTokens;
   }
