@@ -5,7 +5,6 @@ import { logging as config } from './config';
 
 type CustomLogInfo = TransformableInfo & {
   label?: string;
-  timestamp?: string;
 };
 
 const { Console } = transports;
