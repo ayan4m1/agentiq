@@ -17,6 +17,7 @@ jobs:
       - run: yarn install --immutable
       - run: yarn lint
       - run: yarn test
+        timeout-minutes: 5
       # the tests run against the sources, so a build that no longer succeeds
       # would otherwise only be noticed at publish time
       - run: yarn build
