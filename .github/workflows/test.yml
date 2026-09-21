@@ -1,7 +1,5 @@
 name: Lint and test
 on:
-  push:
-    branches: ['main']
   pull_request:
 permissions:
   contents: read
