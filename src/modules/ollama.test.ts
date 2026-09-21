@@ -181,3 +181,56 @@ describe('compacting a conversation full of tool output', () => {
     assert.equal(again.freed, 0);
   });
 });
+
+describe('rebuilding around a model that was just switched to', () => {
+  const systemFirst = (): Message[] => [
+    { role: 'system', content: 'built for the model being left behind' },
+    { role: 'user', content: 'x'.repeat(400) },
+    { role: 'assistant', content: 'y'.repeat(400) }
+  ];
+
+  test('names the model it was rebuilt on', () => {
+    const thinker = makeThinker();
+    const messages = systemFirst();
+
+    ollama.model = 'a-completely-different-model';
+    thinker.rebuild(messages);
+
+    // think() prepends the prompt to the array the caller keeps, so the stale
+    // one is already in the conversation and would go on naming the old model
+    assert.equal(messages[0].role, 'system');
+    assert.match(String(messages[0].content), /a-completely-different-model/);
+  });
+
+  test('counts the conversation again without double counting it', () => {
+    const thinker = makeThinker();
+    const messages = systemFirst();
+
+    thinker.load(messages);
+
+    const { messages: before } = thinker.tokens;
+
+    thinker.rebuild(messages);
+
+    // the same messages measured by the same estimator - a rebuild that added
+    // to the running total instead of replacing it would double this
+    assert.equal(thinker.tokens.messages, before);
+    assert.equal(
+      thinker.tokens.total,
+      thinker.tokens.system + thinker.tokens.tools + thinker.tokens.messages
+    );
+  });
+
+  test('drops back to an estimate ollama has not corrected', () => {
+    const thinker = makeThinker();
+    const messages = systemFirst();
+
+    thinker.load(messages);
+    thinker.tokens.measured = true;
+    thinker.rebuild(messages);
+
+    // the count ollama gave described a prompt another model's template
+    // rendered, so it says nothing about what this one will be sent
+    assert.equal(thinker.tokens.measured, false);
+  });
+});

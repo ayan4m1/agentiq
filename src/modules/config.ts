@@ -127,7 +127,10 @@ export const shell: ShellConfig = {
 export const ollama: OllamaConfig = {
   bearerToken: process.env.AQ_OLLAMA_BEARER_TOKEN,
   host: process.env.AQ_OLLAMA_HOST,
-  model: process.env.AQ_OLLAMA_MODEL ?? '',
+  // filled in by modules/models.ts from ~/.agentiq/models.json. there is no env
+  // var for it: /model has to be able to change it mid-session, and a setting
+  // read from the environment could not be changed back by the same command
+  model: '',
   contextLimit: parseInt(process.env.AQ_OLLAMA_CONTEXT_LIMIT ?? '131072', 10),
   // ollama's own default is five minutes, which is short enough that a pause
   // to read something costs a full reload of the model on the next turn
@@ -146,7 +149,9 @@ export const session: SessionConfig = {
 };
 
 export const tokenizer: TokenizerConfig = {
-  repo: process.env.AQ_HF_TOKENIZER_REPO,
+  // set alongside ollama.model, from the same entry - the pair is chosen and
+  // stored together
+  repo: undefined,
   // HF_TOKEN is the name the huggingface CLI already writes, so honour it
   hfToken: process.env.AQ_HF_TOKEN || process.env.HF_TOKEN
 };

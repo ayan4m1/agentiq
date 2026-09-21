@@ -4,7 +4,17 @@ import { select } from '@inquirer/prompts';
 import { ollama, session } from './config';
 import { getLogger } from './logging';
 import { cycleMode } from './approval';
+import { preflight } from './preflight';
 import { changes, undo } from './checkpoints';
+import { ensureTokenizer } from './tokenizer';
+import {
+  applyEntry,
+  chooseEntry,
+  findEntry,
+  loadStore,
+  rememberEntry,
+  saveStore
+} from './models';
 import {
   append,
   listSessions,
@@ -28,6 +38,7 @@ export const systemColor = chalk.yellow;
 export const Command = {
   Context: 'context',
   Mode: 'mode',
+  Model: 'model',
   Compact: 'compact',
   Clear: 'clear',
   Reset: 'reset',
@@ -40,7 +51,7 @@ export const Command = {
 
 type Thinker = Pick<
   ReturnType<typeof makeThinker>,
-  'think' | 'load' | 'reset' | 'compact' | 'tokens' | 'turnCount'
+  'think' | 'load' | 'reset' | 'rebuild' | 'compact' | 'tokens' | 'turnCount'
 >;
 
 // how a turn gets to run - the command hands in its rate limiter, and a test
@@ -229,6 +240,50 @@ export const createController = ({
     }
   };
 
+  // switching mid-conversation rather than at startup: the history is kept and
+  // handed to the thinker to be counted again, since the tokenizer that
+  // measured it belonged to the model being left behind
+  const switchModel = async () => {
+    const previous = findEntry(loadStore(), ollama.model);
+    const entry = await chooseEntry();
+
+    if (!entry) {
+      return;
+    }
+
+    if (entry.model === ollama.model) {
+      log.info(systemColor(`Already using ${entry.model}`));
+
+      return;
+    }
+
+    rememberEntry(entry);
+    applyEntry(entry);
+
+    // the same checks a startup gets: a model that is not installed, or one
+    // that cannot call tools, is worth hearing about before the next turn
+    if (!(await preflight())) {
+      if (previous) {
+        applyEntry(previous);
+        // the store said this entry was the one to start on, and a switch that
+        // did not happen must not change that
+        saveStore({ ...loadStore(), active: previous.model });
+        log.warn(chalk.red(`Staying on ${previous.model}`));
+      }
+
+      return;
+    }
+
+    await ensureTokenizer();
+    thinker.rebuild(nextThought.messages);
+
+    log.info(
+      chalk.green(
+        `Switched to ${entry.model} using the ${entry.tokenizer} tokenizer - ${thinker.tokens.total} tokens`
+      )
+    );
+  };
+
   // a slash command, named without its slash. quitting is left to the caller,
   // which owns the process and what has to be cleaned up before it exits
   const runCommand = async (name: string) => {
@@ -238,6 +293,9 @@ export const createController = ({
         break;
       case Command.Mode:
         cycleMode();
+        break;
+      case Command.Model:
+        await switchModel();
         break;
       case Command.Compact:
         // an explicit request overrides an earlier stalled attempt

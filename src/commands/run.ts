@@ -10,6 +10,7 @@ import { discardCheckpoints } from '../modules/checkpoints';
 import { compactThreshold, makeThinker } from '../modules/ollama';
 import { preflight } from '../modules/preflight';
 import { ensureTokenizer } from '../modules/tokenizer';
+import { resolveStartupEntry } from '../modules/models';
 import { cycleMode, describeMode } from '../modules/approval';
 import { pruneSessions, startSession } from '../modules/session';
 import { Command, createController, systemColor } from '../modules/repl';
@@ -24,6 +25,13 @@ const { resume } = program
   .option('--resume [id]', 'resume the most recent session, or one by id')
   .parse(process.argv)
   .opts();
+
+// which model, and which tokenizer goes with it, comes from ~/.agentiq/models.json
+// rather than the environment - so it has to be read before anything asks the
+// config what it is talking to. a first run has nothing saved and asks
+if (!(await resolveStartupEntry())) {
+  process.exit(1);
+}
 
 // a missing model or an unreachable host is worth saying now rather than
 // after the user has typed their first message - and before the tokenizer

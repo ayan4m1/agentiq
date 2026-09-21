@@ -16,9 +16,24 @@ const capabilities = new Set<string>();
 export const supportsThinking = () => capabilities.has('thinking');
 
 // only the two calls this needs, so a test can stand in for the server
-type Api = {
+export type Api = {
   list: () => Promise<ListResponse>;
   show: (request: { model: string }) => Promise<ShowResponse>;
+};
+
+// what the server has, or undefined when it could not be asked. modules/models.ts
+// needs the same list to offer a choice of model, and an unreachable host is the
+// same problem said the same way wherever it is noticed
+export const listModels = async (api: Api = client) => {
+  try {
+    return (await api.list()).models;
+  } catch (error) {
+    log.error(
+      chalk.red(
+        `Could not reach ollama at ${ollama.host ?? 'its default address'} - ${describeError(error)}`
+      )
+    );
+  }
 };
 
 // ollama stores every model under an explicit tag, and resolves a bare name to
@@ -140,26 +155,18 @@ const inspect = async (api: Api) => {
 // there otherwise surfaces as a failed turn, after the user has typed
 // something and waited for it
 export const preflight = async (api: Api = client) => {
-  let installed: ListResponse['models'];
-
   // whatever was learned about a previous model says nothing about this one,
   // and a run that gets no further must not leave the old answer standing
   capabilities.clear();
 
-  try {
-    installed = (await api.list()).models;
-  } catch (error) {
-    log.error(
-      chalk.red(
-        `Could not reach ollama at ${ollama.host ?? 'its default address'} - ${describeError(error)}`
-      )
-    );
+  const installed = await listModels(api);
 
+  if (!installed) {
     return false;
   }
 
   if (!ollama.model) {
-    log.error(chalk.red('No model is configured - set AQ_OLLAMA_MODEL'));
+    log.error(chalk.red('No model is configured - use /model to choose one'));
     listInstalled(installed);
 
     return false;

@@ -11,6 +11,8 @@ general instructions about how to be an agent.
   the loop that keeps taking turns while the model is still calling tools.
 - `src/modules/ollama.ts` - `makeThinker()`, which owns the streaming chat call,
   tool dispatch, token accounting, and compaction.
+- `src/modules/models.ts` - the model/tokenizer pairs in `~/.agentiq/models.json`,
+  and the prompting `/model` does to add or switch between them.
 - `src/modules/` - one concern per file: approval modes, session persistence,
   background jobs, tokenizer caching, argument validation, the system prompt.
 - `src/tools/` - one tool per file, each exporting a `definition` built with

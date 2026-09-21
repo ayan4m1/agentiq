@@ -22,8 +22,7 @@ const run = (...args: string[]) =>
       ...process.env,
       AQ_HOME: resolve(root, 'home'),
       // nothing listens on port 1, so the connection is refused straight away
-      AQ_OLLAMA_HOST: 'http://127.0.0.1:1',
-      AQ_OLLAMA_MODEL: 'test-model'
+      AQ_OLLAMA_HOST: 'http://127.0.0.1:1'
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 30000
@@ -37,7 +36,7 @@ describe('run', () => {
     assert.match(stdout, /--resume \[id\]/);
   });
 
-  test('stops before starting a session when ollama cannot be reached', () => {
+  test('stops before asking which model when ollama cannot be reached', () => {
     const { status, stdout, stderr } = run();
 
     assert.equal(status, 1);

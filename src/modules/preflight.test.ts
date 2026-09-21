@@ -10,6 +10,13 @@ import {
   supportsThinking
 } from './preflight';
 
+// the model is no longer read from the environment - modules/models.ts sets it
+// from the saved store - so these tests say which one they are checking against
+// rather than inheriting whatever a developer's .env happened to name. it is
+// deliberately untagged, so the implicit-latest case below has something to
+// match against
+ollama.model = 'test-model';
+
 // winston writes straight to the streams, and these tests deliberately drive
 // the paths that report a problem
 const quietly = async <T>(work: () => Promise<T>) => {
@@ -153,16 +160,28 @@ describe('preflight', () => {
   });
 
   test('matches an installed model by its implicit latest tag', async () => {
-    const bare = ollama.model.split(':')[0];
     const result = await quietly(() =>
       preflight({
-        list: () => Promise.resolve(named(`${bare}:latest`)),
+        list: () => Promise.resolve(named(`${ollama.model}:latest`)),
         show: () => Promise.resolve(showing({}))
       })
     );
 
-    // only meaningful when the configured model has no tag of its own
-    assert.equal(result, ollama.model.includes(':') ? false : true);
+    assert.equal(result, true);
+  });
+
+  test('fails when no model has been chosen', async () => {
+    // /model has not been run and the store is empty - the session cannot
+    // start, and the list of what is installed is the most useful answer
+    const chosen = ollama.model;
+
+    ollama.model = '';
+
+    try {
+      assert.equal(await quietly(() => preflight(api({}))), false);
+    } finally {
+      ollama.model = chosen;
+    }
   });
 
   test('still starts when the model cannot call tools', async () => {

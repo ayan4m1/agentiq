@@ -56,8 +56,8 @@ const summaryPrompt =
   "Summarize the conversation so far. Preserve the user's goals, every decision made, the paths of files read or changed, and any work still outstanding. Write it as notes for yourself, not as a reply to the user.";
 
 export const makeThinker = () => {
-  const systemPrompt = buildSystemPrompt();
-  const tokenizer = makeTokenizer();
+  let systemPrompt = buildSystemPrompt();
+  let tokenizer = makeTokenizer();
   const toolDefs = tools.map((tool) => tool.definition);
   const toolNames = toolDefs.map((toolDef) => toolDef.function.name).join(', ');
   const tokens: TokenStats = {
@@ -135,28 +135,38 @@ export const makeThinker = () => {
     tokens.measured = true;
   };
 
+  // what every turn pays before a single message is sent. it is counted here
+  // rather than inline so that rebuild() can count it again with a different
+  // tokenizer and the two can never disagree about what they measured
+  const countFixed = () => {
+    tokens.system = 0;
+    tokens.tools = 0;
+
+    if (systemPrompt) {
+      const sysPromptCost = tokenizer(systemPrompt);
+
+      log.debug(`System prompt will consume ${sysPromptCost} tokens`);
+
+      tokens.system = sysPromptCost;
+    }
+
+    for (const tool of tools) {
+      const toolCost = tokenizer(JSON.stringify(tool.definition));
+
+      log.debug(
+        `Definition for ${tool.definition.function.name} will consume ${toolCost} tokens`
+      );
+
+      tokens.tools += toolCost;
+    }
+
+    tokens.total = tokens.system + tokens.tools + tokens.messages;
+  };
+
   log.debug(`Loaded ${tools.length} tools`);
   log.debug(`Context limit is ${ollama.contextLimit} tokens`);
 
-  if (systemPrompt) {
-    const sysPromptCost = tokenizer(systemPrompt);
-
-    log.debug(`System prompt will consume ${sysPromptCost} tokens`);
-
-    tokens.system += sysPromptCost;
-    tokens.total += sysPromptCost;
-  }
-
-  for (const tool of tools) {
-    const toolCost = tokenizer(JSON.stringify(tool.definition));
-
-    log.debug(
-      `Definition for ${tool.definition.function.name} will consume ${toolCost} tokens`
-    );
-
-    tokens.tools += toolCost;
-    tokens.total += toolCost;
-  }
+  countFixed();
 
   const think = async (lastState: ThoughtState): Promise<ThoughtState> => {
     let messages: Message[] = [...lastState.messages];
@@ -533,6 +543,33 @@ export const makeThinker = () => {
     return freed;
   };
 
+  // the model changed under us - /model switched to another one. the prompt
+  // names the model and the tokenizer belongs to it, so both are built again
+  // and everything they measured is counted again from scratch
+  const rebuild = (messages: Message[]) => {
+    tokenizer = makeTokenizer();
+    systemPrompt = buildSystemPrompt();
+
+    // think() prepends the prompt to the array it returns, and the caller keeps
+    // that array - so the old one is already in the conversation and would go
+    // on naming the model that was replaced for the rest of the session
+    if (messages[0]?.role === 'system') {
+      if (systemPrompt) {
+        messages[0] = { role: 'system', content: systemPrompt };
+      } else {
+        messages.shift();
+      }
+    }
+
+    recount(messages);
+    countFixed();
+    // the count ollama gave described a prompt rendered by another model with
+    // another template, so it says nothing about what this one will be sent
+    tokens.measured = false;
+
+    return tokens.total;
+  };
+
   // only meaningful mid-turn: escape during generation cancels the in-flight
   // stream so think() can roll the turn back, leaving the conversation intact
   const abort = () => {
@@ -544,6 +581,7 @@ export const makeThinker = () => {
     think,
     load,
     reset,
+    rebuild,
     compact,
     abort,
     tokens,

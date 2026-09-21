@@ -29,8 +29,34 @@ mock.module('@inquirer/prompts', {
   namedExports: { select, input: mock.fn() }
 });
 
+// /model asks the server whether the model it was given is really there, and
+// downloads a tokenizer for it - neither of which belongs in a unit test
+let preflightPasses = true;
+
+const preflight = mock.fn(async () => preflightPasses);
+const ensureTokenizer = mock.fn(async () => true);
+
+mock.module('./preflight', {
+  // listModels is what modules/models.ts reaches for, and nothing here gets as
+  // far as the add flow that would call it
+  namedExports: {
+    preflight,
+    listModels: async () => [],
+    supportsThinking: () => false
+  }
+});
+mock.module('./tokenizer', {
+  namedExports: {
+    ensureTokenizer,
+    estimateTokens: (value: string) => value.length,
+    makeTokenizer: () => (value: string) => value.length
+  }
+});
+
 const { Command, createController } = await import('./repl');
 const { approval } = await import('./approval');
+const { ollama, tokenizer } = await import('./config');
+const { loadStore, saveStore } = await import('./models');
 const { yieldToUser, takeYield } = await import('./turn');
 const { append, listSessions, loadSession, startSession } =
   await import('./session');
@@ -58,6 +84,7 @@ const makeThinker = () => ({
   turnCount: 0,
   load: mock.fn((messages: Message[]) => messages.length),
   reset: mock.fn(() => 0),
+  rebuild: mock.fn((messages: Message[]) => messages.length),
   compact: mock.fn(async (messages: Message[]) => ({ messages, freed: 0 })),
   think: mock.fn(
     async (thought: ThoughtState): Promise<ThoughtState> => thought
@@ -103,6 +130,9 @@ beforeEach(() => {
 
   thinker = makeThinker();
   approval.mode = ApprovalMode.Manual;
+  preflightPasses = true;
+  preflight.mock.resetCalls();
+  ensureTokenizer.mock.resetCalls();
   log.mock.resetCalls();
   select.mock.resetCalls();
   takeYield();
@@ -406,6 +436,19 @@ describe('restore', () => {
   });
 });
 
+const gemma = { model: 'gemma4:e4b', tokenizer: 'google/gemma-4-E4B' };
+const qwen = { model: 'qwen3:30b', tokenizer: 'Qwen/Qwen3-Coder-30B' };
+
+// a session already running on one of two saved models, which is what /model
+// is for - the store and the config have to agree before it is asked to switch
+const onModel = (entry: typeof gemma) => {
+  saveStore({ active: entry.model, models: [gemma, qwen] });
+  ollama.model = entry.model;
+  tokenizer.repo = entry.tokenizer;
+
+  return make();
+};
+
 describe('commands', () => {
   test('lists every command for /help', async () => {
     await make().runCommand(Command.Help);
@@ -505,6 +548,61 @@ describe('commands', () => {
     await make().runCommand(Command.Resume);
 
     assert.equal(select.mock.callCount(), 0);
+  });
+
+  test('switches to another saved model for /model', async () => {
+    const controller = onModel(gemma);
+
+    controller.addUserMessage('hello');
+    select.mock.mockImplementationOnce(async () => qwen.model);
+    await controller.runCommand(Command.Model);
+
+    assert.equal(ollama.model, qwen.model);
+    assert.equal(tokenizer.repo, qwen.tokenizer);
+    // the next run starts where this session ended up
+    assert.equal(loadStore().active, qwen.model);
+    // the conversation carries over, counted again by the new tokenizer
+    assert.deepEqual(thinker.rebuild.mock.calls[0].arguments[0], [
+      { role: 'user', content: 'hello' }
+    ]);
+    assert.deepEqual(controller.messages, [{ role: 'user', content: 'hello' }]);
+  });
+
+  test('stays where it was when the new model fails preflight', async () => {
+    const controller = onModel(gemma);
+
+    preflightPasses = false;
+    select.mock.mockImplementationOnce(async () => qwen.model);
+    await controller.runCommand(Command.Model);
+
+    assert.equal(ollama.model, gemma.model);
+    assert.equal(tokenizer.repo, gemma.tokenizer);
+    // a switch that did not happen must not decide what the next run starts on
+    assert.equal(loadStore().active, gemma.model);
+    assert.equal(thinker.rebuild.mock.callCount(), 0);
+    assert.equal(ensureTokenizer.mock.callCount(), 0);
+  });
+
+  test('does nothing for /model on the model already in use', async () => {
+    const controller = onModel(gemma);
+
+    select.mock.mockImplementationOnce(async () => gemma.model);
+    await controller.runCommand(Command.Model);
+
+    assert.equal(thinker.rebuild.mock.callCount(), 0);
+    assert.equal(preflight.mock.callCount(), 0);
+  });
+
+  test('keeps the model when /model is cancelled', async () => {
+    const controller = onModel(gemma);
+
+    select.mock.mockImplementationOnce(async () => {
+      throw new Error('User force closed the prompt');
+    });
+    await controller.runCommand(Command.Model);
+
+    assert.equal(ollama.model, gemma.model);
+    assert.equal(thinker.rebuild.mock.callCount(), 0);
   });
 
   test('reports on the files written for /changes and /undo', async () => {

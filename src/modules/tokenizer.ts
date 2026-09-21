@@ -38,7 +38,7 @@ const getCacheDir = () => {
 
   if (!repoPattern.test(config.repo)) {
     log.warn(
-      `Ignoring AQ_HF_TOKENIZER_REPO "${config.repo}" - expected an owner/name pair`
+      `Ignoring the tokenizer repo "${config.repo}" - expected an owner/name pair`
     );
 
     return;
@@ -94,7 +94,7 @@ export const ensureTokenizer = async () => {
 
   if (!cacheDir) {
     log.warn(
-      'No tokenizer is configured - set AQ_HF_TOKENIZER_REPO to a huggingface.co repository, e.g. google/gemma-3-12b-it.'
+      'No tokenizer is configured - use /model to pair this model with a huggingface.co repository, e.g. google/gemma-3-12b-it.'
     );
 
     return false;

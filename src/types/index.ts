@@ -98,6 +98,21 @@ export type OllamaConfig = {
   replayPreamble: boolean;
 };
 
+// an ollama model and the huggingface repo whose tokenizer matches it. the two
+// are only useful together - a tokenizer from the wrong model counts a prompt
+// the server will render differently - so they are chosen and saved as a pair
+export type ModelEntry = {
+  model: string;
+  tokenizer: string;
+};
+
+// ~/.agentiq/models.json: every pair the user has set up, and which of them the
+// next run starts on
+export type ModelStore = {
+  active?: string;
+  models: ModelEntry[];
+};
+
 export type SessionConfig = {
   // how many saved sessions survive the prune at startup - 0 keeps them all
   limit: number;
