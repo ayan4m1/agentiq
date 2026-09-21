@@ -21,7 +21,9 @@ const log = getLogger('tokenizer');
 const fileNames = ['tokenizer.json', 'tokenizer_config.json'];
 // the repo name is joined into a filesystem path, so anything but a plain
 // owner/name pair - a `..` segment above all - has to be rejected outright
-const repoPattern = /^[\w.-]+\/[\w.-]+$/;
+// neither half may be dots alone, which the character class would otherwise
+// let through as a `..` segment
+const repoPattern = /^(?!\.+\/)[\w.-]+\/(?!\.+$)[\w.-]+$/;
 
 // a rough count for when no real tokenizer is available. ollama reports the
 // true size of every prompt it renders, so this only has to be close enough to

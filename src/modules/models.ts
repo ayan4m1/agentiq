@@ -15,7 +15,9 @@ const storePath = resolve(home, 'models.json');
 // the same shape modules/tokenizer.ts insists on before it joins the name into
 // a cache path - checked here as well so a bad one is caught while the user is
 // still looking at the prompt that produced it
-const repoPattern = /^[\w.-]+\/[\w.-]+$/;
+// neither half may be dots alone, which the character class would otherwise
+// let through as a `..` segment
+const repoPattern = /^(?!\.+\/)[\w.-]+\/(?!\.+$)[\w.-]+$/;
 
 // the "none of the above" row in either list. it is compared against a model
 // name, which can never be empty, so it cannot collide with a real choice
