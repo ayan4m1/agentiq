@@ -96,6 +96,10 @@ export type OllamaConfig = {
   // among them, read a tool call that arrives with text beside it as a turn
   // already answered, and reply to the result with a single end token
   replayPreamble: boolean;
+  // whether tool calls a model writes into its reply as text - qwen's XML, a
+  // <tool_call> tag, a fenced or bare JSON call - are recovered and dispatched
+  // instead of ending the turn. on by default
+  recoverToolCalls: boolean;
 };
 
 // an ollama model and the huggingface repo whose tokenizer matches it. the two

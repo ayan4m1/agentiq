@@ -172,6 +172,10 @@ export const buildSystemPrompt = () => {
     describeEnvironment(),
     readOverlay(resolve(home, overlayName)),
     readOverlay(findProjectOverlay(cwd)),
+    // AGENTIQ.md is how the project instructs the model; the roadmap is what the
+    // project has been doing. both are standing context, so they arrive together,
+    // and composing here rather than per turn is what lets the token accounting
+    // count it once.
     describeRoadmap()
   ];
 

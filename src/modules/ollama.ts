@@ -6,9 +6,9 @@ import { client } from './client';
 import { ollama } from './config';
 import { describeElision, findSplit, isElided, pairCalls } from './compaction';
 import { getLogger } from './logging';
-import { describeRoadmap } from './roadmap';
 import { makeTokenizer } from './tokenizer';
 import { validateArgs } from './validate';
+import { recoverToolCalls } from './recover';
 import { buildSystemPrompt } from './prompt';
 import { watchForInterrupt } from './interrupt';
 import { supportsThinking } from './preflight';
@@ -57,15 +57,11 @@ const summaryPrompt =
   "Summarize the conversation so far. Preserve the user's goals, every decision made, the paths of files read or changed, and any work still outstanding. Write it as notes for yourself, not as a reply to the user.";
 
 export const makeThinker = () => {
-  // AGENTIQ.md is how the project instructs the model; the roadmap is what the
-  // project has been doing. both are standing context, so they arrive together,
-  // and composing here rather than per turn is what lets the token accounting
-  // below count it once.
-  const roadmap = describeRoadmap();
   let systemPrompt = buildSystemPrompt();
   let tokenizer = makeTokenizer();
   const toolDefs = tools.map((tool) => tool.definition);
-  const toolNames = toolDefs.map((toolDef) => toolDef.function.name).join(', ');
+  const toolNameList = toolDefs.map((toolDef) => toolDef.function.name!);
+  const toolNames = toolNameList.join(', ');
   const tokens: TokenStats = {
     messages: 0,
     system: 0,
@@ -314,15 +310,42 @@ export const makeThinker = () => {
       log.debug(`Generated ${lastChunk.eval_count} tokens at ${rate} tok/s`);
     }
 
+    // a model served with a template that does not know its tool call format
+    // writes its calls into the reply, and a turn with no calls ends. pull them
+    // back out so they are dispatched - and validated - like any other call.
+    // the caller keeps what was actually said; history keeps only the prose,
+    // since the calls now travel as calls
+    let replaySource = assistantMessage;
+
+    if (
+      ollama.recoverToolCalls &&
+      !assistantMessage.tool_calls?.length &&
+      assistantMessage.content
+    ) {
+      const { calls, remainder } = recoverToolCalls(
+        assistantMessage.content,
+        toolNameList
+      );
+
+      if (calls.length) {
+        log.info(
+          `Recovered ${calls.length} tool call(s) the model wrote as text`
+        );
+
+        assistantMessage.tool_calls = calls;
+        replaySource = { ...assistantMessage, content: remainder };
+      }
+    }
+
     // append message before tool results
-    const replay = replayable(assistantMessage, ollama.replayPreamble);
+    const replay = replayable(replaySource, ollama.replayPreamble);
 
     if (replay) {
       messages.push(replay);
     } else {
       // nothing was streamed either, so the round would otherwise end without
       // a single character to explain why
-      log.warn(chalk.red('The model returned an empty response'));
+      log.debug(chalk.red('The model returned an empty response'));
     }
 
     // execute and append tool call results, if any

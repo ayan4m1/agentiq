@@ -359,6 +359,7 @@ describe('taking a turn', () => {
   afterEach(() => {
     ollama.think = undefined;
     ollama.replayPreamble = false;
+    ollama.recoverToolCalls = true;
   });
 
   test('puts the system prompt first, once', async () => {
@@ -537,6 +538,92 @@ describe('taking a turn', () => {
       messages.find((message) => message.tool_calls)?.content,
       'Let me check.'
     );
+  });
+
+  test('runs a qwen XML call written at the bottom of the reply', async () => {
+    const said =
+      'Let me repeat that.\n\n<tool_call>\n<function=echo>\n<parameter=text>\nhello\n</parameter>\n</function>\n</tool_call>';
+
+    ollama.replayPreamble = true;
+    // split across chunks, the way it streams
+    respond(
+      chunk({ content: said.slice(0, 30) }),
+      chunk({ content: said.slice(30) })
+    );
+
+    const result = await makeThinker().think({ messages: ask() });
+    const [echoed] = toolResults(result.messages);
+    const call = result.messages.find((message) => message.tool_calls);
+
+    assert.equal(echoed.tool_name, 'echo');
+    assert.equal(echoed.content, JSON.stringify({ echoed: 'hello' }));
+    // history holds the call as a call, and only the prose as text
+    assert.deepEqual(call?.tool_calls, [
+      { function: { name: 'echo', arguments: { text: 'hello' } } }
+    ]);
+    assert.equal(call?.content, 'Let me repeat that.');
+    // the caller still sees what was said, and that the turn made a call
+    assert.equal(result.lastResponse?.message.content, said);
+    assert.equal(result.lastResponse?.message.tool_calls?.length, 1);
+  });
+
+  test('runs a JSON call the model wrote as its whole reply', async () => {
+    respond(
+      chunk({ content: '{"name": "echo", "arguments": {"text": "hi"}}' })
+    );
+
+    const result = await makeThinker().think({ messages: ask() });
+    const results = toolResults(result.messages);
+
+    assert.equal(echo.handler.mock.callCount(), 1);
+    assert.deepEqual(
+      results.map((message) => message.content),
+      [JSON.stringify({ echoed: 'hi' })]
+    );
+    assert.equal(result.lastResponse?.message.tool_calls?.length, 1);
+  });
+
+  test('validates a recovered call like any other', async () => {
+    respond(
+      chunk({
+        content: '<tool_call>\n<function=echo>\n</function>\n</tool_call>'
+      })
+    );
+
+    const { messages } = await makeThinker().think({ messages: ask() });
+
+    assert.match(String(toolResults(messages)[0].content), /text is required/);
+    assert.equal(echo.handler.mock.callCount(), 0);
+  });
+
+  test('leaves a turn that made its calls properly alone', async () => {
+    respond(
+      chunk({
+        content: '{"name": "echo", "arguments": {"text": "written"}}',
+        tool_calls: [{ function: { name: 'silent', arguments: {} } }]
+      })
+    );
+
+    const { messages } = await makeThinker().think({ messages: ask() });
+
+    assert.deepEqual(
+      toolResults(messages).map((message) => message.tool_name),
+      ['silent']
+    );
+    assert.equal(echo.handler.mock.callCount(), 0);
+  });
+
+  test('recovers nothing when the setting is off', async () => {
+    ollama.recoverToolCalls = false;
+    respond(
+      chunk({ content: '{"name": "echo", "arguments": {"text": "hi"}}' })
+    );
+
+    const result = await makeThinker().think({ messages: ask() });
+
+    assert.equal(toolResults(result.messages).length, 0);
+    assert.equal(echo.handler.mock.callCount(), 0);
+    assert.equal(result.lastResponse?.message.tool_calls, undefined);
   });
 
   test('keeps nothing of a reply that said nothing', async () => {

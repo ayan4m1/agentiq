@@ -140,6 +140,11 @@ export const ollama: OllamaConfig = {
   replayPreamble: toBoolean(
     process.env.AQ_OLLAMA_REPLAY_PREAMBLE,
     'AQ_OLLAMA_REPLAY_PREAMBLE'
+  ),
+  recoverToolCalls: toBoolean(
+    process.env.AQ_OLLAMA_RECOVER_TOOL_CALLS,
+    'AQ_OLLAMA_RECOVER_TOOL_CALLS',
+    true
   )
 };
 
