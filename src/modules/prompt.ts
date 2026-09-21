@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 
 import { getLogger } from './logging';
 import { home, ollama, shell } from './config';
+import { describeRoadmap } from './roadmap';
 
 const log = getLogger('prompt');
 // the same name in a project directory and in ~/.agentiq, so a user who learns
@@ -170,7 +171,8 @@ export const buildSystemPrompt = () => {
     defaultPrompt,
     describeEnvironment(),
     readOverlay(resolve(home, overlayName)),
-    readOverlay(findProjectOverlay(cwd))
+    readOverlay(findProjectOverlay(cwd)),
+    describeRoadmap()
   ];
 
   return sections.filter(Boolean).join('\n\n');
