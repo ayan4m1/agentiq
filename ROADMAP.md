@@ -10,4 +10,4 @@
 
 ## Notes
 
-Do not stub out console.log in tests: some tests rely on the logs actually being printed.
+Do not stub out process.stdout.write in tests: some tests rely on the logs actually being printed.
