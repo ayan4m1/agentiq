@@ -173,7 +173,9 @@ describe('validateRepo', () => {
 
   test('refuses a name that would climb out of the cache directory', () => {
     // the repo name is joined into a path under ~/.agentiq/tokenizers
-    assert.equal(typeof validateRepo('../../etc'), 'string');
+    for (const repo of ['../../etc', '../evil', 'owner/..', '../..', './.']) {
+      assert.equal(typeof validateRepo(repo), 'string', repo);
+    }
   });
 });
 

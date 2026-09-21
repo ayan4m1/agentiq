@@ -1,18 +1,121 @@
-import { test, describe, before } from 'node:test';
+import { test, describe, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { mkdtempSync } from 'node:fs';
-import type { Message } from 'ollama';
+import type { ChatRequest, Message } from 'ollama';
+
+import type { AgentMessage } from '../types';
 
 // an empty state directory means no cached tokenizer, so the thinker falls
 // back to estimating - which keeps this fast and keeps the numbers below
 // predictable. it also has to be set before the module first evaluates
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-thinker-'));
 
-const { makeThinker, replayable } = await import('./ollama');
 const { ollama } = await import('./config');
+const { makeTool, makeParameter } = await import('../utils');
+
+// escape is watched for on a real terminal, which a test does not have - so
+// the watcher hands its callback over instead, for a test to press escape with
+let pressEscape: (() => void) | undefined;
+const stopWatching = mock.fn();
+const watchForInterrupt = mock.fn((onInterrupt: () => void) => {
+  pressEscape = onInterrupt;
+
+  return stopWatching;
+});
+
+mock.module('./interrupt', { namedExports: { watchForInterrupt } });
+
+// the interrupt hint is taken back by moving the cursor, which is the only
+// trace it leaves that a test can check without capturing stdout itself
+const readline = await import('node:readline');
+const clearLine = mock.fn<(stream: unknown, dir: number) => boolean>(
+  () => true
+);
+const cursorTo = mock.fn<(stream: unknown, x: number) => boolean>(() => true);
+
+mock.module('node:readline', {
+  namedExports: { ...readline, clearLine, cursorTo }
+});
+
+// what the server says the model can do is learned by preflight, which needs
+// the server - so the answer is whatever the test says it is
+let modelThinks = false;
+
+mock.module('./preflight', {
+  namedExports: { supportsThinking: () => modelThinks }
+});
+
+// the real prompt reads the working tree and the rules files. all that matters
+// here is that it names the model, and that it can be switched off entirely
+let promptBlank = false;
+
+mock.module('./prompt', {
+  namedExports: {
+    buildSystemPrompt: () =>
+      promptBlank ? '' : `You are running as ${ollama.model}.`
+  }
+});
+
+// stand-ins with predictable behavior, one for each way a tool call can end
+const echo = {
+  definition: makeTool('echo', 'Repeats what it was given', [
+    makeParameter('string', 'text', 'What to repeat')
+  ]),
+  handler: mock.fn(async ({ text }: { text: string }) => ({ echoed: text }))
+};
+const boom = {
+  definition: makeTool('boom', 'Always fails'),
+  handler: mock.fn(async () => {
+    throw new Error('kaboom');
+  })
+};
+const silent = {
+  definition: makeTool('silent', 'Returns nothing'),
+  handler: mock.fn(async () => undefined)
+};
+
+mock.module('../tools', { namedExports: { tools: [echo, boom, silent] } });
+
+const { makeThinker, replayable } = await import('./ollama');
+const { client } = await import('./client');
 const { isElided } = await import('./compaction');
+const { estimateTokens } = await import('./tokenizer');
+
+// the server, as far as the thinker can tell. each test says what it answers
+const chat = mock.method(
+  client as unknown as { chat: (request: ChatRequest) => Promise<unknown> },
+  'chat',
+  async (): Promise<unknown> => {
+    throw new Error('no response was set up for this test');
+  }
+);
+const abortClient = mock.method(client, 'abort', () => {});
+const requests = () =>
+  chat.mock.calls.map((call) => call.arguments[0] as ChatRequest);
+
+type Chunk = {
+  message?: Partial<Message>;
+  prompt_eval_count?: number;
+  eval_count?: number;
+  eval_duration?: number;
+  done?: boolean;
+};
+
+const chunk = (message: Partial<Message>, extra: Omit<Chunk, 'message'> = {}) =>
+  ({
+    message: { role: 'assistant', content: '', ...message },
+    ...extra
+  }) as Chunk;
+
+async function* streamOf(chunks: Chunk[]) {
+  yield* chunks;
+}
+
+// the next chat call streams these chunks back
+const respond = (...chunks: Chunk[]) =>
+  chat.mock.mockImplementationOnce(async () => streamOf(chunks));
 
 // enough tool output to put the conversation well past the point where
 // compaction has to do something about it
@@ -232,5 +335,504 @@ describe('rebuilding around a model that was just switched to', () => {
     // the count ollama gave described a prompt another model's template
     // rendered, so it says nothing about what this one will be sent
     assert.equal(thinker.tokens.measured, false);
+  });
+});
+
+describe('taking a turn', () => {
+  const ask = (content = 'what does this do?'): Message[] => [
+    { role: 'user', content }
+  ];
+
+  beforeEach(() => {
+    chat.mock.resetCalls();
+    abortClient.mock.resetCalls();
+    stopWatching.mock.resetCalls();
+    ollama.model = 'test-model';
+    modelThinks = false;
+    pressEscape = undefined;
+
+    for (const tool of [echo, boom, silent]) {
+      tool.handler.mock.resetCalls();
+    }
+  });
+
+  afterEach(() => {
+    ollama.think = undefined;
+    ollama.replayPreamble = false;
+  });
+
+  test('puts the system prompt first, once', async () => {
+    const thinker = makeThinker();
+
+    respond(chunk({ content: 'first' }));
+
+    const first = await thinker.think({ messages: ask() });
+
+    assert.equal(first.messages[0].role, 'system');
+    assert.match(String(first.messages[0].content), /test-model/);
+
+    respond(chunk({ content: 'second' }));
+
+    const second = await thinker.think({
+      messages: [...first.messages, ...ask('and then?')]
+    });
+
+    assert.equal(
+      second.messages.filter((message) => message.role === 'system').length,
+      1
+    );
+  });
+
+  test('asks for a stream sized to the configured context', async () => {
+    respond(chunk({ content: 'ok' }));
+
+    await makeThinker().think({ messages: ask() });
+
+    const [request] = requests();
+
+    assert.equal(request.model, 'test-model');
+    assert.equal(request.stream, true);
+    assert.equal(request.keep_alive, ollama.keepAlive);
+    assert.deepEqual(request.options, { num_ctx: ollama.contextLimit });
+    assert.deepEqual(
+      request.tools?.map((tool) => tool.function.name),
+      ['echo', 'boom', 'silent']
+    );
+  });
+
+  test('asks a model that can reason to do so', async () => {
+    modelThinks = true;
+    respond(chunk({ content: 'ok' }));
+
+    await makeThinker().think({ messages: ask() });
+
+    assert.equal(requests()[0].think, true);
+  });
+
+  test('leaves reasoning to the server default for a model that cannot', async () => {
+    respond(chunk({ content: 'ok' }));
+
+    await makeThinker().think({ messages: ask() });
+
+    assert.equal(requests()[0].think, undefined);
+  });
+
+  test('lets an explicit setting win, even an explicit false', async () => {
+    // the model says it can reason, and the user said not to
+    modelThinks = true;
+    ollama.think = false;
+    respond(chunk({ content: 'ok' }));
+
+    await makeThinker().think({ messages: ask() });
+
+    assert.equal(requests()[0].think, false);
+  });
+
+  test('assembles the streamed reply into one message', async () => {
+    const thinker = makeThinker();
+
+    respond(
+      chunk({ content: 'It does ' }),
+      chunk({ content: 'nothing.' }),
+      chunk({}, { done: true })
+    );
+
+    const result = await thinker.think({ messages: ask() });
+    const reply = result.messages[result.messages.length - 1];
+
+    assert.equal(reply.role, 'assistant');
+    assert.equal(reply.content, 'It does nothing.');
+    // callers read the reply from the response, and the final chunk alone
+    // carries an empty one
+    assert.equal(result.lastResponse?.message.content, 'It does nothing.');
+    assert.equal(thinker.turnCount, 1);
+    assert.equal(stopWatching.mock.callCount(), 1);
+  });
+
+  test('shows reasoning without keeping it', async () => {
+    respond(
+      chunk({ thinking: 'the user wants ' }),
+      chunk({ thinking: 'a summary' }),
+      chunk({ content: 'Here it is.' })
+    );
+
+    const { messages } = await makeThinker().think({ messages: ask() });
+    const reply = messages[messages.length - 1];
+
+    assert.equal(reply.content, 'Here it is.');
+    assert.equal(reply.thinking, undefined);
+    assert.ok(!JSON.stringify(messages).includes('a summary'));
+  });
+
+  test('answers every call, whatever became of it', async () => {
+    // split across chunks, the way a model that calls several tools streams
+    respond(
+      chunk({
+        tool_calls: [
+          { function: { name: 'nope', arguments: {} } },
+          { function: { name: 'echo', arguments: {} } }
+        ]
+      }),
+      chunk({
+        tool_calls: [
+          { function: { name: 'boom', arguments: {} } },
+          { function: { name: 'echo', arguments: { text: 'hi' } } },
+          { function: { name: 'silent', arguments: {} } }
+        ]
+      })
+    );
+
+    const { messages } = await makeThinker().think({ messages: ask() });
+    const results = toolResults(messages);
+
+    assert.deepEqual(
+      results.map((message) => message.tool_name),
+      ['nope', 'echo', 'boom', 'echo', 'silent']
+    );
+
+    const [unknown, malformed, failed, echoed, empty] = results.map((message) =>
+      String(message.content)
+    );
+
+    assert.match(unknown, /no tool called nope/);
+    assert.match(unknown, /echo, boom, silent/);
+    assert.match(malformed, /invalid arguments/);
+    assert.match(malformed, /text is required/);
+    assert.equal(failed, 'The boom tool failed: kaboom');
+    assert.equal(echoed, JSON.stringify({ echoed: 'hi' }));
+    assert.equal(empty, 'The tool returned no output.');
+    // a malformed call never reaches the handler
+    assert.equal(echo.handler.mock.callCount(), 1);
+  });
+
+  test('keeps the call but not the preamble that led up to it', async () => {
+    respond(
+      chunk({
+        content: 'Let me check.',
+        tool_calls: [{ function: { name: 'silent', arguments: {} } }]
+      })
+    );
+
+    const result = await makeThinker().think({ messages: ask() });
+    const call = result.messages.find((message) => message.tool_calls);
+
+    assert.equal(call?.content, '');
+    assert.equal(call?.tool_calls?.length, 1);
+    // what was said still reaches the caller, which already showed it
+    assert.equal(result.lastResponse?.message.content, 'Let me check.');
+  });
+
+  test('keeps the preamble when the setting asks for it', async () => {
+    ollama.replayPreamble = true;
+    respond(
+      chunk({
+        content: 'Let me check.',
+        tool_calls: [{ function: { name: 'silent', arguments: {} } }]
+      })
+    );
+
+    const { messages } = await makeThinker().think({ messages: ask() });
+
+    assert.equal(
+      messages.find((message) => message.tool_calls)?.content,
+      'Let me check.'
+    );
+  });
+
+  test('keeps nothing of a reply that said nothing', async () => {
+    respond(chunk({}, { done: true }));
+
+    const { messages } = await makeThinker().think({ messages: ask() });
+
+    assert.deepEqual(
+      messages.map((message) => message.role),
+      ['system', 'user']
+    );
+  });
+
+  test('believes the server over its own estimate once it has answered', async () => {
+    const thinker = makeThinker();
+
+    respond(
+      chunk({ content: 'hello' }),
+      chunk(
+        {},
+        {
+          done: true,
+          prompt_eval_count: 1000,
+          eval_count: 20,
+          eval_duration: 1e9
+        }
+      )
+    );
+
+    assert.equal(thinker.tokens.measured, false);
+
+    await thinker.think({ messages: ask('hi') });
+
+    // the server counted the prompt as sent; the reply that came back after
+    // it is still the estimator's to count
+    assert.equal(thinker.tokens.measured, true);
+    assert.equal(thinker.tokens.total, 1000 + estimateTokens('hello'));
+  });
+
+  test('hands a failed request back to the caller', async () => {
+    chat.mock.mockImplementationOnce(async () => {
+      throw new Error('connection refused');
+    });
+
+    await assert.rejects(
+      makeThinker().think({ messages: ask() }),
+      /connection refused/
+    );
+    // escape must stop being watched even when the turn never started
+    assert.equal(stopWatching.mock.callCount(), 1);
+  });
+
+  test('rolls the turn back when escape is pressed mid-stream', async () => {
+    const thinker = makeThinker();
+    const lastState = { messages: ask() };
+
+    chat.mock.mockImplementationOnce(async () =>
+      (async function* () {
+        yield chunk({
+          content: 'Half an ans',
+          tool_calls: [{ function: { name: 'boom', arguments: {} } }]
+        });
+        pressEscape?.();
+        // what the client's abort does to a stream that is being read
+        throw new Error('The operation was aborted');
+      })()
+    );
+
+    const result = await thinker.think(lastState);
+
+    assert.equal(result.interrupted, true);
+    assert.equal(result.messages, lastState.messages);
+    assert.equal(abortClient.mock.callCount(), 1);
+    // a call that may have been cut short is never dispatched
+    assert.equal(boom.handler.mock.callCount(), 0);
+  });
+});
+
+describe('summarizing when eliding is not enough', () => {
+  // text rather than tool output, so there is nothing for the cheap tier to
+  // drop and only a summary can bring this under the target
+  const talk = (): Message[] => {
+    const turn = 'x'.repeat(Math.ceil(ollama.contextLimit * 0.2 * 3.33));
+
+    return [
+      { role: 'user', content: turn },
+      { role: 'assistant', content: turn },
+      { role: 'user', content: turn },
+      { role: 'assistant', content: turn }
+    ];
+  };
+
+  const summarizeAs = (content: string) =>
+    chat.mock.mockImplementationOnce(async () => ({
+      message: { role: 'assistant', content }
+    }));
+
+  beforeEach(() => {
+    chat.mock.resetCalls();
+  });
+
+  test('replaces the older turns with notes on them', async () => {
+    const thinker = makeThinker();
+    const messages = talk();
+
+    thinker.load(messages);
+    summarizeAs('the user asked twice about x');
+
+    const compacted = await thinker.compact(messages);
+    const [notes, ...recent] = compacted.messages as AgentMessage[];
+
+    assert.ok(compacted.freed > 0);
+    assert.equal(notes.role, 'user');
+    assert.equal(notes.summary, true);
+    assert.match(String(notes.content), /the user asked twice about x/);
+    // the latest exchange is what the model is working on, so it survives
+    assert.deepEqual(recent, messages.slice(2));
+    assert.ok(thinker.tokens.total <= ollama.contextLimit * 0.5);
+  });
+
+  test('asks for notes without offering any tools', async () => {
+    const thinker = makeThinker();
+    const messages = talk();
+
+    thinker.load(messages);
+    summarizeAs('notes');
+    await thinker.compact(messages);
+
+    const [request] = requests();
+
+    assert.equal(request.tools, undefined);
+    assert.equal(request.stream, undefined);
+    assert.deepEqual(
+      request.messages?.map((message) => message.role),
+      ['user', 'assistant', 'user']
+    );
+  });
+
+  test('keeps the turns when the summary would cost more than they do', async () => {
+    const thinker = makeThinker();
+    const messages = talk();
+
+    thinker.load(messages);
+
+    const before = thinker.tokens.total;
+
+    summarizeAs('y'.repeat(ollama.contextLimit * 4));
+
+    const compacted = await thinker.compact(messages);
+
+    assert.equal(compacted.messages, messages);
+    assert.equal(compacted.freed, 0);
+    // the running totals describe the messages that were kept
+    assert.equal(thinker.tokens.total, before);
+  });
+
+  test('does not ask for a summary when nothing can be split off', async () => {
+    const thinker = makeThinker();
+    const messages: Message[] = [
+      { role: 'user', content: 'x'.repeat(ollama.contextLimit * 3) }
+    ];
+
+    thinker.load(messages);
+
+    const compacted = await thinker.compact(messages);
+
+    assert.equal(compacted.messages, messages);
+    assert.equal(compacted.freed, 0);
+    assert.equal(chat.mock.callCount(), 0);
+  });
+});
+
+describe('starting the conversation over', () => {
+  const history = (): Message[] => [
+    { role: 'user', content: 'x'.repeat(400) },
+    { role: 'assistant', content: 'y'.repeat(400) }
+  ];
+
+  test('load counts what it was handed and forgets the last measurement', () => {
+    const thinker = makeThinker();
+
+    thinker.tokens.measured = true;
+
+    const counted = thinker.load(history());
+
+    assert.equal(counted, 2 * estimateTokens('x'.repeat(400)));
+    assert.equal(thinker.tokens.messages, counted);
+    assert.equal(thinker.tokens.measured, false);
+    assert.equal(thinker.turnCount, 0);
+  });
+
+  test('reset drops the conversation but not what every turn pays', () => {
+    const thinker = makeThinker();
+    const counted = thinker.load(history());
+
+    thinker.tokens.measured = true;
+
+    assert.equal(thinker.reset(), counted);
+    assert.equal(thinker.tokens.messages, 0);
+    assert.equal(
+      thinker.tokens.total,
+      thinker.tokens.system + thinker.tokens.tools
+    );
+    assert.ok(thinker.tokens.system > 0);
+    assert.equal(thinker.tokens.measured, false);
+    assert.equal(thinker.turnCount, 0);
+  });
+});
+
+describe('rebuilding onto a model with no system prompt', () => {
+  afterEach(() => {
+    promptBlank = false;
+  });
+
+  test('drops the stale prompt rather than leave it in place', () => {
+    const thinker = makeThinker();
+    const messages: Message[] = [
+      { role: 'system', content: 'built for the model being left behind' },
+      { role: 'user', content: 'hello' }
+    ];
+
+    promptBlank = true;
+    thinker.rebuild(messages);
+
+    assert.deepEqual(
+      messages.map((message) => message.role),
+      ['user']
+    );
+    assert.equal(thinker.tokens.system, 0);
+  });
+});
+
+describe('the interrupt hint', () => {
+  const ask = (): Message[] => [{ role: 'user', content: 'go on then' }];
+  const wasTTY = process.stdin.isTTY;
+
+  beforeEach(() => {
+    clearLine.mock.resetCalls();
+    cursorTo.mock.resetCalls();
+    // escape can only be pressed at a terminal, so that is when it is offered
+    process.stdin.isTTY = true;
+  });
+
+  afterEach(() => {
+    process.stdin.isTTY = wasTTY;
+  });
+
+  const cleared = () => {
+    assert.equal(clearLine.mock.callCount(), 1);
+    assert.equal(clearLine.mock.calls[0].arguments[0], process.stdout);
+    assert.equal(cursorTo.mock.callCount(), 1);
+    assert.deepEqual(cursorTo.mock.calls[0].arguments, [process.stdout, 0]);
+  };
+
+  test('is taken back once the reply starts, and only once', async () => {
+    // reasoning and then content - both write, and the second must not wipe
+    // out a line the first already put there
+    respond(
+      chunk({ thinking: 'hmm' }),
+      chunk({ content: 'Right, ' }),
+      chunk({ content: 'here goes.' })
+    );
+
+    await makeThinker().think({ messages: ask() });
+
+    cleared();
+  });
+
+  test('is taken back by a turn that never wrote a thing', async () => {
+    // a call with no preamble streams nothing, so nothing overwrote the hint
+    respond(
+      chunk({ tool_calls: [{ function: { name: 'silent', arguments: {} } }] })
+    );
+
+    await makeThinker().think({ messages: ask() });
+
+    cleared();
+  });
+
+  test('is taken back when the request fails', async () => {
+    chat.mock.mockImplementationOnce(async () => {
+      throw new Error('connection refused');
+    });
+
+    await assert.rejects(makeThinker().think({ messages: ask() }));
+
+    cleared();
+  });
+
+  test('is never shown when input is piped', async () => {
+    process.stdin.isTTY = false;
+    respond(chunk({ content: 'ok' }));
+
+    await makeThinker().think({ messages: ask() });
+
+    assert.equal(clearLine.mock.callCount(), 0);
+    assert.equal(cursorTo.mock.callCount(), 0);
   });
 });
