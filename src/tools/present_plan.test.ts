@@ -13,8 +13,7 @@ mock.module('@inquirer/prompts', {
 
 const { handler } = await import('./present_plan');
 const { approval } = await import('../modules/approval');
-const { takeYield } = await import('../modules/turn');
-const { terminal } = await import('../modules/interactive');
+const { takeYield, terminal } = await import('../modules/turn');
 
 // the plan is printed, and so is the change of mode that follows it
 const log = mock.method(console, 'log', () => {});

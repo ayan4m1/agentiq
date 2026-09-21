@@ -54,7 +54,7 @@ const {
   validateRepo
 } = await import('./models');
 const { ollama, tokenizer } = await import('./config');
-const { terminal } = await import('./interactive');
+const { terminal } = await import('./turn');
 
 const storePath = resolve(home, 'models.json');
 const gemma = { model: 'gemma4:e4b', tokenizer: 'google/gemma-4-E4B' };

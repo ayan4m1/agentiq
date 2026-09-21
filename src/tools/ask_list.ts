@@ -1,6 +1,6 @@
 import { select } from '@inquirer/prompts';
 
-import { terminal, unanswered } from '../modules/interactive';
+import { terminal, unanswered } from '../modules/turn';
 import { makeParameter, makeTool } from '../utils';
 
 export const definition = makeTool(

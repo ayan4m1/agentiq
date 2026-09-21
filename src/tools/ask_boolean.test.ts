@@ -7,7 +7,7 @@ const confirm = mock.fn<(config: { message: string }) => Promise<boolean>>();
 mock.module('@inquirer/prompts', { namedExports: { confirm } });
 
 const { handler } = await import('./ask_boolean');
-const { terminal } = await import('../modules/interactive');
+const { terminal } = await import('../modules/turn');
 
 beforeEach(() => {
   terminal.interactive = true;

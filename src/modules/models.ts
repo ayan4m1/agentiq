@@ -4,7 +4,7 @@ import { input, select } from '@inquirer/prompts';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { getLogger } from './logging';
-import { terminal } from './interactive';
+import { terminal } from './turn';
 import { type Api, listModels } from './preflight';
 import { home, ollama, tokenizer } from './config';
 import type { ModelEntry, ModelStore } from '../types';

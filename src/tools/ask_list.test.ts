@@ -10,7 +10,7 @@ const select =
 mock.module('@inquirer/prompts', { namedExports: { select } });
 
 const { handler } = await import('./ask_list');
-const { terminal } = await import('../modules/interactive');
+const { terminal } = await import('../modules/turn');
 
 beforeEach(() => {
   terminal.interactive = true;

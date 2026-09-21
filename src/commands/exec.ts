@@ -4,7 +4,7 @@ import { Option, program } from 'commander';
 import { getLogger } from '../modules/logging';
 import { startAgent } from '../modules/startup';
 import { approval } from '../modules/approval';
-import { terminal } from '../modules/interactive';
+import { terminal } from '../modules/turn';
 import { compactThreshold } from '../modules/ollama';
 import { createController } from '../modules/repl';
 import { pruneSessions, startSession } from '../modules/session';

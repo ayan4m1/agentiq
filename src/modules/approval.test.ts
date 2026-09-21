@@ -1,15 +1,17 @@
-import { test, describe, beforeEach, mock } from 'node:test';
+import { test, describe, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 
 import { ApprovalAnswer, ApprovalMode } from '../types';
 
 // remembered answers are written under the home directory, which is read as
 // the config module is evaluated - so it has to point somewhere disposable
 // before anything below is imported
-process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-approval-'));
+const home = mkdtempSync(resolve(tmpdir(), 'agentiq-approval-'));
+
+process.env.AQ_HOME = home;
 
 // the approval prompt is built on @inquirer/core and reads the real terminal,
 // so it is replaced by one that answers whatever the test says to
@@ -31,13 +33,17 @@ const {
   cycleMode,
   describeDenial,
   describeMode,
+  isRemembered,
+  loadRules,
+  matchesRule,
+  normalizePath,
   refusePlanning,
+  remember,
   requestApproval,
   setMode
 } = await import('./approval');
-const { isRemembered, remember } = await import('./rules');
-const { takeYield } = await import('./turn');
-const { terminal } = await import('./interactive');
+const { slugFor } = await import('../utils');
+const { takeYield, terminal } = await import('./turn');
 
 // a mode change announces itself, which is only noise here
 const log = mock.method(console, 'log', () => {});
@@ -229,5 +235,152 @@ describe('requestApproval without a terminal', () => {
 
     assert.deepEqual(await requestApproval('OK?'), { approved: true });
     assert.equal(answer.mock.callCount(), 0);
+  });
+});
+
+describe('rules', () => {
+  const projectA = resolve(home, 'project-a');
+  const projectB = resolve(home, 'project-b');
+  const original = process.cwd();
+
+  const rulesFor = (cwd: string) =>
+    resolve(home, 'approvals', `${slugFor(cwd)}.json`);
+
+  before(() => {
+    mkdirSync(projectA, { recursive: true });
+    mkdirSync(projectB, { recursive: true });
+    process.chdir(projectA);
+  });
+
+  beforeEach(() => {
+    rmSync(rulesFor(projectA), { force: true });
+    rmSync(rulesFor(projectB), { force: true });
+    process.chdir(projectA);
+  });
+
+  after(() => {
+    process.chdir(original);
+  });
+
+  describe('matchesRule', () => {
+    test('matches an exact value', () => {
+      assert.ok(matchesRule('yarn test', 'yarn test'));
+    });
+
+    test('does not match a different value', () => {
+      assert.ok(!matchesRule('yarn test', 'yarn build'));
+    });
+
+    test('does not treat an exact rule as a prefix', () => {
+      // approving "git status" must not also approve "git status && rm -rf ."
+      assert.ok(!matchesRule('git status', 'git status && something else'));
+    });
+
+    test('a single star stays inside one segment', () => {
+      assert.ok(matchesRule('src/*.ts', 'src/index.ts'));
+      assert.ok(!matchesRule('src/*.ts', 'src/modules/index.ts'));
+    });
+
+    test('a double star spans segments', () => {
+      assert.ok(matchesRule('src/**', 'src/modules/deep/file.ts'));
+    });
+
+    test('treats a dot as a literal rather than any character', () => {
+      assert.ok(!matchesRule('a.ts', 'axts'));
+    });
+
+    test('survives a pattern that will not compile', () => {
+      assert.equal(matchesRule('[', 'anything'), false);
+    });
+  });
+
+  describe('normalizePath', () => {
+    test('keeps a path inside the project relative to it', () => {
+      assert.equal(normalizePath('src/index.ts'), 'src/index.ts');
+    });
+
+    test('reduces an absolute path inside the project to a relative one', () => {
+      // so the rules still mean something after the directory moves
+      assert.equal(normalizePath(resolve(projectA, 'src/a.ts')), 'src/a.ts');
+    });
+
+    test('leaves a path outside the project absolute', () => {
+      assert.ok(normalizePath(resolve(projectB, 'x.ts')).includes('project-b'));
+    });
+
+    test('answers in forward slashes whatever the platform', () => {
+      assert.ok(!normalizePath('src/deep/a.ts').includes('\\'));
+    });
+  });
+
+  describe('remembering an answer', () => {
+    test('is not remembered until it is asked for', () => {
+      assert.equal(isRemembered('command', 'yarn test'), false);
+    });
+
+    test('holds for the same command afterwards', () => {
+      remember('command', 'yarn test');
+
+      assert.ok(isRemembered('command', 'yarn test'));
+    });
+
+    test('does not spill onto a different command', () => {
+      remember('command', 'yarn test');
+
+      assert.equal(isRemembered('command', 'yarn build'), false);
+    });
+
+    test('holds for a path however it was spelled', () => {
+      remember('path', 'src/index.ts');
+
+      assert.ok(isRemembered('path', resolve(projectA, 'src', 'index.ts')));
+    });
+
+    test('keeps commands and paths apart', () => {
+      remember('command', 'src/index.ts');
+
+      assert.equal(isRemembered('path', 'src/index.ts'), false);
+    });
+
+    test('writes the answer down only once', () => {
+      remember('command', 'yarn test');
+      remember('command', 'yarn test');
+
+      assert.deepEqual(loadRules().command, ['yarn test']);
+    });
+
+    test('says nothing about another project', () => {
+      remember('command', 'yarn test');
+      process.chdir(projectB);
+
+      // an answer given about one project is not an answer about another
+      assert.equal(isRemembered('command', 'yarn test'), false);
+    });
+
+    test('honours a pattern written into the file by hand', () => {
+      mkdirSync(resolve(home, 'approvals'), { recursive: true });
+      writeFileSync(
+        rulesFor(projectA),
+        JSON.stringify({ command: [], path: ['src/**'] })
+      );
+
+      assert.ok(isRemembered('path', 'src/modules/deep.ts'));
+      assert.equal(isRemembered('path', 'other/deep.ts'), false);
+    });
+
+    test('survives a rules file that will not parse', () => {
+      mkdirSync(resolve(home, 'approvals'), { recursive: true });
+      writeFileSync(rulesFor(projectA), 'not json at all');
+
+      assert.deepEqual(loadRules(), { command: [], path: [] });
+      assert.equal(isRemembered('command', 'anything'), false);
+    });
+
+    test('survives a rules file holding the wrong shape', () => {
+      mkdirSync(resolve(home, 'approvals'), { recursive: true });
+      writeFileSync(rulesFor(projectA), JSON.stringify({ command: 'nope' }));
+
+      assert.deepEqual(loadRules().command, []);
+    });
   });
 });

@@ -2,8 +2,7 @@ import chalk from 'chalk';
 import { select } from '@inquirer/prompts';
 
 import { approval, setMode } from '../modules/approval';
-import { yieldToUser } from '../modules/turn';
-import { terminal } from '../modules/interactive';
+import { terminal, yieldToUser } from '../modules/turn';
 import { ApprovalMode } from '../types';
 import { makeParameter, makeTool } from '../utils';
 
