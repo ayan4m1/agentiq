@@ -37,6 +37,7 @@ const {
 } = await import('./approval');
 const { isRemembered, remember } = await import('./rules');
 const { takeYield } = await import('./turn');
+const { terminal } = await import('./interactive');
 
 // a mode change announces itself, which is only noise here
 const log = mock.method(console, 'log', () => {});
@@ -46,6 +47,7 @@ const answerWith = (value: string) =>
 
 beforeEach(() => {
   approval.mode = ApprovalMode.Manual;
+  terminal.interactive = true;
   answer.mock.resetCalls();
   input.mock.resetCalls();
   log.mock.resetCalls();
@@ -189,5 +191,43 @@ describe('requestApproval', () => {
       approved: false,
       reason: undefined
     });
+  });
+});
+
+describe('requestApproval without a terminal', () => {
+  beforeEach(() => {
+    terminal.interactive = false;
+  });
+
+  test('refuses without asking, and says why', async () => {
+    const result = await requestApproval('OK?', {
+      kind: 'command',
+      value: 'yarn unattended'
+    });
+
+    assert.equal(result.approved, false);
+    assert.match(result.reason ?? '', /running non-interactively/);
+    assert.equal(answer.mock.callCount(), 0);
+    assert.equal(input.mock.callCount(), 0);
+  });
+
+  test('still allows something remembered', async () => {
+    remember('command', 'yarn unattended remembered');
+
+    assert.deepEqual(
+      await requestApproval('OK?', {
+        kind: 'command',
+        value: 'yarn unattended remembered'
+      }),
+      { approved: true }
+    );
+    assert.equal(answer.mock.callCount(), 0);
+  });
+
+  test('still approves everything in auto mode', async () => {
+    approval.mode = ApprovalMode.Auto;
+
+    assert.deepEqual(await requestApproval('OK?'), { approved: true });
+    assert.equal(answer.mock.callCount(), 0);
   });
 });

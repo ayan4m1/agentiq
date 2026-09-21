@@ -97,6 +97,9 @@ export const createController = ({
     messages: []
   };
   let needsUserInput = true;
+  // whether the last turn ended in an error rather than a response - the
+  // interactive loop just carries on, but a headless run reports it on exit
+  let failed = false;
 
   // set when compaction runs but cannot free anything, so the automatic trigger
   // below stops paying for a summarization call every single turn. asking for
@@ -345,6 +348,8 @@ export const createController = ({
   };
 
   const takeTurn = async (schedule: Schedule = (work) => work()) => {
+    failed = false;
+
     try {
       nextThought = await schedule(async () => {
         const result = await thinker.think(nextThought);
@@ -373,6 +378,7 @@ export const createController = ({
       log.error(chalk.red(`The model call failed: ${describeError(error)}`));
 
       needsUserInput = true;
+      failed = true;
     }
 
     // written after the turn rather than as it happens, so a crash costs at
@@ -388,6 +394,19 @@ export const createController = ({
     }
   };
 
+  // the whole of a non-interactive run: one prompt, then as many rounds as the
+  // model wants until it hands the conversation back. true unless the model
+  // call itself failed
+  const runPrompt = async (prompt: string, schedule?: Schedule) => {
+    addUserMessage(prompt);
+
+    do {
+      await takeTurn(schedule);
+    } while (!needsUserInput);
+
+    return !failed;
+  };
+
   return {
     restore,
     compact,
@@ -395,6 +414,7 @@ export const createController = ({
     runCommand,
     addUserMessage,
     takeTurn,
+    runPrompt,
     get messages() {
       return nextThought.messages;
     },
@@ -403,6 +423,9 @@ export const createController = ({
     },
     get compactionStalled() {
       return compactionStalled;
+    },
+    get failed() {
+      return failed;
     }
   };
 };

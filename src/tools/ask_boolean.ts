@@ -1,4 +1,6 @@
 import { confirm } from '@inquirer/prompts';
+
+import { terminal, unanswered } from '../modules/interactive';
 import { makeParameter, makeTool } from '../utils';
 
 export const definition = makeTool(
@@ -12,6 +14,10 @@ type Args = {
 };
 
 export const handler = async ({ question }: Args) => {
+  if (!terminal.interactive) {
+    return unanswered;
+  }
+
   const result = await confirm({
     message: question
   });

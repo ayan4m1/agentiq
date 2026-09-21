@@ -1,5 +1,6 @@
 import { select } from '@inquirer/prompts';
 
+import { terminal, unanswered } from '../modules/interactive';
 import { makeParameter, makeTool } from '../utils';
 
 export const definition = makeTool(
@@ -21,8 +22,13 @@ type Args = {
   choices: string[];
 };
 
-export const handler = async ({ question, choices }: Args) =>
-  `The user selected "${await select({
+export const handler = async ({ question, choices }: Args) => {
+  if (!terminal.interactive) {
+    return unanswered;
+  }
+
+  return `The user selected "${await select({
     choices,
     message: question
   })}"`;
+};

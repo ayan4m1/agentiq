@@ -4,6 +4,7 @@ import { input, select } from '@inquirer/prompts';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { getLogger } from './logging';
+import { terminal } from './interactive';
 import { type Api, listModels } from './preflight';
 import { home, ollama, tokenizer } from './config';
 import type { ModelEntry, ModelStore } from '../types';
@@ -208,6 +209,17 @@ export const resolveStartupEntry = async (api?: Api) => {
     applyEntry(active);
 
     return true;
+  }
+
+  // exec has nobody to answer the questions that would set one up
+  if (!terminal.interactive) {
+    log.error(
+      chalk.red(
+        'No model has been set up - run `agentiq run` once to choose one'
+      )
+    );
+
+    return false;
   }
 
   log.info(chalk.green('No model has been set up yet'));

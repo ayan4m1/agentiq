@@ -14,6 +14,7 @@ mock.module('@inquirer/prompts', {
 const { handler } = await import('./present_plan');
 const { approval } = await import('../modules/approval');
 const { takeYield } = await import('../modules/turn');
+const { terminal } = await import('../modules/interactive');
 
 // the plan is printed, and so is the change of mode that follows it
 const log = mock.method(console, 'log', () => {});
@@ -30,6 +31,8 @@ const plan = {
 
 beforeEach(() => {
   approval.mode = ApprovalMode.Plan;
+  terminal.interactive = true;
+  select.mock.resetCalls();
   log.mock.resetCalls();
   takeYield();
 });
@@ -79,4 +82,33 @@ describe('present_plan', () => {
     assert.equal(approval.mode, ApprovalMode.Plan);
     assert.equal(takeYield(), true);
   });
+});
+
+describe('present_plan without a terminal', () => {
+  beforeEach(() => {
+    terminal.interactive = false;
+  });
+
+  test('still shows the plan', async () => {
+    await handler(plan);
+
+    assert.match(printed(), /Add a test for every source file/);
+    assert.equal(select.mock.callCount(), 0);
+  });
+
+  test('ends the run in plan mode, having done nothing', async () => {
+    assert.match(await handler(plan), /cannot be approved. No work was done/);
+    assert.equal(approval.mode, ApprovalMode.Plan);
+    assert.equal(takeYield(), true);
+  });
+
+  for (const mode of [ApprovalMode.Auto, ApprovalMode.Manual]) {
+    test(`goes ahead under ${mode} approval chosen at launch`, async () => {
+      approval.mode = mode;
+
+      assert.match(await handler(plan), /approved under the approval mode/);
+      assert.equal(approval.mode, mode);
+      assert.equal(takeYield(), false);
+    });
+  }
 });

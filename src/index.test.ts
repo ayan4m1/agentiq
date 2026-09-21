@@ -23,4 +23,11 @@ describe('agentiq', () => {
   test('offers the run command', () => {
     assert.match(run('--help'), /run\s+Start the service in the foreground/);
   });
+
+  test('offers the exec command', () => {
+    assert.match(
+      run('--help'),
+      /exec\s+Run a single prompt without interaction/
+    );
+  });
 });

@@ -115,6 +115,21 @@ const answers = (response: { message: object }) =>
     lastResponse: response as ThoughtState['lastResponse']
   }));
 
+// the model's answers to the next few turns, in order - answers() only ever
+// covers the very next call
+const answersInOrder = (...responses: { message: object }[]) => {
+  for (const [index, response] of responses.entries()) {
+    thinker.think.mock.mockImplementationOnce(
+      async (thought) => ({
+        ...thought,
+        messages: [...thought.messages, response.message as Message],
+        lastResponse: response as ThoughtState['lastResponse']
+      }),
+      thinker.think.mock.callCount() + index
+    );
+  }
+};
+
 const saved = () => loadSession(listSessions(1)[0].id) ?? [];
 
 before(() => {
@@ -246,6 +261,83 @@ describe('turns', () => {
     assert.equal(controller.needsUserInput, true);
     // an interrupted turn is not the moment to start summarizing
     assert.equal(thinker.compact.mock.callCount(), 0);
+  });
+
+  test('reports a failed model call until the next turn', async () => {
+    const controller = make();
+
+    controller.addUserMessage('hello');
+    thinker.think.mock.mockImplementationOnce(async () => {
+      throw new Error('connection refused');
+    });
+    await controller.takeTurn();
+
+    assert.equal(controller.failed, true);
+
+    answers(reply);
+    await controller.takeTurn();
+
+    assert.equal(controller.failed, false);
+  });
+});
+
+describe('runPrompt', () => {
+  test('keeps taking turns until the model stops calling tools', async () => {
+    const controller = make();
+
+    answersInOrder(toolCall, toolCall, reply);
+
+    assert.equal(await controller.runPrompt('hello'), true);
+    assert.equal(thinker.think.mock.callCount(), 3);
+    assert.equal(controller.needsUserInput, true);
+    assert.equal(controller.messages.at(-1)?.content, 'done');
+  });
+
+  test('stops when a tool hands the conversation back', async () => {
+    const controller = make();
+
+    thinker.think.mock.mockImplementationOnce(async (thought) => {
+      yieldToUser();
+
+      return { ...thought, lastResponse: toolCall as never };
+    });
+
+    assert.equal(await controller.runPrompt('hello'), true);
+    assert.equal(thinker.think.mock.callCount(), 1);
+  });
+
+  test('runs every turn through the schedule it is given', async () => {
+    const controller = make();
+    const schedule = mock.fn((work: () => Promise<ThoughtState>) => work());
+
+    answersInOrder(toolCall, reply);
+    await controller.runPrompt('hello', schedule);
+
+    assert.equal(schedule.mock.callCount(), 2);
+  });
+
+  test('writes the prompt and the replies to the session', async () => {
+    const controller = make();
+
+    answers(reply);
+    await controller.runPrompt('hello');
+
+    assert.deepEqual(
+      saved().map((message) => message.content),
+      ['hello', 'done']
+    );
+  });
+
+  test('reports a failed model call', async () => {
+    const controller = make();
+
+    thinker.think.mock.mockImplementationOnce(async () => {
+      throw new Error('connection refused');
+    });
+
+    assert.equal(await controller.runPrompt('hello'), false);
+    // the prompt is still saved, so the session can be resumed and retried
+    assert.equal(saved().length, 1);
   });
 });
 

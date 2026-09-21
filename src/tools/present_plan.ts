@@ -1,8 +1,9 @@
 import chalk from 'chalk';
 import { select } from '@inquirer/prompts';
 
-import { setMode } from '../modules/approval';
+import { approval, setMode } from '../modules/approval';
 import { yieldToUser } from '../modules/turn';
+import { terminal } from '../modules/interactive';
 import { ApprovalMode } from '../types';
 import { makeParameter, makeTool } from '../utils';
 
@@ -52,6 +53,18 @@ export const handler = async ({ title, steps }: Args) => {
   // arguments are coerced against the schema before they get here, so steps is
   // an array of strings whatever the model actually sent
   renderPlan({ title, steps });
+
+  // the approval mode was chosen on the command line, so that stands as the
+  // answer - except plan mode, where producing the plan was the whole point
+  if (!terminal.interactive) {
+    if (approval.mode === ApprovalMode.Plan) {
+      yieldToUser();
+
+      return 'agentiq is running non-interactively, so the plan cannot be approved. No work was done.';
+    }
+
+    return 'The plan is approved under the approval mode chosen at launch. Start working through the steps.';
+  }
 
   // deliberately not requestApproval - that answers itself in auto mode, which
   // would let the model grant itself the very permission it is asking for

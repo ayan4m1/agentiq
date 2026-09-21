@@ -54,6 +54,7 @@ const {
   validateRepo
 } = await import('./models');
 const { ollama, tokenizer } = await import('./config');
+const { terminal } = await import('./interactive');
 
 const storePath = resolve(home, 'models.json');
 const gemma = { model: 'gemma4:e4b', tokenizer: 'google/gemma-4-E4B' };
@@ -79,6 +80,7 @@ beforeEach(() => {
   input.mock.resetCalls();
   ollama.model = '';
   tokenizer.repo = undefined;
+  terminal.interactive = true;
 });
 
 describe('the saved store', () => {
@@ -277,5 +279,22 @@ describe('resolving the model to start on', () => {
 
     assert.equal(await resolveStartupEntry(server('gemma4:e4b')), false);
     assert.equal(ollama.model, '');
+  });
+
+  test('refuses to start without asking when there is no terminal', async () => {
+    terminal.interactive = false;
+
+    assert.equal(await resolveStartupEntry(server('gemma4:e4b')), false);
+    assert.equal(ollama.model, '');
+    assert.equal(select.mock.callCount(), 0);
+    assert.equal(input.mock.callCount(), 0);
+  });
+
+  test('applies a saved entry when there is no terminal', async () => {
+    terminal.interactive = false;
+    saveStore({ active: gemma.model, models: [gemma] });
+
+    assert.equal(await resolveStartupEntry(server()), true);
+    assert.equal(ollama.model, gemma.model);
   });
 });

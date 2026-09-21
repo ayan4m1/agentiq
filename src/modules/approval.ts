@@ -10,6 +10,7 @@ import {
 
 import { getLogger } from './logging';
 import { yieldToUser } from './turn';
+import { terminal } from './interactive';
 import { approval as config } from './config';
 import { isRemembered, remember } from './rules';
 import {
@@ -191,6 +192,18 @@ export const requestApproval = async (
     log.debug(`Remembered approval for ${subject.kind} ${subject.value}`);
 
     return { approved: true };
+  }
+
+  // nobody is there to ask, so only what was already allowed can go ahead -
+  // said as a reason so the model knows not to keep asking
+  if (!terminal.interactive) {
+    log.debug('Refusing approval while running non-interactively');
+
+    return {
+      approved: false,
+      reason:
+        'agentiq is running non-interactively, so nobody can approve this. Only actions allowed by a saved rule can run - finish what you can without it.'
+    };
   }
 
   // shift+tab out of the prompt and into auto counts as a yes, so this covers

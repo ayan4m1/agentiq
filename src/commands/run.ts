@@ -1,16 +1,11 @@
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import Bottleneck from 'bottleneck';
 import { program } from 'commander';
 import InquirerCommandPrompt, { type KeyEvent } from 'inquirer-command-prompt';
 
 import { ollama } from '../modules/config';
-import { killAllJobs } from '../modules/jobs';
-import { discardCheckpoints } from '../modules/checkpoints';
-import { compactThreshold, makeThinker } from '../modules/ollama';
-import { preflight } from '../modules/preflight';
-import { ensureTokenizer } from '../modules/tokenizer';
-import { resolveStartupEntry } from '../modules/models';
+import { startAgent } from '../modules/startup';
+import { compactThreshold } from '../modules/ollama';
 import { cycleMode, describeMode } from '../modules/approval';
 import { pruneSessions, startSession } from '../modules/session';
 import { Command, createController, systemColor } from '../modules/repl';
@@ -26,48 +21,13 @@ const { resume } = program
   .parse(process.argv)
   .opts();
 
-// which model, and which tokenizer goes with it, comes from ~/.agentiq/models.json
-// rather than the environment - so it has to be read before anything asks the
-// config what it is talking to. a first run has nothing saved and asks
-if (!(await resolveStartupEntry())) {
+const agent = await startAgent();
+
+if (!agent) {
   process.exit(1);
 }
 
-// a missing model or an unreachable host is worth saying now rather than
-// after the user has typed their first message - and before the tokenizer
-// download, which is the slow part of starting up
-if (!(await preflight())) {
-  process.exit(1);
-}
-
-// makeThinker() tokenizes the system prompt and every tool definition up front,
-// so the tokenizer has to be on disk before it runs
-await ensureTokenizer();
-
-const thinker = makeThinker();
-// maxConcurrent is what matters here: turns must not overlap. minTime is for
-// a metered remote endpoint and is zero by default
-const rateLimiter = new Bottleneck({
-  maxConcurrent: 1,
-  minTime: ollama.minTurnDelay
-});
-
-// a dev server that outlives the session holds its port and is only noticed
-// much later, so every way out of here goes through killAllJobs first. the
-// snapshots go the same way: they exist so this session can be undone, and
-// nothing reads them once it is over
-const cleanUp = () => {
-  killAllJobs();
-  discardCheckpoints();
-};
-
-process.on('exit', cleanUp);
-// ^C during generation is raised as a signal by modules/interrupt.ts, and
-// listening for it replaces the default termination - so exit deliberately
-process.on('SIGINT', () => {
-  cleanUp();
-  process.exit(130);
-});
+const { thinker, schedule, cleanUp } = agent;
 
 const renderPrompt = () =>
   `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.messages)}`)}${chalk.blue('>')}`;
@@ -146,5 +106,5 @@ while (true) {
     controller.addUserMessage(userMessage);
   }
 
-  await controller.takeTurn((work) => rateLimiter.schedule(work));
+  await controller.takeTurn(schedule);
 }

@@ -13,4 +13,7 @@ await program
     isDefault: true,
     executableFile: 'run.js'
   })
+  .command('exec', 'Run a single prompt without interaction', {
+    executableFile: 'exec.js'
+  })
   .parseAsync();

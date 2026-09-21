@@ -1,4 +1,4 @@
-import { test, describe, mock } from 'node:test';
+import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 // the real prompt reads the terminal, so it answers whatever the test says to
@@ -10,8 +10,24 @@ const select =
 mock.module('@inquirer/prompts', { namedExports: { select } });
 
 const { handler } = await import('./ask_list');
+const { terminal } = await import('../modules/interactive');
+
+beforeEach(() => {
+  terminal.interactive = true;
+  select.mock.resetCalls();
+});
 
 describe('ask_list', () => {
+  test('tells the model to decide when nobody can answer', async () => {
+    terminal.interactive = false;
+
+    assert.match(
+      await handler({ question: 'Which color?', choices: ['red', 'blue'] }),
+      /running non-interactively/
+    );
+    assert.equal(select.mock.callCount(), 0);
+  });
+
   test('offers the choices along with the question', async () => {
     select.mock.mockImplementationOnce(async () => 'red');
 

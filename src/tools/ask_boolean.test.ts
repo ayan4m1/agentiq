@@ -1,4 +1,4 @@
-import { test, describe, mock } from 'node:test';
+import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 // the real prompt reads the terminal, so it answers whatever the test says to
@@ -7,8 +7,24 @@ const confirm = mock.fn<(config: { message: string }) => Promise<boolean>>();
 mock.module('@inquirer/prompts', { namedExports: { confirm } });
 
 const { handler } = await import('./ask_boolean');
+const { terminal } = await import('../modules/interactive');
+
+beforeEach(() => {
+  terminal.interactive = true;
+  confirm.mock.resetCalls();
+});
 
 describe('ask_boolean', () => {
+  test('tells the model to decide when nobody can answer', async () => {
+    terminal.interactive = false;
+
+    assert.match(
+      await handler({ question: 'Shall I go on?' }),
+      /running non-interactively/
+    );
+    assert.equal(confirm.mock.callCount(), 0);
+  });
+
   test('puts the question to the user', async () => {
     confirm.mock.mockImplementationOnce(async () => true);
 
