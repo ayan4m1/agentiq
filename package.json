@@ -80,5 +80,5 @@
   "publishConfig": {
     "access": "public"
   },
-  "packageManager": "yarn@4.13.0"
+  "packageManager": "yarn@4.18.0"
 }
