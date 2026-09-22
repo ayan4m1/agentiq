@@ -40,6 +40,7 @@
     "inquirer-command-prompt": "^0.1.0",
     "node-html-parser": "^9.0.4",
     "ollama": "^0.6.3",
+    "ora": "^9.4.1",
     "winston": "^3.19.0"
   },
   "devDependencies": {

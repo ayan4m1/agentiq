@@ -27,17 +27,30 @@ const watchForInterrupt = mock.fn((onInterrupt: () => void) => {
 
 mock.module('./interrupt', { namedExports: { watchForInterrupt } });
 
-// the interrupt hint is taken back by moving the cursor, which is the only
-// trace it leaves that a test can check without capturing stdout itself
-const readline = await import('node:readline');
-const clearLine = mock.fn<(stream: unknown, dir: number) => boolean>(
-  () => true
-);
-const cursorTo = mock.fn<(stream: unknown, x: number) => boolean>(() => true);
-
-mock.module('node:readline', {
-  namedExports: { ...readline, clearLine, cursorTo }
+// the spinner draws on a real terminal, which a test does not have - so a fake
+// stands in for it, recording how it was set up and when it ran
+let spinning = false;
+const startSpinner = mock.fn(() => {
+  spinning = true;
 });
+const stopSpinner = mock.fn(() => {
+  spinning = false;
+});
+const ora = mock.fn<
+  (options: { discardStdin?: boolean }) => {
+    start: () => void;
+    stop: () => void;
+    isSpinning: boolean;
+  }
+>(() => ({
+  start: startSpinner,
+  stop: stopSpinner,
+  get isSpinning() {
+    return spinning;
+  }
+}));
+
+mock.module('ora', { defaultExport: ora });
 
 // what the server says the model can do is learned by preflight, which needs
 // the server - so the answer is whatever the test says it is
@@ -856,13 +869,15 @@ describe('rebuilding onto a model with no system prompt', () => {
   });
 });
 
-describe('the interrupt hint', () => {
+describe('the spinner', () => {
   const ask = (): Message[] => [{ role: 'user', content: 'go on then' }];
   const wasTTY = process.stdin.isTTY;
 
   beforeEach(() => {
-    clearLine.mock.resetCalls();
-    cursorTo.mock.resetCalls();
+    ora.mock.resetCalls();
+    startSpinner.mock.resetCalls();
+    stopSpinner.mock.resetCalls();
+    spinning = false;
     // escape can only be pressed at a terminal, so that is when it is offered
     process.stdin.isTTY = true;
   });
@@ -872,11 +887,17 @@ describe('the interrupt hint', () => {
   });
 
   const cleared = () => {
-    assert.equal(clearLine.mock.callCount(), 1);
-    assert.equal(clearLine.mock.calls[0].arguments[0], process.stdout);
-    assert.equal(cursorTo.mock.callCount(), 1);
-    assert.deepEqual(cursorTo.mock.calls[0].arguments, [process.stdout, 0]);
+    assert.equal(startSpinner.mock.callCount(), 1);
+    assert.equal(stopSpinner.mock.callCount(), 1);
   };
+
+  test('leaves stdin to the interrupt watcher', async () => {
+    respond(chunk({ content: 'ok' }));
+
+    await makeThinker().think({ messages: ask() });
+
+    assert.equal(ora.mock.calls[0].arguments[0].discardStdin, false);
+  });
 
   test('is taken back once the reply starts, and only once', async () => {
     // reasoning and then content - both write, and the second must not wipe
@@ -919,7 +940,7 @@ describe('the interrupt hint', () => {
 
     await makeThinker().think({ messages: ask() });
 
-    assert.equal(clearLine.mock.callCount(), 0);
-    assert.equal(cursorTo.mock.callCount(), 0);
+    assert.equal(startSpinner.mock.callCount(), 0);
+    assert.equal(stopSpinner.mock.callCount(), 0);
   });
 });

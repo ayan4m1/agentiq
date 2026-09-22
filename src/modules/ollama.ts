@@ -1,6 +1,6 @@
+import ora from 'ora';
 import chalk from 'chalk';
 import type { Message } from 'ollama';
-import { clearLine, cursorTo } from 'node:readline';
 
 import { client } from './client';
 import { ollama } from './config';
@@ -179,28 +179,32 @@ export const makeThinker = () => {
     turnCount++;
     aborted = false;
 
-    // the hint holds only while it is still the current line - the first token
-    // of output scrolls it out of reach - so whoever writes next clears it
-    let hintShown = false;
+    // the spinner holds only while it is still the current line - the first
+    // token of output takes it over - so whoever writes next stops it
+    const spinner = ora({
+      stream: process.stdout,
+      // watchForInterrupt owns stdin in raw mode for the turn, and ora's own
+      // discard would fight it for the escape byte
+      discardStdin: false,
+      suffixText: 'esc to interrupt'
+    });
 
-    const clearHint = () => {
-      if (!hintShown) {
-        return;
+    const stopSpinner = () => {
+      if (spinner.isSpinning) {
+        spinner.stop();
       }
-
-      hintShown = false;
-      clearLine(process.stdout, 0);
-      cursorTo(process.stdout, 0);
     };
 
+    // separate the reply from the prompt before anything claims the line -
+    // a write while the spinner runs would break its redraw
+    process.stdout.write('\n');
+
     if (process.stdin.isTTY) {
-      process.stdout.write(chalk.dim('esc to interrupt'));
-      hintShown = true;
+      spinner.start();
     }
 
     const assistantMessage: Message = { role: 'assistant', content: '' };
     let wroteOutput = false;
-    let wroteThinking = false;
     let lastChunk;
 
     // counting before the call rather than only after it gives reconcile() a
@@ -229,8 +233,6 @@ export const makeThinker = () => {
         }
       });
 
-      process.stdout.write('\n');
-
       // enter a read/print loop of text chunks from the model
       for await (const chunk of stream) {
         lastChunk = chunk;
@@ -239,22 +241,17 @@ export const makeThinker = () => {
         // is deliberately not kept: it describes how this one answer was
         // reached, and re-sending it on every later turn buys nothing
         if (chunk.message?.thinking) {
-          clearHint();
-
-          if (!wroteThinking) {
-            process.stdout.write(chalk.dim('thinking\n'));
-            wroteThinking = true;
-          }
+          stopSpinner();
 
           process.stdout.write(chalk.dim(chunk.message.thinking));
         }
 
         if (chunk.message?.content) {
-          clearHint();
+          stopSpinner();
 
           // put the answer on its own, rather than running it straight on from
           // the reasoning that led to it
-          if (wroteThinking && !wroteOutput) {
+          if (chunk.message?.thinking && !wroteOutput) {
             process.stdout.write('\n\n');
           }
 
@@ -280,13 +277,13 @@ export const makeThinker = () => {
     } finally {
       stopWatching();
       // a turn that only made tool calls, or one that ended before saying
-      // anything, never wrote over the hint
-      clearHint();
+      // anything, never wrote over the spinner
+      stopSpinner();
     }
 
     // a turn that only reasoned before calling a tool still has to close the
     // line it was writing on
-    if (wroteOutput || wroteThinking) {
+    if (wroteOutput) {
       process.stdout.write('\n\n');
     }
 
