@@ -42,9 +42,8 @@ export const startAgent = async () => {
     rateLimiter.schedule(work);
 
   // a dev server that outlives the session holds its port and is only noticed
-  // much later, so every way out of here goes through killAllJobs first. the
-  // snapshots go the same way: they exist so this session can be undone, and
-  // nothing reads them once it is over
+  // much later, so every exit path calls killAllJobs first. snapshots are the
+  // same: they only exist for the scope of this session.
   const cleanUp = () => {
     killAllJobs();
     discardCheckpoints();
