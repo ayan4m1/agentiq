@@ -7,8 +7,9 @@ import { mkdtempSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 // the command starts a session as it is evaluated, so it can only be run, not
-// imported. what happens once it is running is covered by modules/repl.ts -
-// this is only whether it gets that far, and how it stops when it cannot
+// imported. what happens once it is running is covered by modules/interactive.ts
+// and modules/repl.ts - this is only whether it gets that far, and how it stops
+// when it cannot
 const register = new URL('../../test/register.mjs', import.meta.url).href;
 const entrypoint = fileURLToPath(new URL('./run.ts', import.meta.url));
 const root = mkdtempSync(resolve(tmpdir(), 'agentiq-run-'));
