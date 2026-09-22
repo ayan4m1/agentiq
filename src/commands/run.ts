@@ -30,7 +30,7 @@ if (!agent) {
 const { thinker, schedule, cleanUp } = agent;
 
 const renderPrompt = () =>
-  `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.messages)}`)}${chalk.blue('>')}`;
+  `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.messages)}`)}\n${chalk.blue('>')}`;
 
 // the prompt's own tab branch has no shift guard, so shift+tab would otherwise
 // fall into autocompletion and leave a literal tab in the buffer
@@ -39,6 +39,13 @@ class ModeCommandPrompt extends InquirerCommandPrompt {
     if (event?.key?.name !== 'tab' || !event.key.shift) {
       return super.onKeypress(event);
     }
+
+    // the banner cycleMode prints would otherwise land on the input line, and the
+    // redraw below would only erase part of what is on screen
+    this.rl.output.unmute();
+    this.screen.clean(this.screen.extraLinesUnderPrompt);
+    this.screen.height = 0;
+    this.screen.extraLinesUnderPrompt = 0;
 
     cycleMode();
 

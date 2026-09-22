@@ -14,8 +14,13 @@ declare module 'inquirer-command-prompt' {
 
     static addToHistory(context: string, value: string): void;
 
-    rl: { line: string; cursor: number };
+    rl: { line: string; cursor: number; output: { unmute(): void } };
     opt: { message: string };
+    screen: {
+      clean(extraLines: number): void;
+      height: number;
+      extraLinesUnderPrompt: number;
+    };
 
     run(): Promise<unknown>;
     render(): void;
