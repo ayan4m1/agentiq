@@ -41,9 +41,9 @@ const badges: Record<ApprovalMode, string> = {
 };
 
 const banners: Record<ApprovalMode, string> = {
-  [ApprovalMode.Manual]: chalk.bgYellow.black('every change is confirmed'),
-  [ApprovalMode.Auto]: chalk.bgRed.white('changes apply without asking'),
-  [ApprovalMode.Plan]: chalk.bgCyan.black('no changes can be made')
+  [ApprovalMode.Manual]: chalk.bgYellow('every change is confirmed'),
+  [ApprovalMode.Auto]: chalk.bgRed('changes apply without asking'),
+  [ApprovalMode.Plan]: chalk.bgCyan('no changes can be made')
 };
 
 const hint = chalk.dim('shift+tab to cycle');
