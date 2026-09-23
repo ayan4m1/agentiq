@@ -1,6 +1,6 @@
 import terser from '@rollup/plugin-terser';
 import shebang from 'rollup-plugin-shebang-bin';
-import autoExternal from 'rollup-plugin-auto-external';
+import externals from 'rollup-plugin-node-externals';
 import multiInput from '@ayan4m1/rollup-plugin-multi-input';
 import typescript from '@rollup/plugin-typescript';
 
@@ -14,13 +14,5 @@ export default {
     format: 'esm',
     preserveModules: true
   },
-  plugins: [
-    typescript(),
-    autoExternal({
-      builtins: true
-    }),
-    multiInput(),
-    shebang(),
-    terser()
-  ]
+  plugins: [typescript(), externals(), multiInput(), shebang(), terser()]
 };
