@@ -33,7 +33,10 @@ export const getLogger = (
                     `[${data.level}][${data.label}] ${data.message}`
                 )
               )
-            : prettyPrint()
+            : combine(
+                prettyPrint(),
+                printf((data) => `${data.message}`)
+              )
         })
       ]
     });
