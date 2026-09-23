@@ -53,8 +53,8 @@ general instructions about how to be an agent.
   against the sources, with no build step. Node erases types rather than
   compiling them, so the code must stay erasable: no enums (use an `as const`
   object plus a derived union, as `src/types/index.ts` does) and `import type`
-  for anything used only as a type. `test/hooks.mjs` supplies the extensions
-  that rollup would otherwise infer.
+  for anything used only as a type. `test/hooks.mjs` supplies a simulant of
+  rollup's module resolver.
 - Tool output is capped against the context window - see `getContentBudget()`
   and `truncate()` in `src/utils/index.ts`. A new tool that returns file or
   command output should use them.
