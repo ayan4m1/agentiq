@@ -66,11 +66,8 @@ describe('definition', () => {
     const { parameters } = definition.function;
 
     assert.notEqual(parameters, undefined);
-    // @ts-expect-error Already checked above
     assert.deepEqual([...parameters.required].sort(), ['content', 'path']);
-    // @ts-expect-error Already checked above
     assert.equal(parameters.properties.path.type, 'string');
-    // @ts-expect-error Already checked above
     assert.equal(parameters.properties.content.type, 'string');
   });
 });
