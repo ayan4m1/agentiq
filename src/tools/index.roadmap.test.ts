@@ -26,6 +26,6 @@ describe('tools, when AQ_ENABLE_ROADMAP is set', () => {
       (tool) => tool.definition.function.name === 'present_plan'
     );
 
-    assert.match(plan!.definition.function.description, /add_todo/);
+    assert.match(plan!.definition.function.description ?? '', /add_todo/);
   });
 });
