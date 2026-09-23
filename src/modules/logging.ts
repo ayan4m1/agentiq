@@ -35,7 +35,7 @@ export const getLogger = (
               )
             : combine(
                 prettyPrint(),
-                printf((data) => `${data.message}`)
+                printf((data) => data.message as string)
               )
         })
       ]
