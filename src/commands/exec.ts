@@ -16,7 +16,6 @@ const log = getLogger('exec');
 // commander runs this file as its own executable, the same way it runs
 // commands/run.ts, so the prompt and options are parsed here
 program
-  .allowUnknownOption()
   .argument('<prompt>', 'what to ask the agent')
   .addOption(
     new Option('-m, --mode <mode>', 'how changes are approved')
