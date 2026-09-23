@@ -214,12 +214,22 @@ export const makeThinker = () => {
     }
 
     const messagesAtSend = tokens.messages;
-    const stopWatching = watchForInterrupt(abort);
+    // client.abort() only reaches a request once its response has arrived, and
+    // a model still loading can hold that back for a minute - so escape also
+    // settles this, and the turn stops waiting on the request at all
+    let interrupt!: () => void;
+    const interrupted = new Promise<undefined>((resolve) => {
+      interrupt = () => resolve(undefined);
+    });
+    const stopWatching = watchForInterrupt(() => {
+      abort();
+      interrupt();
+    });
 
-    // the request itself is inside the try too - a failed connection, or an
-    // escape before the stream opens, must still hand stdin back
+    // the request itself is inside the try too - a failed connection must
+    // still hand stdin back
     try {
-      const stream = await client.chat({
+      const request = client.chat({
         model: ollama.model,
         messages,
         tools: toolDefs,
@@ -232,6 +242,20 @@ export const makeThinker = () => {
           num_ctx: ollama.contextLimit
         }
       });
+      const stream = await Promise.race([request, interrupted]);
+
+      if (!stream) {
+        // escape beat the response. close it the moment it does arrive, so
+        // ollama sees the disconnect and never generates the reply - and a
+        // request that fails instead has nobody left to hear about it
+        request.then(
+          (late) => late.abort(),
+          () => {}
+        );
+        log.debug(`Round ${turnCount} interrupted before the model answered`);
+
+        return { ...lastState, interrupted: true };
+      }
 
       // enter a read/print loop of text chunks from the model
       for await (const chunk of stream) {

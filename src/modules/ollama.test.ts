@@ -713,6 +713,61 @@ describe('taking a turn', () => {
     // a call that may have been cut short is never dispatched
     assert.equal(boom.handler.mock.callCount(), 0);
   });
+
+  // a model still being loaded holds the response back, and until it arrives
+  // the client has nothing it can abort
+  const pendingResponse = () => {
+    let resolve!: (value: unknown) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+
+    chat.mock.mockImplementationOnce(() => {
+      queueMicrotask(() => pressEscape?.());
+
+      return promise;
+    });
+
+    return { resolve, reject };
+  };
+
+  test('rolls the turn back when escape is pressed before the response', async () => {
+    const thinker = makeThinker();
+    const lastState = { messages: ask() };
+    const response = pendingResponse();
+
+    const result = await thinker.think(lastState);
+
+    assert.equal(result.interrupted, true);
+    assert.equal(result.messages, lastState.messages);
+    assert.equal(stopWatching.mock.callCount(), 1);
+
+    // the response that finally turns up is closed rather than read
+    const late = {
+      abort: mock.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield chunk({ content: 'too late' });
+      }
+    };
+
+    response.resolve(late);
+    await new Promise((done) => setImmediate(done));
+
+    assert.equal(late.abort.mock.callCount(), 1);
+  });
+
+  test('ignores a request that fails after escape was pressed', async () => {
+    const response = pendingResponse();
+    const result = await makeThinker().think({ messages: ask() });
+
+    assert.equal(result.interrupted, true);
+
+    // would surface as an unhandled rejection and fail the run
+    response.reject(new Error('connection reset'));
+    await new Promise((done) => setImmediate(done));
+  });
 });
 
 describe('summarizing when eliding is not enough', () => {
