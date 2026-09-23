@@ -3,12 +3,21 @@ import { select } from '@inquirer/prompts';
 
 import { approval, setMode } from '../modules/approval';
 import { terminal, yieldToUser } from '../modules/turn';
+import { roadmap } from '../modules/config';
 import { ApprovalMode } from '../types';
 import { makeParameter, makeTool } from '../utils';
 
 export const definition = makeTool(
   'present_plan',
-  'Show the user a plan and ask permission to start work. Use this before making any changes to a codebase you have just finished investigating, and always while plan mode is active. The user replies with how they want the work approved. If the plan contains objectives that will outlive this session, record them with add_todo once it is approved.',
+  [
+    'Show the user a plan and ask permission to start work. Use this before making any changes to a codebase you have just finished investigating, and always while plan mode is active. The user replies with how they want the work approved.',
+    // add_todo is not offered without the roadmap, so it must not be named
+    ...(roadmap.enabled
+      ? [
+          'If the plan contains objectives that will outlive this session, record them with add_todo once it is approved.'
+        ]
+      : [])
+  ].join(' '),
   [
     makeParameter(
       'string',

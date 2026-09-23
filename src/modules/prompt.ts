@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { getLogger } from './logging';
-import { home, ollama, shell } from './config';
+import { home, ollama, roadmap, shell } from './config';
 import { describeRoadmap } from './roadmap';
 
 const log = getLogger('prompt');
@@ -176,7 +176,7 @@ export const buildSystemPrompt = () => {
     // project has been doing. both are standing context, so they arrive together,
     // and composing here rather than per turn is what lets the token accounting
     // count it once.
-    describeRoadmap()
+    roadmap.enabled ? describeRoadmap() : undefined
   ];
 
   return sections.filter(Boolean).join('\n\n');

@@ -12,6 +12,7 @@ import {
   type LoggingConfig,
   LogLevel,
   type OllamaConfig,
+  type RoadmapConfig,
   type SessionConfig,
   type ShellConfig,
   type TokenizerConfig
@@ -159,4 +160,10 @@ export const tokenizer: TokenizerConfig = {
   repo: undefined,
   // HF_TOKEN is the name the huggingface CLI already writes, so honour it
   hfToken: process.env.AQ_HF_TOKEN || process.env.HF_TOKEN
+};
+
+// off by default: ROADMAP.md is written into the project without an approval
+// prompt, so it should only happen in a project that has asked for it
+export const roadmap: RoadmapConfig = {
+  enabled: toBoolean(process.env.AQ_ENABLE_ROADMAP, 'AQ_ENABLE_ROADMAP')
 };

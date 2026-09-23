@@ -9,16 +9,27 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 const root = mkdtempSync(resolve(tmpdir(), 'agentiq-prompt-'));
 const stateDir = resolve(root, 'state');
 
-process.env.AQ_HOME = stateDir;
-
-const { buildSystemPrompt } = await import('./prompt');
-const { ollama } = await import('./config');
-
 const project = resolve(root, 'project');
 const nested = resolve(project, 'src', 'deep');
+
+process.env.AQ_HOME = stateDir;
+// empty rather than deleted, so a value in a local .env cannot fill it back in
+process.env.AQ_ENABLE_ROADMAP = '';
+
+// the roadmap path is resolved from the working directory when that module
+// loads, so import from inside the scratch project rather than this repo
+const original = process.cwd();
+
+mkdirSync(nested, { recursive: true });
+process.chdir(project);
+
+const { buildSystemPrompt } = await import('./prompt');
+const { ollama, roadmap } = await import('./config');
+
+process.chdir(original);
 const globalOverlay = resolve(stateDir, 'AGENTIQ.md');
 const projectOverlay = resolve(project, 'AGENTIQ.md');
-const original = process.cwd();
+const roadmapFile = resolve(project, 'ROADMAP.md');
 
 before(() => {
   mkdirSync(stateDir, { recursive: true });
@@ -29,6 +40,8 @@ before(() => {
 afterEach(() => {
   rmSync(globalOverlay, { force: true });
   rmSync(projectOverlay, { force: true });
+  rmSync(roadmapFile, { force: true });
+  roadmap.enabled = false;
   process.chdir(project);
 });
 
@@ -134,5 +147,34 @@ describe('overlays', () => {
     writeFileSync(projectOverlay, '   \n  \n');
 
     assert.doesNotMatch(buildSystemPrompt(), /\n\n\n/);
+  });
+});
+
+describe('the roadmap', () => {
+  test('is left out unless AQ_ENABLE_ROADMAP is set', () => {
+    writeFileSync(
+      roadmapFile,
+      '# Roadmap\n\n## Todo\n\n- [ ] ROADMAP_MARKER\n'
+    );
+
+    const prompt = buildSystemPrompt();
+
+    assert.doesNotMatch(prompt, /Project roadmap/);
+    assert.doesNotMatch(prompt, /ROADMAP_MARKER/);
+  });
+
+  // buildSystemPrompt reads the flag on every call, so flipping it here is
+  // enough - no second import of the module is needed
+  test('is appended when AQ_ENABLE_ROADMAP is set', () => {
+    roadmap.enabled = true;
+    writeFileSync(
+      roadmapFile,
+      '# Roadmap\n\n## Todo\n\n- [ ] ROADMAP_MARKER\n'
+    );
+
+    const prompt = buildSystemPrompt();
+
+    assert.match(prompt, /## Project roadmap/);
+    assert.match(prompt, /ROADMAP_MARKER/);
   });
 });

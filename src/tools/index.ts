@@ -16,7 +16,17 @@ import * as completeTodo from './complete_todo';
 import * as removeTodo from './remove_todo';
 import * as updateNotes from './update_notes';
 
+import { roadmap } from '../modules/config';
 import type { ToolCall } from '../types';
+
+// offered only when AQ_ENABLE_ROADMAP is set - a model that cannot see them has
+// no way to write ROADMAP.md
+const roadmapTools: ToolCall[] = [
+  addTodo,
+  completeTodo,
+  removeTodo,
+  updateNotes
+];
 
 export const tools: ToolCall[] = [
   read,
@@ -32,8 +42,5 @@ export const tools: ToolCall[] = [
   askList,
   askBoolean,
   presentPlan,
-  addTodo,
-  completeTodo,
-  removeTodo,
-  updateNotes
+  ...(roadmap.enabled ? roadmapTools : [])
 ];
