@@ -1,7 +1,13 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 
-import { toBoolean, toLogLevel, toThink } from './config';
+import { parse } from 'yaml';
+
+import { loadConfigFile, toBoolean, toLogLevel, toThink } from './config';
+import { defaultConfig } from './config.default';
 import { LogLevel } from '../types';
 
 // both parsers warn on the console when they reject something, which these
@@ -110,5 +116,138 @@ describe('toBoolean', () => {
       quietly(() => toBoolean('ture', 'AQ_TEST', true)),
       true
     );
+  });
+});
+
+const root = mkdtempSync(resolve(tmpdir(), 'agentiq-config-'));
+
+describe('loadConfigFile', () => {
+  test('seeds config.yml with the defaults when there is none', () => {
+    const dir = resolve(root, 'fresh', 'home');
+    const loaded = loadConfigFile(dir);
+
+    assert.equal(
+      readFileSync(resolve(dir, 'config.yml'), 'utf8'),
+      defaultConfig
+    );
+    assert.deepEqual(loaded, parse(defaultConfig));
+  });
+
+  test('the seeded defaults match the shape config.ts reads', () => {
+    const seeded = parse(defaultConfig);
+
+    assert.equal(seeded.logging.level, LogLevel.Info);
+    assert.equal(seeded.approval.mode, 'manual');
+    assert.equal(seeded.shell.timeout, 120000);
+    assert.equal(seeded.ollama.contextLimit, 131072);
+    assert.equal(seeded.ollama.recoverToolCalls, true);
+    assert.equal(seeded.session.limit, 50);
+    assert.equal(seeded.roadmap.enabled, false);
+  });
+
+  test('never overwrites a file that is already there', () => {
+    const dir = resolve(root, 'existing');
+    const written = 'session:\n  limit: 7\n';
+
+    mkdirSync(dir);
+    writeFileSync(resolve(dir, 'config.yml'), written);
+
+    assert.deepEqual(loadConfigFile(dir), { session: { limit: 7 } });
+    assert.equal(readFileSync(resolve(dir, 'config.yml'), 'utf8'), written);
+  });
+
+  test('treats an emptied file as no settings', () => {
+    const dir = resolve(root, 'empty');
+
+    mkdirSync(dir);
+    writeFileSync(resolve(dir, 'config.yml'), '');
+
+    assert.deepEqual(loadConfigFile(dir), {});
+  });
+
+  test('ignores a file that is not valid yaml rather than failing', () => {
+    const dir = resolve(root, 'broken');
+
+    mkdirSync(dir);
+    writeFileSync(resolve(dir, 'config.yml'), 'session: [unclosed\n');
+
+    assert.deepEqual(
+      quietly(() => loadConfigFile(dir)),
+      {}
+    );
+  });
+
+  test('ignores a file that is not a mapping', () => {
+    const dir = resolve(root, 'list');
+
+    mkdirSync(dir);
+    writeFileSync(resolve(dir, 'config.yml'), '- one\n- two\n');
+
+    assert.deepEqual(
+      quietly(() => loadConfigFile(dir)),
+      {}
+    );
+  });
+});
+
+describe('settings', () => {
+  // the module reads everything as it is evaluated, and only once per URL - a
+  // query string makes each import a fresh evaluation against the env as set
+  const load = async (
+    tag: string,
+    yaml: string,
+    env: Record<string, string> = {}
+  ) => {
+    const home = resolve(root, `settings-${tag}`);
+    const saved = { ...process.env };
+
+    mkdirSync(home);
+    writeFileSync(resolve(home, 'config.yml'), yaml);
+    Object.assign(process.env, { AQ_HOME: home }, env);
+
+    try {
+      return await import(new URL(`./config.ts?${tag}`, import.meta.url).href);
+    } finally {
+      process.env = saved;
+    }
+  };
+
+  test('reads values from config.yml', async () => {
+    const config = await load(
+      'file',
+      'session:\n  limit: 7\nollama:\n  think: high\nroadmap:\n  enabled: true\n'
+    );
+
+    assert.equal(config.session.limit, 7);
+    assert.equal(config.ollama.think, 'high');
+    assert.equal(config.roadmap.enabled, true);
+  });
+
+  test('falls back to the defaults for anything the file leaves out', async () => {
+    const config = await load('partial', 'session:\n  limit: 7\n');
+
+    assert.equal(config.session.historyLimit, 100);
+    assert.equal(config.shell.timeout, 120000);
+    assert.equal(config.ollama.keepAlive, '30m');
+    assert.equal(config.ollama.recoverToolCalls, true);
+    assert.equal(config.ollama.think, undefined);
+  });
+
+  test('lets an AQ_* env var override the file', async () => {
+    const config = await load(
+      'env',
+      'session:\n  limit: 7\nroadmap:\n  enabled: true\n',
+      { AQ_SESSION_LIMIT: '3', AQ_ENABLE_ROADMAP: 'false' }
+    );
+
+    assert.equal(config.session.limit, 3);
+    assert.equal(config.roadmap.enabled, false);
+  });
+
+  test('reads config.yml from AQ_HOME', async () => {
+    const config = await load('home', 'logging:\n  level: debug\n');
+
+    assert.equal(config.home, resolve(root, 'settings-home'));
+    assert.equal(config.logging.level, LogLevel.Debug);
   });
 });

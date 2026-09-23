@@ -1,8 +1,10 @@
-// must come first - it populates process.env for every read below
-import './env';
-
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+
+import { parse } from 'yaml';
+
+import { defaultConfig } from './config.default';
 
 import {
   type ApprovalConfig,
@@ -34,7 +36,7 @@ export const toLogLevel = (value?: string) => {
 
   if (!found) {
     console.warn(
-      `Ignoring AQ_LOG_LEVEL "${value}" - expected one of ${levels.join(', ')}`
+      `Ignoring logging.level (AQ_LOG_LEVEL) "${value}" - expected one of ${levels.join(', ')}`
     );
 
     return LogLevel.Info;
@@ -43,8 +45,8 @@ export const toLogLevel = (value?: string) => {
   return found;
 };
 
-// everything agentiq keeps between runs - sessions, tokenizer caches - lives
-// under here. it is overridable so a test run cannot reach the real one, and
+// everything agentiq keeps between runs - config.yml, sessions, tokenizer
+// caches - lives under here. it is overridable so a test run cannot reach the real one, and
 // so a user can move the whole lot off their home directory
 export const home = process.env.AQ_HOME || resolve(homedir(), '.agentiq');
 
@@ -74,7 +76,7 @@ export const toThink = (value?: string): ThinkSetting | undefined => {
   }
 
   console.warn(
-    `Ignoring AQ_OLLAMA_THINK "${value}" - expected true, false, or one of ${levels.join(', ')}`
+    `Ignoring ollama.think (AQ_OLLAMA_THINK) "${value}" - expected true, false, or one of ${levels.join(', ')}`
   );
 };
 
@@ -107,51 +109,129 @@ export const toBoolean = (
   return fallback;
 };
 
+// config.yml as written: sections of settings, any of which may be missing,
+// and a section holding nothing but comments parses as null
+type ConfigFile = Record<string, Record<string, unknown> | null | undefined>;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+// seeds the file with the commented defaults the first time, so there is
+// something to edit, and never touches it after that. a file that cannot be
+// read or parsed is reported and ignored rather than fatal - the defaults and
+// the environment are still a working configuration
+export const loadConfigFile = (dir: string): ConfigFile => {
+  const path = resolve(dir, 'config.yml');
+
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path, defaultConfig, { flag: 'wx' });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      console.warn(`Could not create ${path} - ${(error as Error).message}`);
+
+      return {};
+    }
+  }
+
+  try {
+    const parsed: unknown = parse(readFileSync(path, 'utf8'));
+
+    // an emptied file is as good as no settings at all
+    if (parsed === null || parsed === undefined) {
+      return {};
+    }
+
+    if (!isRecord(parsed)) {
+      console.warn(`Ignoring ${path} - expected a mapping of settings`);
+
+      return {};
+    }
+
+    return parsed as ConfigFile;
+  } catch (error) {
+    console.warn(`Ignoring ${path} - ${(error as Error).message}`);
+
+    return {};
+  }
+};
+
+const defaults = parse(defaultConfig) as ConfigFile;
+const file = loadConfigFile(home);
+
+const lookup = (source: ConfigFile, section: string, key: string) => {
+  const values = source[section];
+
+  return isRecord(values) ? values[key] : undefined;
+};
+
+// the env var wins, then config.yml, then the seeded default. everything comes
+// back as a string so the parsers above read a value the same way wherever it
+// came from - an empty env var counts as unset, as it always has
+const setting = (envName: string, section: string, key: string) => {
+  const fromEnv = process.env[envName];
+
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  const value = lookup(file, section, key) ?? lookup(defaults, section, key);
+
+  return value === null || value === undefined ? undefined : String(value);
+};
+
+const integer = (envName: string, section: string, key: string) =>
+  parseInt(setting(envName, section, key) ?? '', 10);
+
 export const logging: LoggingConfig = {
-  level: toLogLevel(process.env.AQ_LOG_LEVEL),
-  detailed: toBoolean(process.env.AQ_LOG_DETAILED, 'AQ_LOG_DETAILED')
+  level: toLogLevel(setting('AQ_LOG_LEVEL', 'logging', 'level')),
+  detailed: toBoolean(
+    setting('AQ_LOG_DETAILED', 'logging', 'detailed'),
+    'logging.detailed (AQ_LOG_DETAILED)'
+  )
 };
 
 // only the starting mode - shift+tab and present_plan move it at runtime, so
 // modules/approval.ts owns the live value from here on
 export const approval: ApprovalConfig = {
-  mode: (process.env.AQ_APPROVAL_MODE || ApprovalMode.Manual) as ApprovalMode
+  mode: (setting('AQ_APPROVAL_MODE', 'approval', 'mode') ||
+    ApprovalMode.Manual) as ApprovalMode
 };
 
 // undefined lets execSync pick the platform default - cmd.exe on Windows,
 // /bin/sh elsewhere - rather than assuming bash is on PATH
 export const shell: ShellConfig = {
-  path: process.env.AQ_SHELL || undefined,
-  timeout: parseInt(process.env.AQ_SHELL_TIMEOUT ?? '120000', 10)
+  path: setting('AQ_SHELL', 'shell', 'path') || undefined,
+  timeout: integer('AQ_SHELL_TIMEOUT', 'shell', 'timeout')
 };
 
 export const ollama: OllamaConfig = {
-  bearerToken: process.env.AQ_OLLAMA_BEARER_TOKEN,
-  host: process.env.AQ_OLLAMA_HOST,
-  // filled in by modules/models.ts from ~/.agentiq/models.json. there is no env
-  // var for it: /model has to be able to change it mid-session, and a setting
-  // read from the environment could not be changed back by the same command
+  bearerToken: setting('AQ_OLLAMA_BEARER_TOKEN', 'ollama', 'bearerToken'),
+  host: setting('AQ_OLLAMA_HOST', 'ollama', 'host'),
+  // filled in by modules/models.ts from ~/.agentiq/models.json. there is no
+  // setting for it: /model has to be able to change it mid-session, and a value
+  // read from config.yml could not be changed back by the same command
   model: '',
-  contextLimit: parseInt(process.env.AQ_OLLAMA_CONTEXT_LIMIT ?? '131072', 10),
+  contextLimit: integer('AQ_OLLAMA_CONTEXT_LIMIT', 'ollama', 'contextLimit'),
   // ollama's own default is five minutes, which is short enough that a pause
   // to read something costs a full reload of the model on the next turn
-  keepAlive: process.env.AQ_OLLAMA_KEEP_ALIVE ?? '30m',
-  minTurnDelay: parseInt(process.env.AQ_OLLAMA_MIN_TURN_DELAY ?? '0', 10),
-  think: toThink(process.env.AQ_OLLAMA_THINK),
+  keepAlive: setting('AQ_OLLAMA_KEEP_ALIVE', 'ollama', 'keepAlive') ?? '30m',
+  minTurnDelay: integer('AQ_OLLAMA_MIN_TURN_DELAY', 'ollama', 'minTurnDelay'),
+  think: toThink(setting('AQ_OLLAMA_THINK', 'ollama', 'think')),
   replayPreamble: toBoolean(
-    process.env.AQ_OLLAMA_REPLAY_PREAMBLE,
-    'AQ_OLLAMA_REPLAY_PREAMBLE'
+    setting('AQ_OLLAMA_REPLAY_PREAMBLE', 'ollama', 'replayPreamble'),
+    'ollama.replayPreamble (AQ_OLLAMA_REPLAY_PREAMBLE)'
   ),
   recoverToolCalls: toBoolean(
-    process.env.AQ_OLLAMA_RECOVER_TOOL_CALLS,
-    'AQ_OLLAMA_RECOVER_TOOL_CALLS',
+    setting('AQ_OLLAMA_RECOVER_TOOL_CALLS', 'ollama', 'recoverToolCalls'),
+    'ollama.recoverToolCalls (AQ_OLLAMA_RECOVER_TOOL_CALLS)',
     true
   )
 };
 
 export const session: SessionConfig = {
-  limit: parseInt(process.env.AQ_SESSION_LIMIT ?? '50', 10),
-  historyLimit: parseInt(process.env.AQ_HISTORY_LIMIT ?? '100', 10)
+  limit: integer('AQ_SESSION_LIMIT', 'session', 'limit'),
+  historyLimit: integer('AQ_HISTORY_LIMIT', 'session', 'historyLimit')
 };
 
 export const tokenizer: TokenizerConfig = {
@@ -159,11 +239,15 @@ export const tokenizer: TokenizerConfig = {
   // stored together
   repo: undefined,
   // HF_TOKEN is the name the huggingface CLI already writes, so honour it
-  hfToken: process.env.AQ_HF_TOKEN || process.env.HF_TOKEN
+  hfToken:
+    setting('AQ_HF_TOKEN', 'tokenizer', 'hfToken') || process.env.HF_TOKEN
 };
 
 // off by default: ROADMAP.md is written into the project without an approval
 // prompt, so it should only happen in a project that has asked for it
 export const roadmap: RoadmapConfig = {
-  enabled: toBoolean(process.env.AQ_ENABLE_ROADMAP, 'AQ_ENABLE_ROADMAP')
+  enabled: toBoolean(
+    setting('AQ_ENABLE_ROADMAP', 'roadmap', 'enabled'),
+    'roadmap.enabled (AQ_ENABLE_ROADMAP)'
+  )
 };

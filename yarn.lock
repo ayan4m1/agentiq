@@ -89,6 +89,7 @@ __metadata:
     typescript: "npm:^5.9.3"
     typescript-eslint: "npm:^8.70.0"
     winston: "npm:^3.19.0"
+    yaml: "npm:^2.9.1"
   bin:
     agentiq: ./lib/index.js
   languageName: unknown
@@ -8200,7 +8201,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"yaml@npm:^2.9.0":
+"yaml@npm:^2.9.0, yaml@npm:^2.9.1":
   version: 2.9.1
   resolution: "yaml@npm:2.9.1"
   bin:

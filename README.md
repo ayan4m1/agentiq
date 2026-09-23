@@ -2,6 +2,29 @@
 
 Agentiq is an agentic coding assistant for use with Ollama.
 
+## Configuration
+
+Settings live in `~/.agentiq/config.yml`, next to everything else agentiq keeps between runs. The
+file is created with the defaults, and a comment explaining each setting, the first time agentiq
+starts. After that it is never overwritten. Its sections match the config in `src/modules/config.ts`:
+
+```yaml
+logging:
+  level: info
+approval:
+  mode: manual
+ollama:
+  host: http://127.0.0.1:11434/
+  contextLimit: 131072
+session:
+  limit: 50
+```
+
+A setting left out of the file falls back to its default. Every setting can also be overridden for a
+single run by the `AQ_*` environment variable named beside it in the file, such as
+`AQ_LOG_LEVEL=debug`. `AQ_HOME` moves the whole directory, config file included, somewhere other than
+`~/.agentiq`.
+
 ## Choosing a model
 
 The model agentiq talks to, and the huggingface.co repository whose tokenizer matches it are chosen
@@ -28,7 +51,7 @@ built again around the new model, and the context is counted again from scratch.
 agentiq exec "fix the failing tests" --mode auto
 ```
 
-`--mode` (`-m`) picks the approval mode, and defaults to `AQ_APPROVAL_MODE`:
+`--mode` (`-m`) picks the approval mode, and defaults to `approval.mode` from the config file:
 
 - `auto` - every change is applied without asking.
 - `manual` - only changes already allowed by a saved rule (an earlier "always" answer) are applied.

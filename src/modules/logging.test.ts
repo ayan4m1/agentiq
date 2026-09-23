@@ -1,7 +1,11 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getLogger } from './logging';
+// the labelled format is only used when detailed logging is on, and config is
+// read as it is imported - so this has to be set before logging loads it
+process.env.AQ_LOG_DETAILED = 'true';
+
+const { getLogger } = await import('./logging');
 
 describe('getLogger', () => {
   test('hands back the same logger for the same category', () => {
