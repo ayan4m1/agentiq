@@ -22,17 +22,27 @@ type Checkpoint = {
   // because the file is one this session created
   blob?: string;
   at: number;
+  // the turn that made the change, so a rewind can take back everything a
+  // prompt led to and nothing before it
+  turn: number;
 };
 
 // newest last, so undoing walks backwards through the session
 const stack: Checkpoint[] = [];
+
+// only ever counts up - not even discarding the checkpoints resets it - so a
+// turn in the conversation now always outnumbers any in one left behind by
+// /clear or /resume, and rewinding the one cannot reach into the other
+let turn = 0;
+
+export const beginTurn = () => ++turn;
 
 // copied rather than read into memory: a session can rewrite a great many
 // files, and some of them are large
 export const record = (path: string) => {
   const target = resolve(path);
   const existed = existsSync(target);
-  const checkpoint: Checkpoint = { path: target, at: Date.now() };
+  const checkpoint: Checkpoint = { path: target, at: Date.now(), turn };
 
   if (existed) {
     const blob = resolve(checkpointDir, `${stack.length}-${randomUUID()}`);
@@ -71,36 +81,51 @@ export const changes = () => {
     .join('\n');
 };
 
-// puts the most recent write back the way it was. a file this session created
-// is removed outright, since restoring it to nothing would leave an empty one
-// where there had been none
-export const undo = () => {
-  const checkpoint = stack.pop();
+// how many changes rewinding to the given turn would take back
+export const countSince = (from: number) =>
+  stack.filter((checkpoint) => checkpoint.turn >= from).length;
 
-  if (!checkpoint) {
-    return 'There is nothing to undo - nothing has been written this session.';
-  }
-
-  try {
-    if (!checkpoint.blob) {
-      if (existsSync(checkpoint.path)) {
-        unlinkSync(checkpoint.path);
-      }
-
-      return `Removed ${checkpoint.path}, which was created this session.`;
+// puts one write back the way it was. a file this session created is removed
+// outright, since restoring it to nothing would leave an empty one where there
+// had been none
+const restore = (checkpoint: Checkpoint) => {
+  if (!checkpoint.blob) {
+    if (existsSync(checkpoint.path)) {
+      unlinkSync(checkpoint.path);
     }
 
-    copyFileSync(checkpoint.blob, checkpoint.path);
-    rmSync(checkpoint.blob, { force: true });
-
-    return `Restored ${checkpoint.path} to what it was before the last change.`;
-  } catch (error) {
-    // put it back on the stack: an undo that failed has not happened, and the
-    // next attempt should be about the same change
-    stack.push(checkpoint);
-
-    return `Could not undo ${checkpoint.path}: ${describeError(error)}`;
+    return `Removed ${checkpoint.path}, which was created this session.`;
   }
+
+  copyFileSync(checkpoint.blob, checkpoint.path);
+  rmSync(checkpoint.blob, { force: true });
+
+  return `Restored ${checkpoint.path}.`;
+};
+
+// takes back every change made in the given turn or since, newest first, so a
+// file written twice ends up as it was before the first of them. it stops at
+// the first change that cannot be put back, leaving that one on the stack: a
+// restore that failed has not happened, and the next attempt should start there
+export const rewind = (from: number) => {
+  const restored: string[] = [];
+
+  while (stack.length && stack[stack.length - 1].turn >= from) {
+    const checkpoint = stack.pop() as Checkpoint;
+
+    try {
+      restored.push(restore(checkpoint));
+    } catch (error) {
+      stack.push(checkpoint);
+
+      return {
+        restored,
+        failed: `Could not restore ${checkpoint.path}: ${describeError(error)}`
+      };
+    }
+  }
+
+  return { restored };
 };
 
 // nothing kept here outlives the session that made it

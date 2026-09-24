@@ -14,8 +14,14 @@ declare module 'inquirer-command-prompt' {
 
     static addToHistory(context: string, value: string): void;
 
-    rl: { line: string; cursor: number; output: { unmute(): void } };
-    opt: { message: string };
+    rl: {
+      line: string;
+      cursor: number;
+      output: { unmute(): void };
+      write(data: string | null, key?: object): void;
+    };
+    // prefill is agentiq's own, read by ModeCommandPrompt rather than the base
+    opt: { message: string; prefill?: string };
     screen: {
       clean(extraLines: number): void;
       height: number;

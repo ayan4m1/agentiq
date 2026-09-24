@@ -32,6 +32,20 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
   // the prompt's own tab branch has no shift guard, so shift+tab would otherwise
   // fall into autocompletion and leave a literal tab in the buffer
   class ModeCommandPrompt extends InquirerCommandPrompt {
+    // written in as if typed, once the prompt is listening - so it is shown,
+    // editable, with the cursor at its end. readline takes it straight into
+    // the line without a keypress, so nothing would redraw it otherwise
+    run() {
+      const answer = super.run();
+
+      if (this.opt.prefill) {
+        this.rl.write(this.opt.prefill);
+        this.render();
+      }
+
+      return answer;
+    }
+
     async onKeypress(event: KeyEvent) {
       if (event?.key?.name !== 'tab' || !event.key.shift) {
         return super.onKeypress(event);
@@ -93,7 +107,8 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
         type: 'command',
         name: 'userMessage',
         message: renderPrompt(),
-        context: historyContext
+        context: historyContext,
+        prefill: controller.takePrefill()
       });
 
       if (userMessage.startsWith('/')) {

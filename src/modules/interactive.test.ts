@@ -21,6 +21,7 @@ type PromptOptions = {
   name: string;
   message: string;
   context: string;
+  prefill?: string;
 };
 
 type ControllerOptions = {
@@ -46,13 +47,23 @@ const superKeypress = mock.fn<(event?: unknown) => Promise<void>>(
   async () => {}
 );
 const superRender = mock.fn();
+const superRun = mock.fn(async () => 'answer');
 const addToHistory = mock.fn<(context: string, value: string) => void>();
 
 class CommandPromptBase {
   static addToHistory = addToHistory;
 
-  rl = { line: '', cursor: 0, output: { unmute: mock.fn() } };
-  opt = { message: '' };
+  rl = {
+    line: '',
+    cursor: 0,
+    output: { unmute: mock.fn() },
+    write: mock.fn<(data: string | null) => void>()
+  };
+  opt: { message: string; prefill?: string } = { message: '' };
+
+  run() {
+    return superRun();
+  }
   screen = {
     clean: mock.fn<(lines: number) => void>(),
     height: 3,
@@ -70,6 +81,7 @@ class CommandPromptBase {
 
 type ModePrompt = CommandPromptBase & {
   onKeypress(event?: unknown): Promise<unknown>;
+  run(): Promise<unknown>;
 };
 
 const registerPrompt =
@@ -95,6 +107,8 @@ const controller = {
     return restored;
   }),
   runCommand: mock.fn(async (name: string) => name),
+  // what /undo left for the next prompt, handed out once like the real thing
+  takePrefill: mock.fn<() => string | undefined>(() => undefined),
   addUserMessage: mock.fn<(message: string) => void>(),
   takeTurn: mock.fn<(schedule: unknown) => Promise<void>>(async () => {
     promptsBeforeTurns.push(prompt.mock.callCount());
@@ -170,6 +184,7 @@ describe('startRepl', () => {
       prompt,
       superKeypress,
       superRender,
+      superRun,
       addToHistory,
       registerPrompt,
       schedule,
@@ -177,6 +192,7 @@ describe('startRepl', () => {
       startAgent,
       controller.restore,
       controller.runCommand,
+      controller.takePrefill,
       controller.addUserMessage,
       controller.takeTurn,
       createController,
@@ -297,6 +313,16 @@ describe('startRepl', () => {
     assert.equal(prompt.mock.callCount(), 2);
   });
 
+  test('starts the prompt with whatever /undo handed back', async () => {
+    answers = ['/undo', '/quit'];
+    controller.takePrefill.mock.mockImplementationOnce(() => 'try again', 1);
+
+    await exitCodeOf();
+
+    assert.equal(prompt.mock.calls[0].arguments[0].prefill, undefined);
+    assert.equal(prompt.mock.calls[1].arguments[0].prefill, 'try again');
+  });
+
   test('takes a turn before prompting when no input is needed', async () => {
     needsInput = [false];
 
@@ -355,6 +381,22 @@ describe('startRepl', () => {
       assert.equal(instance.rl.cursor, 2);
       assert.match(instance.opt.message, /^auto\[42 tok\]/);
       assert.equal(superRender.mock.callCount(), 1);
+    });
+
+    test('writes a prefill into the line once it is running', async () => {
+      instance.opt.prefill = 'try again';
+
+      assert.equal(await instance.run(), 'answer');
+      assert.deepEqual(argumentsOf(instance.rl.write), [['try again']]);
+      assert.equal(superRender.mock.callCount(), 1);
+    });
+
+    test('leaves the line alone without a prefill', async () => {
+      await instance.run();
+
+      assert.equal(superRun.mock.callCount(), 1);
+      assert.equal(instance.rl.write.mock.callCount(), 0);
+      assert.equal(superRender.mock.callCount(), 0);
     });
   });
 });

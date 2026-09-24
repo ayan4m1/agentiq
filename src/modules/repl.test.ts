@@ -2,7 +2,13 @@ import { test, describe, before, beforeEach, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync
+} from 'node:fs';
 import type { Message } from 'ollama';
 
 import { ApprovalMode, type ThoughtState } from '../types';
@@ -25,8 +31,13 @@ process.env.AQ_HISTORY_LIMIT = '3';
 const select =
   mock.fn<(config: { choices: { value: string }[] }) => Promise<string>>();
 
+// /undo asks before it throws anything away, and says yes unless told not to
+const confirm = mock.fn<(config: { message: string }) => Promise<boolean>>(
+  async () => true
+);
+
 mock.module('@inquirer/prompts', {
-  namedExports: { select, input: mock.fn() }
+  namedExports: { select, confirm, input: mock.fn() }
 });
 
 // /model asks the server whether the model it was given is really there, and
@@ -60,6 +71,7 @@ const { loadStore, saveStore } = await import('./models');
 const { yieldToUser, takeYield } = await import('./turn');
 const { append, listSessions, loadSession, startSession } =
   await import('./session');
+const { discardCheckpoints, record } = await import('./checkpoints');
 
 // the commands print, which is only noise here - but what they print is worth
 // checking, so it is kept rather than dropped
@@ -150,6 +162,8 @@ beforeEach(() => {
   ensureTokenizer.mock.resetCalls();
   log.mock.resetCalls();
   select.mock.resetCalls();
+  confirm.mock.resetCalls();
+  discardCheckpoints();
   takeYield();
 });
 
@@ -697,13 +711,172 @@ describe('commands', () => {
     assert.equal(thinker.rebuild.mock.callCount(), 0);
   });
 
-  test('reports on the files written for /changes and /undo', async () => {
-    const controller = make();
-
-    await controller.runCommand(Command.Changes);
-    await controller.runCommand(Command.Undo);
+  test('reports on the files written for /changes', async () => {
+    await make().runCommand(Command.Changes);
 
     assert.match(printed(), /Nothing has been written this session/);
+  });
+});
+
+describe('/undo', () => {
+  const read = (name: string) => readFileSync(name).toString();
+
+  // a turn in which the model writes the given files the way write and patch
+  // do, then replies
+  const writes = (files: Record<string, string>) =>
+    thinker.think.mock.mockImplementationOnce(async (thought) => {
+      for (const [name, contents] of Object.entries(files)) {
+        record(name);
+        writeFileSync(name, contents);
+      }
+
+      return {
+        ...thought,
+        messages: [...thought.messages, reply.message as Message],
+        lastResponse: reply as ThoughtState['lastResponse']
+      };
+    });
+
+  // picks the prompt at the given index in the conversation
+  const picks = (index: number) =>
+    select.mock.mockImplementationOnce(async () => index as never);
+
+  test('takes back a turn, and every one after it, files and all', async () => {
+    const controller = make();
+
+    writeFileSync('a.txt', 'original');
+
+    controller.addUserMessage('first');
+    writes({ 'a.txt': 'turn one' });
+    await controller.takeTurn();
+
+    controller.addUserMessage('second');
+    writes({ 'b.txt': 'created', 'a.txt': 'turn two' });
+    await controller.takeTurn();
+
+    assert.equal(controller.messages.length, 4);
+
+    picks(2);
+    await controller.runCommand(Command.Undo);
+
+    assert.equal(read('a.txt'), 'turn one');
+    assert.equal(existsSync('b.txt'), false);
+    assert.deepEqual(
+      controller.messages.map((message) => message.content),
+      ['first', 'done']
+    );
+    assert.deepEqual(
+      saved().map((message) => message.content),
+      ['first', 'done']
+    );
+    assert.deepEqual(thinker.load.mock.calls.at(-1)?.arguments[0], [
+      ...controller.messages
+    ]);
+    assert.equal(controller.needsUserInput, true);
+    // handed back once, to be edited and sent again
+    assert.equal(controller.takePrefill(), 'second');
+    assert.equal(controller.takePrefill(), undefined);
+
+    picks(0);
+    await controller.runCommand(Command.Undo);
+
+    assert.equal(read('a.txt'), 'original');
+    assert.deepEqual(controller.messages, []);
+  });
+
+  test('offers the prompts newest first with what each would revert', async () => {
+    const controller = make();
+
+    controller.addUserMessage('first');
+    writes({ 'a.txt': 'a' });
+    await controller.takeTurn();
+    controller.addUserMessage('second');
+    answers(reply);
+    await controller.takeTurn();
+
+    select.mock.mockImplementationOnce(async () => {
+      throw new Error('User force closed the prompt');
+    });
+    await controller.runCommand(Command.Undo);
+
+    // the mock is typed for /resume, whose choices are session ids
+    const { choices } = select.mock.calls[0].arguments[0] as unknown as {
+      choices: { name: string; value: number }[];
+    };
+
+    assert.deepEqual(
+      choices.map(({ value }) => value),
+      [2, 0]
+    );
+    assert.match(choices[0].name, /second.*\(0 file change/);
+    assert.match(choices[1].name, /first.*\(1 file change/);
+    // cancelling the choice leaves everything alone
+    assert.equal(controller.messages.length, 4);
+    assert.equal(read('a.txt'), 'a');
+  });
+
+  test('warns that shell commands are not reversed, and stops if declined', async () => {
+    const controller = make();
+
+    controller.addUserMessage('first');
+    writes({ 'a.txt': 'a' });
+    await controller.takeTurn();
+
+    picks(0);
+    confirm.mock.mockImplementationOnce(async () => false);
+    await controller.runCommand(Command.Undo);
+
+    assert.match(confirm.mock.calls[0].arguments[0].message, /shell/);
+    assert.equal(read('a.txt'), 'a');
+    assert.equal(controller.messages.length, 2);
+    assert.equal(controller.takePrefill(), undefined);
+  });
+
+  test('says so when there is no prompt to undo', async () => {
+    await make().runCommand(Command.Undo);
+
     assert.match(printed(), /There is nothing to undo/);
+    assert.equal(select.mock.callCount(), 0);
+  });
+
+  test('takes a restored prompt back with the turns typed after it', async () => {
+    writeFileSync('a.txt', 'original');
+    append([
+      { role: 'user', content: 'restored' },
+      { role: 'assistant', content: 'earlier reply' }
+    ]);
+
+    const controller = make();
+
+    controller.restore();
+    controller.addUserMessage('typed');
+    writes({ 'a.txt': 'changed' });
+    await controller.takeTurn();
+
+    picks(0);
+    await controller.runCommand(Command.Undo);
+
+    assert.equal(read('a.txt'), 'original');
+    assert.deepEqual(controller.messages, []);
+    assert.equal(controller.takePrefill(), 'restored');
+  });
+
+  test('never reaches into a conversation left behind by /clear', async () => {
+    const controller = make();
+
+    controller.addUserMessage('before');
+    writes({ 'a.txt': 'before clear' });
+    await controller.takeTurn();
+    await controller.runCommand(Command.Clear);
+
+    controller.addUserMessage('after');
+    answers(reply);
+    await controller.takeTurn();
+
+    picks(0);
+    await controller.runCommand(Command.Undo);
+
+    assert.equal(read('a.txt'), 'before clear');
+    assert.deepEqual(controller.messages, []);
   });
 });

@@ -1,11 +1,12 @@
 import chalk from 'chalk';
-import { select } from '@inquirer/prompts';
+import { confirm, select } from '@inquirer/prompts';
+import type { Message } from 'ollama';
 
 import { ollama, session } from './config';
 import { getLogger } from './logging';
 import { cycleMode } from './approval';
 import { preflight } from './preflight';
-import { changes, undo } from './checkpoints';
+import { beginTurn, changes, countSince, rewind } from './checkpoints';
 import { ensureTokenizer } from './tokenizer';
 import {
   applyEntry,
@@ -72,13 +73,14 @@ type ControllerOptions = {
 // away. tool output and the notes compaction flags as its own are not prompts,
 // and a multi-line one cannot be recalled into readline's single-line buffer
 // without corrupting the display, so it is dropped rather than truncated
+const isTypedPrompt = ({ role, content, summary }: AgentMessage) =>
+  role === 'user' &&
+  Boolean(content.trim()) &&
+  !summary &&
+  !content.includes('\n');
+
 const typedPrompts = (messages: AgentMessage[]) => {
-  const prompts = messages
-    .filter(
-      ({ role, content, summary }) =>
-        role === 'user' && content.trim() && !summary && !content.includes('\n')
-    )
-    .map(({ content }) => content);
+  const prompts = messages.filter(isTypedPrompt).map(({ content }) => content);
   const { historyLimit } = session;
 
   return Number.isFinite(historyLimit) && historyLimit > 0
@@ -105,6 +107,13 @@ export const createController = ({
   // below stops paying for a summarization call every single turn. asking for
   // /compact by hand clears it, as does dropping the history outright
   let compactionStalled = false;
+
+  // the turn each prompt typed here started, for /undo. a prompt restored from
+  // a session file has none, since its changes were made by another process
+  const turns = new WeakMap<Message, number>();
+  // what the next prompt should start out holding - the prompt /undo took back,
+  // so it can be edited and sent again
+  let prefill: string | undefined;
 
   // loading an earlier conversation also hands the session file back to it, so
   // the resumed history keeps growing where it left off
@@ -243,6 +252,92 @@ export const createController = ({
     }
   };
 
+  // takes the conversation back to just before one of the user's prompts, and
+  // every file written since along with it - so the model is never left
+  // believing in edits that are no longer there
+  const undoTurn = async () => {
+    const { messages } = nextThought;
+    const prompts = [...messages.entries()].filter(([, message]) =>
+      isTypedPrompt(message)
+    );
+
+    if (!prompts.length) {
+      console.log(
+        systemColor(
+          'There is nothing to undo - no prompt has been sent this session.'
+        )
+      );
+
+      return;
+    }
+
+    // restored prompts come before any typed here, so one without a turn of
+    // its own is rewound along with the first typed prompt after it. with none
+    // after it, nothing this process wrote belongs to it
+    const turnFor = (index: number) =>
+      messages
+        .slice(index)
+        .map((message) => turns.get(message))
+        .find((turn) => turn !== undefined) ?? Infinity;
+
+    try {
+      const index = await select({
+        message: 'Undo back to before which prompt?',
+        choices: prompts.reverse().map(([index, { content }]) => {
+          const label =
+            content.length > 60 ? `${content.slice(0, 60)}…` : content;
+
+          return {
+            name: `${label} ${chalk.dim(`(${countSince(turnFor(index))} file change(s))`)}`,
+            value: index
+          };
+        })
+      });
+      const prompt = messages[index];
+      const files = countSince(turnFor(index));
+      const dropped = messages.length - index;
+
+      if (
+        !(await confirm({
+          message: `Undo "${prompt.content}"? This reverts ${files} file change(s) and drops ${dropped} message(s). Anything done by shell commands is not reversed.`,
+          default: false
+        }))
+      ) {
+        return;
+      }
+
+      const { restored, failed } = rewind(turnFor(index));
+
+      restored.forEach((line) => console.log(systemColor(line)));
+
+      // the conversation only goes back once the files have, or the model
+      // would be told edits are gone that are in fact still there
+      if (failed) {
+        log.error(chalk.red(`${failed} - the conversation was left as it was`));
+
+        return;
+      }
+
+      nextThought = { messages: messages.slice(0, index) };
+      needsUserInput = true;
+      compactionStalled = false;
+      thinker.load(nextThought.messages);
+      rewrite(nextThought.messages);
+      prefill = prompt.content;
+
+      log.info(
+        chalk.green(
+          `Undid ${dropped} message(s) and ${restored.length} file change(s)`
+        )
+      );
+    } catch (error) {
+      // log but swallow an error (if the user cancelled the prompt)
+      if (error instanceof Error) {
+        log.error(error.message);
+      }
+    }
+  };
+
   // switching mid-conversation rather than at startup: the history is kept and
   // handed to the thinker to be counted again, since the tokenizer that
   // measured it belonged to the model being left behind
@@ -313,10 +408,7 @@ export const createController = ({
         await chooseSession();
         break;
       case Command.Undo:
-        // the model is told nothing about this: the file going back to what it
-        // was is the user's business, and a note in the transcript would only
-        // invite it to put the change back
-        console.log(systemColor(undo()));
+        await undoTurn();
         break;
       case Command.Changes:
         console.log(systemColor(changes()));
@@ -339,10 +431,10 @@ export const createController = ({
   };
 
   const addUserMessage = (content: string) => {
-    nextThought.messages.push({
-      role: 'user',
-      content
-    });
+    const message = { role: 'user', content };
+
+    nextThought.messages.push(message);
+    turns.set(message, beginTurn());
 
     needsUserInput = false;
   };
@@ -415,6 +507,14 @@ export const createController = ({
     addUserMessage,
     takeTurn,
     runPrompt,
+    // handed out once, so the prompt after that one starts empty again
+    takePrefill() {
+      const taken = prefill;
+
+      prefill = undefined;
+
+      return taken;
+    },
     get messages() {
       return nextThought.messages;
     },

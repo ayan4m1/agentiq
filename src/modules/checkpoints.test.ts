@@ -15,7 +15,7 @@ const root = mkdtempSync(resolve(tmpdir(), 'agentiq-checkpoints-'));
 
 process.env.AQ_HOME = resolve(root, 'state');
 
-const { changes, discardCheckpoints, record, undo } =
+const { beginTurn, changes, countSince, discardCheckpoints, record, rewind } =
   await import('./checkpoints');
 
 const workspace = resolve(root, 'workspace');
@@ -39,78 +39,117 @@ beforeEach(() => {
   mkdirSync(workspace, { recursive: true });
 });
 
-describe('undo', () => {
-  test('says so when there is nothing to undo', () => {
-    assert.match(undo(), /nothing to undo/);
+describe('rewind', () => {
+  test('has nothing to do when nothing has been written', () => {
+    assert.deepEqual(rewind(beginTurn()), { restored: [] });
   });
 
   test('puts back what a change overwrote', () => {
+    const turn = beginTurn();
+
     writeFileSync(file('a.txt'), 'original');
     writeThrough('a.txt', 'changed');
 
     assert.equal(read('a.txt'), 'changed');
 
-    undo();
+    rewind(turn);
 
     assert.equal(read('a.txt'), 'original');
   });
 
   test('removes a file the session created', () => {
+    const turn = beginTurn();
+
     // restoring it to nothing would leave an empty file where there was none
     writeThrough('new.txt', 'brand new');
 
     assert.ok(existsSync(file('new.txt')));
 
-    assert.match(undo(), /Removed/);
+    assert.match(rewind(turn).restored[0], /Removed/);
     assert.equal(existsSync(file('new.txt')), false);
   });
 
-  test('walks backwards one change at a time', () => {
+  test('takes a file written twice in one turn back to before the first', () => {
+    const turn = beginTurn();
+
     writeFileSync(file('a.txt'), 'first');
     writeThrough('a.txt', 'second');
     writeThrough('a.txt', 'third');
 
-    undo();
-    assert.equal(read('a.txt'), 'second');
-
-    undo();
+    assert.equal(rewind(turn).restored.length, 2);
     assert.equal(read('a.txt'), 'first');
   });
 
-  test('unwinds changes across several files in the order they were made', () => {
+  test('takes back later turns along with the one asked for', () => {
     writeFileSync(file('a.txt'), 'a original');
     writeFileSync(file('b.txt'), 'b original');
+
+    const first = beginTurn();
+
     writeThrough('a.txt', 'a changed');
+    beginTurn();
     writeThrough('b.txt', 'b changed');
 
-    undo();
-
-    assert.equal(read('b.txt'), 'b original');
-    assert.equal(read('a.txt'), 'a changed', 'only the last change goes back');
-
-    undo();
+    rewind(first);
 
     assert.equal(read('a.txt'), 'a original');
+    assert.equal(read('b.txt'), 'b original');
   });
 
-  test('runs out rather than undoing something twice', () => {
+  test('leaves the turns before it alone', () => {
+    writeFileSync(file('a.txt'), 'a original');
+    writeFileSync(file('b.txt'), 'b original');
+    beginTurn();
+    writeThrough('a.txt', 'a changed');
+
+    const second = beginTurn();
+
+    writeThrough('b.txt', 'b changed');
+
+    rewind(second);
+
+    assert.equal(read('b.txt'), 'b original');
+    assert.equal(read('a.txt'), 'a changed');
+  });
+
+  test('runs out rather than restoring something twice', () => {
+    const turn = beginTurn();
+
     writeFileSync(file('a.txt'), 'original');
     writeThrough('a.txt', 'changed');
 
-    undo();
+    rewind(turn);
+    writeFileSync(file('a.txt'), 'changed again by hand');
 
-    assert.match(undo(), /nothing to undo/);
-    assert.equal(read('a.txt'), 'original');
+    assert.deepEqual(rewind(turn), { restored: [] });
+    assert.equal(read('a.txt'), 'changed again by hand');
   });
 
   test('restores a file that was deleted after the change', () => {
+    const turn = beginTurn();
+
     writeFileSync(file('a.txt'), 'original');
     writeThrough('a.txt', 'changed');
     rmSync(file('a.txt'));
 
-    undo();
+    rewind(turn);
 
     assert.equal(read('a.txt'), 'original');
+  });
+
+  test('counts the changes a rewind would take back', () => {
+    const first = beginTurn();
+
+    writeThrough('a.txt', 'a');
+    writeThrough('b.txt', 'b');
+
+    const second = beginTurn();
+
+    writeThrough('c.txt', 'c');
+
+    assert.equal(countSince(first), 3);
+    assert.equal(countSince(second), 1);
+    assert.equal(countSince(beginTurn()), 0);
   });
 });
 
@@ -143,9 +182,11 @@ describe('changes', () => {
   });
 
   test('shrinks as changes are undone', () => {
+    const turn = beginTurn();
+
     writeFileSync(file('a.txt'), 'original');
     writeThrough('a.txt', 'changed');
-    undo();
+    rewind(turn);
 
     assert.match(changes(), /Nothing has been written/);
   });

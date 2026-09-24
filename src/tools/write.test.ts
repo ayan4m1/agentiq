@@ -14,7 +14,8 @@ process.env.AQ_HOME = resolve(root, 'state');
 
 const { definition, handler, unescapeContent } = await import('./write');
 const { approval } = await import('../modules/approval');
-const { discardCheckpoints, undo } = await import('../modules/checkpoints');
+const { beginTurn, countSince, discardCheckpoints, rewind } =
+  await import('../modules/checkpoints');
 const { terminal } = await import('../modules/turn');
 
 let seq = 0;
@@ -172,8 +173,10 @@ describe('handler', () => {
 
     approval.mode = ApprovalMode.Auto;
 
+    const turn = beginTurn();
+
     await quietly(() => handler({ path, content: 'changed' }));
-    undo();
+    rewind(turn);
 
     assert.equal(read(path), 'original');
   });
@@ -183,8 +186,10 @@ describe('handler', () => {
 
     approval.mode = ApprovalMode.Auto;
 
+    const turn = beginTurn();
+
     await quietly(() => handler({ path, content: 'hello' }));
-    undo();
+    rewind(turn);
 
     assert.equal(existsSync(path), false);
   });
@@ -194,9 +199,11 @@ describe('handler', () => {
 
     approval.mode = ApprovalMode.Plan;
 
+    const turn = beginTurn();
+
     await handler({ path, content: 'changed' });
 
-    assert.match(undo(), /nothing to undo/);
+    assert.equal(countSince(turn), 0);
   });
 });
 
