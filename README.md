@@ -2,6 +2,12 @@
 
 Agentiq is an agentic coding assistant for use with Ollama.
 
+## Installation
+
+> npm install -g @ayan4m1/agentiq
+
+Install the package globally and then you will have `agentiq` available as a binary. Run it with no arguments to start an interactive session.
+
 ## Configuration
 
 Settings live in `~/.agentiq/config.yml`, next to everything else agentiq keeps between runs. The
