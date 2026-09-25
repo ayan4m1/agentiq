@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { getLogger } from './logging';
 import { terminal } from './turn';
-import { type Api, listModels } from './preflight';
+import { pickModel } from './picker';
+import { type Api, listModels, matchesModel } from './preflight';
 import { home, ollama, tokenizer } from './config';
 import type { ModelEntry, ModelStore } from '../types';
 import { describeError } from '../utils';
@@ -116,6 +117,18 @@ export const rememberEntry = (entry: ModelEntry) => {
   return entry;
 };
 
+// the other half of rememberEntry. an active name left pointing at nothing
+// would be ignored on the next start anyway, but it is cleared rather than left
+// for a hand-edit to trip over
+export const forgetEntry = (model: string) => {
+  const store = loadStore();
+
+  saveStore({
+    active: store.active === model ? undefined : store.active,
+    models: store.models.filter((entry) => entry.model !== model)
+  });
+};
+
 // the user walked away from the prompt - ^C raises rather than resolves, and
 // that is an answer of its own everywhere this is called
 const cancelled = (error: unknown) => {
@@ -125,9 +138,13 @@ const cancelled = (error: unknown) => {
 };
 
 // the add flow: a name from the server, or one typed in for a model that is
-// about to be pulled, plus the repo whose tokenizer matches it
-const addEntry = async (api?: Api): Promise<ModelEntry | undefined> => {
-  const installed = await listModels(api);
+// about to be pulled, plus the repo whose tokenizer matches it. the caller may
+// already have asked the server, and there is no need to ask twice
+const addEntry = async (
+  api?: Api,
+  known?: Awaited<ReturnType<typeof listModels>>
+): Promise<ModelEntry | undefined> => {
+  const installed = known ?? (await listModels(api));
 
   if (!installed) {
     return;
@@ -167,7 +184,8 @@ const addEntry = async (api?: Api): Promise<ModelEntry | undefined> => {
 };
 
 // pick one of the saved pairs, or set up a new one. the caller decides what to
-// do with it - this neither saves nor applies anything
+// do with it - this neither saves nor applies anything, except that a pair the
+// user removes from the list is gone from the store as soon as they say so
 export const chooseEntry = async (
   api?: Api
 ): Promise<ModelEntry | undefined> => {
@@ -177,25 +195,49 @@ export const chooseEntry = async (
     return addEntry(api);
   }
 
+  const installed = await listModels(api);
+
+  // nothing is marked when the server could not be asked - listModels has
+  // already said so, and a list of every model in red would say nothing more
+  const names = (installed ?? [])
+    .flatMap((model) => [model.name, model.model])
+    .filter(Boolean);
+  const isMissing = (model: string) =>
+    Boolean(installed) && !names.some((name) => matchesModel(name, model));
+
   let model;
 
   try {
-    model = await select({
+    model = await pickModel({
       message: 'Which model?',
       choices: [
         ...store.models.map((entry) => ({
           name: `${entry.model} ${chalk.dim(`(${entry.tokenizer})`)}`,
-          value: entry.model
+          value: entry.model,
+          missing: isMissing(entry.model),
+          // switchModel falls back to this entry when a switch fails, so it
+          // has to still be there
+          locked:
+            entry.model === ollama.model
+              ? `${entry.model} is in use and cannot be removed`
+              : undefined
         })),
-        { name: 'Add a new model…', value: other }
+        {
+          name: 'Add a new model…',
+          value: other,
+          locked: 'Only a saved model can be removed'
+        }
       ],
-      default: store.active
+      default: store.active,
+      remove: forgetEntry
     });
   } catch (error) {
     return cancelled(error);
   }
 
-  return model === other ? addEntry(api) : findEntry(store, model);
+  return model === other
+    ? addEntry(api, installed)
+    : findEntry(loadStore(), model);
 };
 
 // run before preflight: nothing else works until the config knows which model

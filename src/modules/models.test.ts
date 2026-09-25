@@ -35,7 +35,17 @@ const select =
   mock.fn<(config: { choices: unknown[] }) => Promise<string>>(answer);
 const input = mock.fn<(config: { message: string }) => Promise<string>>(answer);
 
+// the saved list is a prompt of our own, answered from the same queue. what it
+// was handed is kept for the test to look at, remove callback included
+type Picked = {
+  choices: { value: string; missing?: boolean; locked?: string }[];
+  remove: (value: string) => void;
+};
+
+const pickModel = mock.fn<(config: Picked) => Promise<string>>(answer);
+
 mock.module('@inquirer/prompts', { namedExports: { select, input } });
+mock.module('./picker', { namedExports: { pickModel } });
 
 // what the user types, in order. a prompt cancelled with ^C raises rather than
 // resolving, so an Error stands for walking away from one
@@ -47,6 +57,7 @@ const {
   applyEntry,
   chooseEntry,
   findEntry,
+  forgetEntry,
   loadStore,
   rememberEntry,
   resolveStartupEntry,
@@ -72,12 +83,22 @@ const server = (...names: string[]) => ({
   }
 });
 
+const unreachable = {
+  list: async () => {
+    throw new Error('connect ECONNREFUSED');
+  },
+  show: async () => {
+    throw new Error('not asked for here');
+  }
+};
+
 // the store is rewritten by most of these, so each starts from nothing
 beforeEach(() => {
   rmSync(storePath, { force: true });
   answers = [];
   select.mock.resetCalls();
   input.mock.resetCalls();
+  pickModel.mock.resetCalls();
   ollama.model = '';
   tokenizer.repo = undefined;
   terminal.interactive = true;
@@ -147,6 +168,23 @@ describe('remembering an entry', () => {
   });
 });
 
+describe('forgetting an entry', () => {
+  test('removes it and keeps the rest', () => {
+    saveStore({ active: gemma.model, models: [gemma, qwen] });
+    forgetEntry(qwen.model);
+
+    assert.deepEqual(loadStore(), { active: gemma.model, models: [gemma] });
+  });
+
+  test('clears the active name when it pointed at the entry', () => {
+    saveStore({ active: qwen.model, models: [gemma, qwen] });
+    forgetEntry(qwen.model);
+
+    assert.equal(loadStore().active, undefined);
+    assert.deepEqual(loadStore().models, [gemma]);
+  });
+});
+
 describe('applying an entry', () => {
   test('moves both halves into the config', () => {
     applyEntry(qwen);
@@ -188,7 +226,62 @@ describe('choosing a model', () => {
 
     assert.deepEqual(await chooseEntry(server()), qwen);
     // the saved pairs plus the row that starts the add flow
-    assert.equal(select.mock.calls[0].arguments[0].choices.length, 3);
+    assert.equal(pickModel.mock.calls[0].arguments[0].choices.length, 3);
+  });
+
+  test('marks the saved models the server does not have', async () => {
+    saveStore({ models: [gemma, qwen, { ...gemma, model: 'bare' }] });
+    typed(gemma.model);
+
+    // a bare name is the same model as its :latest tag
+    await chooseEntry(server(gemma.model, 'bare:latest'));
+
+    assert.deepEqual(
+      pickModel.mock.calls[0].arguments[0].choices.map(({ missing }) =>
+        Boolean(missing)
+      ),
+      [false, true, false, false]
+    );
+  });
+
+  test('marks nothing when the server cannot be reached', async () => {
+    saveStore({ models: [gemma, qwen] });
+    typed(gemma.model);
+
+    assert.deepEqual(await chooseEntry(unreachable), gemma);
+    assert.ok(
+      pickModel.mock.calls[0].arguments[0].choices.every(
+        ({ missing }) => !missing
+      )
+    );
+  });
+
+  test('will not remove the model in use or the add row', async () => {
+    saveStore({ models: [gemma, qwen] });
+    ollama.model = gemma.model;
+    typed(qwen.model);
+
+    await chooseEntry(server());
+
+    assert.deepEqual(
+      pickModel.mock.calls[0].arguments[0].choices.map(({ locked }) =>
+        Boolean(locked)
+      ),
+      [true, false, true]
+    );
+  });
+
+  test('removes a pair from the store as soon as the user confirms', async () => {
+    saveStore({ active: gemma.model, models: [gemma, qwen] });
+    pickModel.mock.mockImplementationOnce(async ({ remove }) => {
+      remove(qwen.model);
+
+      throw new Error('User force closed the prompt');
+    });
+
+    // walking away afterwards does not bring it back
+    assert.equal(await chooseEntry(server()), undefined);
+    assert.deepEqual(loadStore(), { active: gemma.model, models: [gemma] });
   });
 
   test('goes straight to the add flow when nothing is saved', async () => {
@@ -235,15 +328,6 @@ describe('choosing a model', () => {
   });
 
   test('gives nothing back when the server cannot be reached', async () => {
-    const unreachable = {
-      list: async () => {
-        throw new Error('connect ECONNREFUSED');
-      },
-      show: async () => {
-        throw new Error('not asked for here');
-      }
-    };
-
     assert.equal(await chooseEntry(unreachable), undefined);
   });
 });

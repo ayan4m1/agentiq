@@ -47,12 +47,19 @@ let preflightPasses = true;
 const preflight = mock.fn(async () => preflightPasses);
 const ensureTokenizer = mock.fn(async () => true);
 
+// /model picks from a prompt of its own
+const pickModel = mock.fn<(config: unknown) => Promise<string>>();
+
+mock.module('./picker', { namedExports: { pickModel } });
+
 mock.module('./preflight', {
   // listModels is what modules/models.ts reaches for, and nothing here gets as
   // far as the add flow that would call it
   namedExports: {
     preflight,
     listModels: async () => [],
+    matchesModel: (installed: string, configured: string) =>
+      installed === configured,
     supportsThinking: () => false
   }
 });
@@ -162,6 +169,7 @@ beforeEach(() => {
   ensureTokenizer.mock.resetCalls();
   log.mock.resetCalls();
   select.mock.resetCalls();
+  pickModel.mock.resetCalls();
   confirm.mock.resetCalls();
   discardCheckpoints();
   takeYield();
@@ -660,7 +668,7 @@ describe('commands', () => {
     const controller = onModel(gemma);
 
     controller.addUserMessage('hello');
-    select.mock.mockImplementationOnce(async () => qwen.model);
+    pickModel.mock.mockImplementationOnce(async () => qwen.model);
     await controller.runCommand(Command.Model);
 
     assert.equal(ollama.model, qwen.model);
@@ -678,7 +686,7 @@ describe('commands', () => {
     const controller = onModel(gemma);
 
     preflightPasses = false;
-    select.mock.mockImplementationOnce(async () => qwen.model);
+    pickModel.mock.mockImplementationOnce(async () => qwen.model);
     await controller.runCommand(Command.Model);
 
     assert.equal(ollama.model, gemma.model);
@@ -692,7 +700,7 @@ describe('commands', () => {
   test('does nothing for /model on the model already in use', async () => {
     const controller = onModel(gemma);
 
-    select.mock.mockImplementationOnce(async () => gemma.model);
+    pickModel.mock.mockImplementationOnce(async () => gemma.model);
     await controller.runCommand(Command.Model);
 
     assert.equal(thinker.rebuild.mock.callCount(), 0);
@@ -702,7 +710,7 @@ describe('commands', () => {
   test('keeps the model when /model is cancelled', async () => {
     const controller = onModel(gemma);
 
-    select.mock.mockImplementationOnce(async () => {
+    pickModel.mock.mockImplementationOnce(async () => {
       throw new Error('User force closed the prompt');
     });
     await controller.runCommand(Command.Model);
