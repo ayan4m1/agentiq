@@ -7,14 +7,29 @@ general instructions about how to be an agent.
 
 ## Layout
 
-- `src/commands/run.ts` - the REPL itself: the prompt, the slash commands, and
-  the loop that keeps taking turns while the model is still calling tools.
+- `src/index.ts` - the commander entry point. Each subcommand in
+  `src/commands/` runs as its own executable and parses its own options.
+- `src/commands/run.ts` - `agentiq run`, a thin wrapper around `startRepl()`.
+- `src/commands/exec.ts` - `agentiq exec <prompt>`, a single headless turn
+  with no one at the terminal to answer questions.
+- `src/modules/startup.ts` - `startAgent()`, the setup both commands share:
+  preflight, model selection, tokenizer, and the thinker.
+- `src/modules/interactive.ts` - `startRepl()`, the interactive prompt itself.
+- `src/modules/repl.ts` - `createController()`, the testable core of the run
+  loop: slash commands, compaction triggers, `/undo`, and the loop that keeps
+  taking turns while the model is still calling tools.
 - `src/modules/ollama.ts` - `makeThinker()`, which owns the streaming chat call,
-  tool dispatch, token accounting, and compaction.
+  tool dispatch, and token accounting. `compaction.ts` holds the logic for
+  choosing what to elide; `client.ts` is the shared Ollama client.
+- `src/modules/tools.ts` - argument validation and recovery of tool calls the
+  model wrote as text instead of emitting properly.
 - `src/modules/models.ts` - the model/tokenizer pairs in `~/.agentiq/models.json`,
-  and the prompting `/model` does to add or switch between them.
-- `src/modules/` - one concern per file: approval modes, session persistence,
-  background jobs, tokenizer caching, argument validation, the system prompt.
+  and the prompting `/model` does to add or switch between them (`picker.ts`).
+- `src/modules/turn.ts` - per-turn flags: whether anyone is at the terminal,
+  and whether a tool has already handed control back to the user.
+- `src/modules/` - otherwise one concern per file: approval modes, checkpoints,
+  config, session persistence, background jobs, tokenizer caching, preflight,
+  the roadmap, the system prompt.
 - `src/tools/` - one tool per file, each exporting a `definition` built with
   `makeTool()` and a `handler`. `src/tools/index.ts` is the registry.
 - `src/utils/index.ts` - shared helpers, including the content budget used to
@@ -28,14 +43,14 @@ general instructions about how to be an agent.
 - Comments explain _why_, not what. The codebase is dense with notes about
   non-obvious platform behaviour - preserve that when you change the code
   around them, and add one when you do something that will look wrong later.
-- Conventional commits (`feat:`, `fix:`, `chore:`, `refactor:`). commitlint
-  enforces this via husky.
 
 ## Adding a tool
 
+If it is appropriate to add a new tool, follow this process each time to get it right.
+
 1. Create `src/tools/<name>.ts` exporting `definition` and `handler`.
 2. Declare parameters with `makeParameter()` - this is what registers them for
-   runtime validation in `src/modules/validate.ts`, so a tool that skips it
+   runtime validation in `src/modules/tools.ts`, so a tool that skips it
    gets no argument checking.
 3. Register it in the `tools` array in `src/tools/index.ts`.
 4. If it changes anything on disk or runs a command, call `refusePlanning()`
