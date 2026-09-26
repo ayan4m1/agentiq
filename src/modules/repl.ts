@@ -472,7 +472,7 @@ export const createController = ({
     const text = await thinker.recap(nextThought.messages, count);
 
     if (text) {
-      log.info(chalk.gray(text));
+      log.info(chalk.blue(text));
     }
   };
 
