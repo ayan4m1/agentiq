@@ -52,7 +52,7 @@ pruneSessions();
 const id = startSession();
 const succeeded = await controller.runPrompt(prompt, schedule);
 
-log.info(chalk.dim(`Session ${id} - resume with agentiq run --resume ${id}`));
+log.info(chalk.gray(`Session ${id} - resume with agentiq run --resume ${id}`));
 
 cleanUp();
 process.exit(succeeded ? 0 : 1);

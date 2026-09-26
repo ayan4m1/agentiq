@@ -182,7 +182,7 @@ export const createController = ({
       log.info(
         lastResponse.thinking
           ? chalk.blue(lastResponse.thinking)
-          : chalk.dim(lastResponse.content)
+          : chalk.gray(lastResponse.content)
       );
     }
 
@@ -327,7 +327,7 @@ export const createController = ({
             content.length > 60 ? `${content.slice(0, 60)}…` : content;
 
           return {
-            name: `${label} ${chalk.dim(`(${countSince(turnFor(index))} file change(s))`)}`,
+            name: `${label} ${chalk.gray(`(${countSince(turnFor(index))} file change(s))`)}`,
             value: index
           };
         })

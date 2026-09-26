@@ -51,7 +51,7 @@ export const handler = async ({ command, cwd }: Args) => {
   // most of the point of not blocking on it
   const onData = (chunk: string) => {
     output += chunk;
-    process.stdout.write(chalk.dim(chunk));
+    process.stdout.write(chalk.gray(chunk));
   };
 
   const { child, finished } = spawnCommand({ command, cwd, onData });

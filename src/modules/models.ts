@@ -212,7 +212,7 @@ export const chooseEntry = async (
       message: 'Which model?',
       choices: [
         ...store.models.map((entry) => ({
-          name: `${entry.model} ${chalk.dim(`(${entry.tokenizer})`)}`,
+          name: `${entry.model} ${chalk.gray(`(${entry.tokenizer})`)}`,
           value: entry.model,
           missing: isMissing(entry.model),
           // switchModel falls back to this entry when a switch fails, so it

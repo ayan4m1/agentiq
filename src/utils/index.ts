@@ -152,7 +152,7 @@ export const renderDiff = (path: string, before: string, after: string) => {
       } else if (line.startsWith('-')) {
         console.log(chalk.red(line));
       } else {
-        console.log(chalk.dim(line));
+        console.log(chalk.gray(line));
       }
     }
   }

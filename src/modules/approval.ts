@@ -46,7 +46,7 @@ const banners: Record<ApprovalMode, string> = {
   [ApprovalMode.Plan]: chalk.bgCyan('no changes can be made')
 };
 
-const hint = chalk.dim('shift+tab to cycle');
+const hint = chalk.gray('shift+tab to cycle');
 
 export const describeMode = () => badges[approval.mode];
 
@@ -142,7 +142,7 @@ const prompt = createPrompt<ApprovalAnswer, ApprovalRequest>(
       return `${message} ${chalk.cyan(value)}`;
     }
 
-    return `${message} ${badges[mode]} ${chalk.dim(
+    return `${message} ${badges[mode]} ${chalk.gray(
       '(y)es / (N)o / (a)lways / (s)top'
     )} ${value}`;
   }
@@ -152,7 +152,7 @@ const prompt = createPrompt<ApprovalAnswer, ApprovalRequest>(
 // no leaves the model guessing and it tends to retry the identical call
 const askReason = async () => {
   const reason = await input({
-    message: chalk.dim('Why not? (optional, enter to skip)')
+    message: chalk.gray('Why not? (optional, enter to skip)')
   });
 
   return reason.trim() || undefined;

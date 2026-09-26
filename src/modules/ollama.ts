@@ -286,7 +286,7 @@ export const makeThinker = () => {
         if (chunk.message?.thinking) {
           stopSpinner();
 
-          process.stdout.write(chalk.dim(chunk.message.thinking));
+          process.stdout.write(chalk.gray(chunk.message.thinking));
         }
 
         if (chunk.message?.content) {

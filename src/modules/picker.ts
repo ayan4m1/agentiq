@@ -41,8 +41,8 @@ const help = [
   ['⏎', 'select'],
   ['r', 'remove']
 ]
-  .map(([key, action]) => `${chalk.bold(key)} ${chalk.dim(action)}`)
-  .join(chalk.dim(' • '));
+  .map(([key, action]) => `${chalk.bold(key)} ${chalk.gray(action)}`)
+  .join(chalk.gray(' • '));
 
 // @inquirer/select has no way to hook a key of its own, so this is the same
 // list with r to remove the highlighted entry and red for one ollama lacks
@@ -124,7 +124,7 @@ export const pickModel = createPrompt<string, PickerRequest>((config, done) => {
   }
 
   const footer = confirming
-    ? `Remove ${confirming.value}? ${chalk.dim('(y/N)')}`
+    ? `Remove ${confirming.value}? ${chalk.gray('(y/N)')}`
     : help;
 
   return `${[

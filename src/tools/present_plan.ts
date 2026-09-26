@@ -51,7 +51,7 @@ const renderPlan = ({ title, steps }: Args) => {
   console.log(`\n${chalk.cyan.bold(title)}\n`);
 
   for (const [index, step] of steps.entries()) {
-    console.log(`${chalk.dim(`${index + 1}.`.padStart(4))} ${step}`);
+    console.log(`${chalk.gray(`${index + 1}.`.padStart(4))} ${step}`);
   }
 
   console.log('');
