@@ -171,6 +171,9 @@ export type AgentMessage = Message & {
   // set by compaction, so nothing downstream has to recognise its notes by
   // what they happen to say
   summary?: boolean;
+  // what the user actually typed, when the content also carries the files they
+  // mentioned with @ - so the prompt can be offered back without them
+  typed?: string;
 };
 
 export type ThoughtState = {

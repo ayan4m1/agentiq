@@ -21,7 +21,11 @@ declare module 'inquirer-command-prompt' {
       write(data: string | null, key?: object): void;
     };
     // prefill is agentiq's own, read by ModeCommandPrompt rather than the base
-    opt: { message: string; prefill?: string };
+    opt: {
+      message: string;
+      prefill?: string;
+      short?: (line: string, matches: string[]) => string[];
+    };
     screen: {
       clean(extraLines: number): void;
       height: number;

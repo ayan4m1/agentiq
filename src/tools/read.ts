@@ -32,7 +32,9 @@ type Args = {
   limit?: number;
 };
 
-export const handler = async ({ path, offset, limit }: Args) => {
+// the tool's output, kept synchronous so a file the user mentions with @ can be
+// attached to their message in exactly the form the model already knows
+export const readFile = ({ path, offset, limit }: Args) => {
   if (!existsSync(path)) {
     return `Cannot read ${path} - it does not exist`;
   }
@@ -81,3 +83,5 @@ export const handler = async ({ path, offset, limit }: Args) => {
 
   return body;
 };
+
+export const handler = async (args: Args) => readFile(args);

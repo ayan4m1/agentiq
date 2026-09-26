@@ -22,6 +22,8 @@ type PromptOptions = {
   message: string;
   context: string;
   prefill?: string;
+  autoCompletion: (line: string) => string[];
+  short: unknown;
 };
 
 type ControllerOptions = {
@@ -59,7 +61,11 @@ class CommandPromptBase {
     output: { unmute: mock.fn() },
     write: mock.fn<(data: string | null) => void>()
   };
-  opt: { message: string; prefill?: string } = { message: '' };
+  opt: {
+    message: string;
+    prefill?: string;
+    short?: (line: string, matches: string[]) => string[];
+  } = { message: '' };
 
   run() {
     return superRun();
@@ -139,6 +145,22 @@ mock.module('./approval', { namedExports: { cycleMode, describeMode } });
 mock.module('./config', { namedExports: { ollama: { contextLimit: 1000 } } });
 mock.module('./ollama', { namedExports: { compactThreshold: 0.5 } });
 
+// completion is tested on its own - here it only has to be handed to the prompt
+const invalidate = mock.fn();
+const pathIndex = { invalidate };
+const complete = mock.fn<(line: string, sources: unknown) => string[]>(() => [
+  '/help'
+]);
+const shortCompletions = mock.fn();
+
+mock.module('./completion', {
+  namedExports: {
+    complete,
+    createPathIndex: () => pathIndex,
+    shortCompletions
+  }
+});
+
 const { startRepl } = await import('./interactive');
 
 class ExitError extends Error {
@@ -199,7 +221,9 @@ describe('startRepl', () => {
       pruneSessions,
       startSession,
       cycleMode,
-      describeMode
+      describeMode,
+      invalidate,
+      complete
     ]) {
       fn.mock.resetCalls();
     }
@@ -268,6 +292,26 @@ describe('startRepl', () => {
     assert.equal(options.name, 'userMessage');
     assert.equal(options.context, 'history-0');
     assert.match(options.message, /^manual\[42 tok\]\n.*>/);
+  });
+
+  test('completes commands and project paths', async () => {
+    await exitCodeOf();
+
+    const [options] = prompt.mock.calls[0].arguments;
+
+    assert.deepEqual(options.autoCompletion('/he'), ['/help']);
+    assert.deepEqual(argumentsOf(complete), [
+      ['/he', { commands: ['help', 'quit'], paths: pathIndex }]
+    ]);
+    assert.equal(options.short, shortCompletions);
+  });
+
+  test('lists the project afresh for every prompt', async () => {
+    answers = ['hello', '/quit'];
+
+    await exitCodeOf();
+
+    assert.equal(invalidate.mock.callCount(), 2);
   });
 
   test('files resumed prompts under a new history context', async () => {
@@ -380,6 +424,40 @@ describe('startRepl', () => {
       assert.equal(instance.rl.line, 'ab');
       assert.equal(instance.rl.cursor, 2);
       assert.match(instance.opt.message, /^auto\[42 tok\]/);
+      assert.equal(superRender.mock.callCount(), 1);
+    });
+
+    test('keeps a completion list on screen when redrawing', async () => {
+      const short = mock.fn((_line: string, matches: string[]) => matches);
+
+      instance.opt.short = short;
+      // the library asks for the short form, prints the list, then redraws
+      superKeypress.mock.mockImplementationOnce(async () => {
+        instance.opt.short?.('@src/', ['@src/a.ts']);
+        instance.render();
+      });
+
+      await instance.onKeypress({ key: { name: 'tab', shift: false } });
+
+      assert.equal(short.mock.callCount(), 1);
+      assert.equal(instance.screen.height, 0);
+      assert.equal(instance.screen.extraLinesUnderPrompt, 0);
+      assert.equal(superRender.mock.callCount(), 1);
+      assert.equal(instance.opt.short, short);
+    });
+
+    test('redraws over the prompt when nothing was listed', async () => {
+      instance.opt.short = mock.fn(
+        (_line: string, matches: string[]) => matches
+      );
+      superKeypress.mock.mockImplementationOnce(async () => {
+        instance.render();
+      });
+
+      await instance.onKeypress({ key: { name: 'tab', shift: false } });
+
+      assert.equal(instance.screen.height, 3);
+      assert.equal(instance.screen.extraLinesUnderPrompt, 2);
       assert.equal(superRender.mock.callCount(), 1);
     });
 

@@ -31,12 +31,16 @@ type PickerRequest = {
   remove: (value: string) => void;
 };
 
+// escape resolves with nothing rather than a value
+type Picked = string | undefined;
+
 // @inquirer/figures and @inquirer/ansi are only transitive dependencies, so
 // the two pieces of them select uses are spelled out here instead
 const pointer = '❯';
 const hideCursor = '\u001B[?25l';
 
 const help = [
+  ['esc', 'cancel'],
   ['↑↓', 'navigate'],
   ['⏎', 'select'],
   ['r', 'remove']
@@ -46,7 +50,7 @@ const help = [
 
 // @inquirer/select has no way to hook a key of its own, so this is the same
 // list with r to remove the highlighted entry and red for one ollama lacks
-export const pickModel = createPrompt<string, PickerRequest>((config, done) => {
+export const pickModel = createPrompt<Picked, PickerRequest>((config, done) => {
   const theme = makeTheme();
   const [status, setStatus] = useState<Status>('idle');
   const [items, setItems] = useState(config.choices);
@@ -88,7 +92,10 @@ export const pickModel = createPrompt<string, PickerRequest>((config, done) => {
       return;
     }
 
-    if (isEnterKey(key)) {
+    if (key.name === 'escape') {
+      setStatus('cancelled');
+      done(undefined);
+    } else if (isEnterKey(key)) {
       setStatus('done');
       done(selected.value);
     } else if (isUpKey(key, theme.keybindings)) {
@@ -121,6 +128,10 @@ export const pickModel = createPrompt<string, PickerRequest>((config, done) => {
   // hooks are matched up by call order, so this comes after every one of them
   if (status === 'done') {
     return `${prefix} ${message} ${theme.style.answer(selected.value || selected.name)}`;
+  }
+
+  if (status === 'cancelled') {
+    return `${prefix} ${message} ${chalk.gray('cancelled')}`;
   }
 
   const footer = confirming

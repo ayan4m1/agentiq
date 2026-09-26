@@ -7,6 +7,7 @@ import { startAgent } from './startup';
 import { compactThreshold } from './ollama';
 import { cycleMode, describeMode } from './approval';
 import { pruneSessions, startSession } from './session';
+import { complete, createPathIndex, shortCompletions } from './completion';
 import { Command, createController, systemColor } from './repl';
 import { getTokenString } from '../utils';
 
@@ -32,6 +33,11 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
   // the prompt's own tab branch has no shift guard, so shift+tab would otherwise
   // fall into autocompletion and leave a literal tab in the buffer
   class ModeCommandPrompt extends InquirerCommandPrompt {
+    // the library prints a completion list under the prompt and then redraws,
+    // and the redraw erases as many lines as the two-line prompt last took -
+    // the list's last row, or all of a list short enough to fit on one
+    private listed = false;
+
     // written in as if typed, once the prompt is listening - so it is shown,
     // editable, with the cursor at its end. readline takes it straight into
     // the line without a keypress, so nothing would redraw it otherwise
@@ -46,9 +52,39 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
       return answer;
     }
 
+    render() {
+      // so the redraw starts below the list instead of over it
+      if (this.listed) {
+        this.listed = false;
+        this.screen.height = 0;
+        this.screen.extraLinesUnderPrompt = 0;
+      }
+
+      return super.render();
+    }
+
     async onKeypress(event: KeyEvent) {
-      if (event?.key?.name !== 'tab' || !event.key.shift) {
+      if (event?.key?.name !== 'tab') {
         return super.onKeypress(event);
+      }
+
+      if (!event.key.shift) {
+        // short is only asked for when a list is about to be printed
+        const { short } = this.opt;
+
+        if (short) {
+          this.opt.short = (line, matches) => {
+            this.listed = true;
+
+            return short(line, matches);
+          };
+        }
+
+        try {
+          return await super.onKeypress(event);
+        } finally {
+          this.opt.short = short;
+        }
       }
 
       // the banner cycleMode prints would otherwise land on the input line, and
@@ -88,6 +124,9 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
     }
   });
 
+  const commands = Object.values(Command);
+  const paths = createPathIndex();
+
   pruneSessions();
 
   // a failed resume still needs somewhere to write what happens next
@@ -100,6 +139,9 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
 
   while (true) {
     if (controller.needsUserInput) {
+      // whatever the last turn wrote or deleted should be offered, or not
+      paths.invalidate();
+
       //@ts-expect-error inquirer has a context of its own that means something
       // else entirely, so its type rejects the history key the command prompt
       // reads from here
@@ -108,7 +150,11 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
         name: 'userMessage',
         message: renderPrompt(),
         context: historyContext,
-        prefill: controller.takePrefill()
+        prefill: controller.takePrefill(),
+        autoCompletion: (line: string) => complete(line, { commands, paths }),
+        short: shortCompletions,
+        // the library's own heading says commands, which a path list is not
+        autocompletePrompt: systemColor('Completions:')
       });
 
       if (userMessage.startsWith('/')) {

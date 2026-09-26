@@ -324,6 +324,93 @@ describe('turns', () => {
   });
 });
 
+describe('@ mentions', () => {
+  test('attaches a mentioned file as the read tool would return it', () => {
+    const controller = make();
+
+    writeFileSync('notes.txt', 'alpha\nbeta');
+    controller.addUserMessage('summarize @notes.txt please');
+
+    assert.deepEqual(controller.messages, [
+      {
+        role: 'user',
+        content:
+          'summarize @notes.txt please\n\nContents of notes.txt:\n     1\talpha\n     2\tbeta',
+        typed: 'summarize @notes.txt please'
+      }
+    ]);
+  });
+
+  test('attaches each file once, in the order they were mentioned', () => {
+    const controller = make();
+
+    mkdirSync('src');
+    writeFileSync('src/a.ts', 'a');
+    writeFileSync('b.ts', 'b');
+    controller.addUserMessage('@src/a.ts and @b.ts, then @src/a.ts again');
+
+    const { content } = controller.messages[0];
+
+    assert.equal(content.match(/Contents of/g)?.length, 2);
+    assert.ok(
+      content.indexOf('Contents of src/a.ts') <
+        content.indexOf('Contents of b.ts')
+    );
+  });
+
+  test('leaves missing paths, directories and email addresses as typed', () => {
+    const controller = make();
+
+    mkdirSync('folder');
+    writeFileSync('user', 'not a mention');
+    controller.addUserMessage(
+      'ask user@example.com about @missing.ts or @folder.'
+    );
+
+    assert.deepEqual(controller.messages, [
+      {
+        role: 'user',
+        content: 'ask user@example.com about @missing.ts or @folder.'
+      }
+    ]);
+  });
+
+  test('offers the typed prompt back to /undo, not the attachment', async () => {
+    const controller = make();
+
+    writeFileSync('notes.txt', 'alpha');
+    controller.addUserMessage('read @notes.txt');
+    answers(reply);
+    await controller.takeTurn();
+
+    select.mock.mockImplementationOnce(async () => 0 as never);
+    await controller.runCommand(Command.Undo);
+
+    const { choices } = select.mock.calls[0].arguments[0] as unknown as {
+      choices: { name: string }[];
+    };
+
+    assert.match(choices[0].name, /^read @notes\.txt /);
+    assert.equal(controller.takePrefill(), 'read @notes.txt');
+  });
+
+  test('seeds the history of a resumed session with the typed prompt', () => {
+    append([
+      {
+        role: 'user',
+        content: 'read @notes.txt\n\nContents of notes.txt:\n     1\talpha',
+        typed: 'read @notes.txt'
+      } as Message
+    ]);
+
+    const { remember, prompts } = seeded();
+
+    make(1000, remember).restore();
+
+    assert.deepEqual(prompts(), ['read @notes.txt']);
+  });
+});
+
 describe('runPrompt', () => {
   test('keeps taking turns until the model stops calling tools', async () => {
     const controller = make();

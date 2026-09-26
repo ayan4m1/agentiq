@@ -1,4 +1,5 @@
-import { sep } from 'node:path';
+import { join, sep } from 'node:path';
+import { globSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 // directories whose contents are never what the model is looking for. this is
@@ -11,6 +12,9 @@ export const alwaysExclude = [
   '**/.git/**',
   '**/.yarn/**'
 ];
+
+// the same directories by name, for a path that has already been listed
+const excludedNames = new Set(['node_modules', '.git', '.yarn']);
 
 const gitTimeout = 5000;
 // a large repository lists a great many paths, and the default 1MB would cut
@@ -67,4 +71,35 @@ export const visibleDirectories = (files: Set<string>) => {
   }
 
   return directories;
+};
+
+// every file in the project, as the find and list tools would see it: what git
+// is willing to show, less the directories that are never interesting - git
+// only hides node_modules when a .gitignore says so. outside a repository the
+// guard above is the only filter there is
+export const projectFiles = (cwd: string) => {
+  const visible = gitVisible(cwd);
+
+  if (visible) {
+    return new Set(
+      [...visible].filter(
+        (file) => !file.split('/').some((part) => excludedNames.has(part))
+      )
+    );
+  }
+
+  const files = new Set<string>();
+
+  for (const match of globSync('**/*', { cwd, exclude: alwaysExclude })) {
+    // glob yields directories too, and a file can vanish mid-listing
+    try {
+      if (statSync(join(cwd, match)).isFile()) {
+        files.add(toPosix(match));
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return files;
 };

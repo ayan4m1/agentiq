@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { existsSync, statSync } from 'node:fs';
 import { confirm, select } from '@inquirer/prompts';
 import type { Message } from 'ollama';
 
@@ -25,6 +26,7 @@ import {
 } from './session';
 import { takeYield } from './turn';
 import type { makeThinker } from './ollama';
+import { readFile } from '../tools/read';
 import type { AgentMessage, ThoughtState } from '../types';
 import { describeAge, describeError } from '../utils';
 
@@ -79,18 +81,58 @@ type ControllerOptions = {
   rememberPrompts?: (prompts: string[]) => void;
 };
 
+// a prompt that mentioned files carries them in its content, but what the user
+// typed is what they would recognise and want back
+const typedText = ({ content, typed }: AgentMessage) => typed ?? content;
+
 // what the user typed, oldest first - so the last thing they said is one press
 // away. tool output and the notes compaction flags as its own are not prompts,
 // and a multi-line one cannot be recalled into readline's single-line buffer
 // without corrupting the display, so it is dropped rather than truncated
-const isTypedPrompt = ({ role, content, summary }: AgentMessage) =>
-  role === 'user' &&
-  Boolean(content.trim()) &&
-  !summary &&
-  !content.includes('\n');
+const isTypedPrompt = (message: AgentMessage) => {
+  const text = typedText(message);
+
+  return (
+    message.role === 'user' &&
+    Boolean(text.trim()) &&
+    !message.summary &&
+    !text.includes('\n')
+  );
+};
+
+// start-of-text or whitespace before the @, so an email address is left alone
+const mentionPattern = /(?:^|\s)@(\S+)/g;
+const trailingPunctuation = /[.,;:!?)\]}'"]+$/;
+
+// each file mentioned with @ is attached below the prompt as the read tool
+// would have returned it, numbered and cut to the same budget, so the model
+// gets the contents without spending a round asking for them. anything that
+// is not a file is left as the text it was typed as
+const expandMentions = (content: string) => {
+  const isFile = (path: string) => existsSync(path) && statSync(path).isFile();
+  const paths = new Set<string>();
+
+  for (const [, mention] of content.matchAll(mentionPattern)) {
+    // a mention ending a clause picks up its punctuation, which is only part
+    // of the path if a file by that name really exists
+    const path = isFile(mention)
+      ? mention
+      : mention.replace(trailingPunctuation, '');
+
+    if (isFile(path)) {
+      paths.add(path);
+    }
+  }
+
+  const attached = [...paths].map(
+    (path) => `Contents of ${path}:\n${readFile({ path })}`
+  );
+
+  return attached.length ? [content, ...attached].join('\n\n') : undefined;
+};
 
 const typedPrompts = (messages: AgentMessage[]) => {
-  const prompts = messages.filter(isTypedPrompt).map(({ content }) => content);
+  const prompts = messages.filter(isTypedPrompt).map(typedText);
   const { historyLimit } = session;
 
   return Number.isFinite(historyLimit) && historyLimit > 0
@@ -296,7 +338,8 @@ export const createController = ({
     try {
       const index = await select({
         message: 'Undo back to before which prompt?',
-        choices: prompts.reverse().map(([index, { content }]) => {
+        choices: prompts.reverse().map(([index, message]) => {
+          const content = typedText(message);
           const label =
             content.length > 60 ? `${content.slice(0, 60)}…` : content;
 
@@ -312,7 +355,7 @@ export const createController = ({
 
       if (
         !(await confirm({
-          message: `Undo "${prompt.content}"? This reverts ${files} file change(s) and drops ${dropped} message(s). Anything done by shell commands is not reversed.`,
+          message: `Undo "${typedText(prompt)}"? This reverts ${files} file change(s) and drops ${dropped} message(s). Anything done by shell commands is not reversed.`,
           default: false
         }))
       ) {
@@ -336,7 +379,7 @@ export const createController = ({
       compactionStalled = false;
       thinker.load(nextThought.messages);
       rewrite(nextThought.messages);
-      prefill = prompt.content;
+      prefill = typedText(prompt);
 
       log.info(
         chalk.green(
@@ -545,7 +588,10 @@ export const createController = ({
   };
 
   const addUserMessage = (content: string) => {
-    const message = { role: 'user', content };
+    const expanded = expandMentions(content);
+    const message: AgentMessage = expanded
+      ? { role: 'user', content: expanded, typed: content }
+      : { role: 'user', content };
 
     nextThought.messages.push(message);
     turns.set(message, beginTurn());

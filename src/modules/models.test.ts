@@ -42,7 +42,8 @@ type Picked = {
   remove: (value: string) => void;
 };
 
-const pickModel = mock.fn<(config: Picked) => Promise<string>>(answer);
+const pickModel =
+  mock.fn<(config: Picked) => Promise<string | undefined>>(answer);
 
 mock.module('@inquirer/prompts', { namedExports: { select, input } });
 mock.module('./picker', { namedExports: { pickModel } });
@@ -282,6 +283,14 @@ describe('choosing a model', () => {
     // walking away afterwards does not bring it back
     assert.equal(await chooseEntry(server()), undefined);
     assert.deepEqual(loadStore(), { active: gemma.model, models: [gemma] });
+  });
+
+  test('returns nothing when the picker is escaped', async () => {
+    saveStore({ active: gemma.model, models: [gemma, qwen] });
+    pickModel.mock.mockImplementationOnce(async () => undefined);
+
+    assert.equal(await chooseEntry(server()), undefined);
+    assert.equal(select.mock.callCount(), 0);
   });
 
   test('goes straight to the add flow when nothing is saved', async () => {

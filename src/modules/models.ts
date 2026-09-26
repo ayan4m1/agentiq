@@ -235,6 +235,10 @@ export const chooseEntry = async (
     return cancelled(error);
   }
 
+  if (model === undefined) {
+    return cancelled('escape was pressed');
+  }
+
   return model === other
     ? addEntry(api, installed)
     : findEntry(loadStore(), model);

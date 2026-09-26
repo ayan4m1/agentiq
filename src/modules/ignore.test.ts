@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import {
   alwaysExclude,
   gitVisible,
+  projectFiles,
   toPosix,
   visibleDirectories
 } from './ignore';
@@ -32,6 +33,15 @@ before(() => {
   writeFileSync(resolve(repo, 'secrets', 'key.txt'), 'shh');
   writeFileSync(resolve(repo, 'debug.log'), 'noise');
   writeFileSync(resolve(repo, 'README.md'), '# repo');
+  // not in the .gitignore, so only the guard keeps it out
+  mkdirSync(resolve(repo, 'node_modules', 'pkg'), { recursive: true });
+  writeFileSync(resolve(repo, 'node_modules', 'pkg', 'index.js'), 'dep');
+
+  mkdirSync(resolve(plain, 'sub'), { recursive: true });
+  mkdirSync(resolve(plain, 'node_modules'), { recursive: true });
+  writeFileSync(resolve(plain, 'top.txt'), 'top');
+  writeFileSync(resolve(plain, 'sub', 'inner.txt'), 'inner');
+  writeFileSync(resolve(plain, 'node_modules', 'dep.js'), 'dep');
 
   git('init');
   git('config', 'user.email', 'test@example.com');
@@ -80,6 +90,28 @@ describe('gitVisible', () => {
 
   test('returns nothing outside a repository, so the caller can fall back', () => {
     assert.equal(gitVisible(plain), undefined);
+  });
+});
+
+describe('projectFiles', () => {
+  test('lists what git shows in a repository', () => {
+    const files = projectFiles(repo);
+
+    assert.ok(files.has('src/index.ts'));
+    assert.ok(files.has('README.md'));
+    assert.ok(!files.has('lib/index.js'));
+    assert.ok(!files.has('debug.log'));
+  });
+
+  test('drops node_modules even when no .gitignore mentions it', () => {
+    assert.ok(!projectFiles(repo).has('node_modules/pkg/index.js'));
+  });
+
+  test('falls back to a guarded glob outside a repository', () => {
+    assert.deepEqual([...projectFiles(plain)].sort(), [
+      'sub/inner.txt',
+      'top.txt'
+    ]);
   });
 });
 
