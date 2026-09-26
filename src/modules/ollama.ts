@@ -3,11 +3,12 @@ import chalk from 'chalk';
 import type { Message } from 'ollama';
 
 import { client } from './client';
-import { ollama } from './config';
+import { ollama, session } from './config';
 import { describeElision, findSplit, isElided, pairCalls } from './compaction';
 import { getLogger } from './logging';
 import { makeTokenizer } from './tokenizer';
 import { recoverToolCalls, validateArgs } from './tools';
+import { recapPrompt, recentTurns, renderTranscript } from './recap';
 import { buildSystemPrompt } from './prompt';
 import { describeSkills } from './skills';
 import { watchForInterrupt } from './interrupt';
@@ -579,6 +580,55 @@ export const makeThinker = () => {
     };
   };
 
+  // a few lines for the user on what the last few turns were about. it is only
+  // ever printed, so nothing here is counted - and a failure is only a warning,
+  // since a recap is never worth losing a resume or a compaction over
+  const recap = async (messages: Message[]) => {
+    const transcript = renderTranscript(
+      recentTurns(messages, session.recapTurns)
+    );
+
+    if (!transcript) {
+      return;
+    }
+
+    const spinner = ora({
+      stream: process.stdout,
+      discardStdin: false,
+      text: 'Recapping'
+    });
+
+    if (process.stdin.isTTY) {
+      spinner.start();
+    }
+
+    try {
+      // one user message holding the whole excerpt, rather than the messages
+      // themselves - there are no tool calls left in it to pair results with,
+      // and no tools are offered, since the model is not meant to act on it
+      const response = await client.chat({
+        model: ollama.model,
+        messages: [
+          { role: 'user', content: `${recapPrompt}\n\n${transcript}` }
+        ],
+        keep_alive: ollama.keepAlive,
+        options: {
+          num_ctx: ollama.contextLimit
+        }
+      });
+
+      return response.message.content.trim() || undefined;
+    } catch (error) {
+      log.warn(`Could not recap the session: ${describeError(error)}`);
+
+      return;
+    } finally {
+      if (spinner.isSpinning) {
+        spinner.stop();
+      }
+    }
+  };
+
   // adopt a conversation that was not built by think() - a resumed session -
   // so the token stats describe the history the model is about to be sent
   const load = (messages: Message[]) => {
@@ -650,6 +700,7 @@ export const makeThinker = () => {
     reset,
     rebuild,
     compact,
+    recap,
     abort,
     tokens,
     get turnCount() {

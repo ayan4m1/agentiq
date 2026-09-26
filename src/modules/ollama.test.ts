@@ -12,7 +12,7 @@ import type { AgentMessage } from '../types';
 // predictable. it also has to be set before the module first evaluates
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-thinker-'));
 
-const { ollama } = await import('./config');
+const { ollama, session } = await import('./config');
 const { makeTool, makeParameter } = await import('../utils');
 
 // escape is watched for on a real terminal, which a test does not have - so
@@ -875,6 +875,90 @@ describe('summarizing when eliding is not enough', () => {
     assert.equal(compacted.messages, messages);
     assert.equal(compacted.freed, 0);
     assert.equal(chat.mock.callCount(), 0);
+  });
+});
+
+describe('recapping the last few turns', () => {
+  const talk = (): Message[] => [
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'first reply' },
+    { role: 'user', content: 'second' },
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [{ function: { name: 'read', arguments: { path: 'a.ts' } } }]
+    },
+    { role: 'tool', tool_name: 'read', content: 'file contents' },
+    { role: 'assistant', content: 'second reply' }
+  ];
+
+  const recapAs = (content: string) =>
+    chat.mock.mockImplementationOnce(async () => ({
+      message: { role: 'assistant', content }
+    }));
+
+  let recapTurns: number;
+
+  beforeEach(() => {
+    chat.mock.resetCalls();
+    recapTurns = session.recapTurns;
+    session.recapTurns = 1;
+  });
+
+  afterEach(() => {
+    session.recapTurns = recapTurns;
+  });
+
+  test('asks for a recap of only the turns in the window', async () => {
+    const thinker = makeThinker();
+
+    recapAs('  you asked about a.ts  ');
+
+    assert.equal(await thinker.recap(talk()), 'you asked about a.ts');
+
+    const [request] = requests();
+    const [message] = request.messages ?? [];
+
+    assert.equal(request.tools, undefined);
+    assert.equal(request.messages?.length, 1);
+    assert.equal(message.role, 'user');
+    assert.match(message.content, /User: second\n\nAssistant: second reply$/);
+    assert.doesNotMatch(message.content, /first|file contents/);
+  });
+
+  test('counts nothing, since the recap is never sent back', async () => {
+    const thinker = makeThinker();
+    const messages = talk();
+
+    thinker.load(messages);
+
+    const before = { ...thinker.tokens };
+
+    recapAs('a recap');
+    await thinker.recap(messages);
+
+    assert.deepEqual(thinker.tokens, before);
+  });
+
+  test('asks for nothing when recaps are off', async () => {
+    session.recapTurns = 0;
+
+    assert.equal(await makeThinker().recap(talk()), undefined);
+    assert.equal(chat.mock.callCount(), 0);
+  });
+
+  test('gives up quietly when the model call fails', async () => {
+    chat.mock.mockImplementationOnce(async () => {
+      throw new Error('connection refused');
+    });
+
+    assert.equal(await makeThinker().recap(talk()), undefined);
+  });
+
+  test('gives up quietly when the model says nothing', async () => {
+    recapAs('   ');
+
+    assert.equal(await makeThinker().recap(talk()), undefined);
   });
 });
 

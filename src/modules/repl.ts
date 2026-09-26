@@ -23,7 +23,7 @@ import {
   rewrite,
   startSession
 } from './session';
-import { takeYield } from './turn';
+import { takeYield, terminal } from './turn';
 import type { makeThinker } from './ollama';
 import type { AgentMessage, ThoughtState } from '../types';
 import { describeAge, describeError } from '../utils';
@@ -53,7 +53,14 @@ export const Command = {
 
 type Thinker = Pick<
   ReturnType<typeof makeThinker>,
-  'think' | 'load' | 'reset' | 'rebuild' | 'compact' | 'tokens' | 'turnCount'
+  | 'think'
+  | 'load'
+  | 'reset'
+  | 'rebuild'
+  | 'compact'
+  | 'recap'
+  | 'tokens'
+  | 'turnCount'
 >;
 
 // how a turn gets to run - the command hands in its rate limiter, and a test
@@ -117,9 +124,22 @@ export const createController = ({
   // so it can be edited and sent again
   let prefill: string | undefined;
 
+  // printed and nothing more - it goes into neither the conversation, the
+  // session file nor the prompt history, so it can never be mistaken for
+  // something the user said or be sent back to the model
+  const showRecap = async (messages: Message[]) => {
+    const recap = await thinker.recap(messages);
+
+    if (recap) {
+      log.info(chalk.gray(recap));
+    }
+
+    return Boolean(recap);
+  };
+
   // loading an earlier conversation also hands the session file back to it, so
   // the resumed history keeps growing where it left off
-  const restore = (id?: string) => {
+  const restore = async (id?: string) => {
     const target = id ?? listSessions(1)[0]?.id;
 
     if (!target) {
@@ -148,11 +168,16 @@ export const createController = ({
       )
     );
 
+    if (await showRecap(messages)) {
+      return true;
+    }
+
     const lastResponse = messages.findLast(
       (message) => message.role === 'assistant'
     );
 
-    // print out last response to establish context with user
+    // with recaps off, or when one could not be had, the last response is the
+    // next best way to establish context with the user
     if (lastResponse) {
       log.info(
         lastResponse.thinking
@@ -176,7 +201,10 @@ export const createController = ({
 
   const compact = async () => {
     const before = thinker.tokens.total;
-    const { messages, freed } = await thinker.compact(nextThought.messages);
+    // the recap is written from what was there before, since a summary is
+    // exactly the thing the user cannot see into
+    const previous = nextThought.messages;
+    const { messages, freed } = await thinker.compact(previous);
 
     nextThought.messages = messages;
     compactionStalled = freed <= 0;
@@ -190,6 +218,12 @@ export const createController = ({
       );
     } else {
       logFreed(freed, before);
+
+      // nobody is at the terminal to read one during `agentiq exec`, and it
+      // would cost a model call all the same
+      if (terminal.interactive) {
+        await showRecap(previous);
+      }
     }
   };
 
@@ -234,17 +268,17 @@ export const createController = ({
     const summaries = listSessions();
 
     if (!summaries.length) {
-      restore();
+      await restore();
 
       return;
     }
 
     try {
-      restore(
+      await restore(
         await select({
           message: 'Which session?',
           choices: summaries.map((summary) => ({
-            name: `${describeAge(summary.updatedAt).padStart(8)}  ${summary.label} ${chalk.dim(`(${summary.messages} messages)`)}`,
+            name: `${describeAge(summary.updatedAt).padStart(8)}  ${summary.label} ${chalk.gray(`(${summary.messages} messages)`)}`,
             value: summary.id
           }))
         })
@@ -267,7 +301,7 @@ export const createController = ({
     );
 
     if (!prompts.length) {
-      console.log(
+      log.warn(
         systemColor(
           'There is nothing to undo - no prompt has been sent this session.'
         )

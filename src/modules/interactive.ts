@@ -93,7 +93,7 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
   // a failed resume still needs somewhere to write what happens next
   if (
     !resume ||
-    !controller.restore(typeof resume === 'string' ? resume : undefined)
+    !(await controller.restore(typeof resume === 'string' ? resume : undefined))
   ) {
     startSession();
   }

@@ -231,7 +231,8 @@ export const ollama: OllamaConfig = {
 
 export const session: SessionConfig = {
   limit: integer('AQ_SESSION_LIMIT', 'session', 'limit'),
-  historyLimit: integer('AQ_HISTORY_LIMIT', 'session', 'historyLimit')
+  historyLimit: integer('AQ_HISTORY_LIMIT', 'session', 'historyLimit'),
+  recapTurns: integer('AQ_RECAP_TURNS', 'session', 'recapTurns')
 };
 
 export const tokenizer: TokenizerConfig = {
