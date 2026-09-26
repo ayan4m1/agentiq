@@ -11,8 +11,8 @@ Install the package globally and then you will have `agentiq` available as a bin
 ## Configuration
 
 Settings live in `~/.agentiq/config.yml`, next to everything else agentiq keeps between runs. The
-file is created with the defaults, and a comment explaining each setting, the first time agentiq
-starts. After that it is never overwritten. Its sections match the config in `src/modules/config.ts`:
+file is created with the defaults the first time agentiq starts. Its sections match the config in
+`src/modules/config.ts`:
 
 ```yaml
 logging:
