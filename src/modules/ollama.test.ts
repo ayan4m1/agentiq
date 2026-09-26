@@ -36,19 +36,27 @@ const startSpinner = mock.fn(() => {
 const stopSpinner = mock.fn(() => {
   spinning = false;
 });
+type FakeSpinner = {
+  start: () => void;
+  stop: () => void;
+  isSpinning: boolean;
+  suffixText?: string;
+};
+let lastSpinner: FakeSpinner | undefined;
 const ora = mock.fn<
-  (options: { discardStdin?: boolean }) => {
-    start: () => void;
-    stop: () => void;
-    isSpinning: boolean;
-  }
->(() => ({
-  start: startSpinner,
-  stop: stopSpinner,
-  get isSpinning() {
-    return spinning;
-  }
-}));
+  (options: { discardStdin?: boolean; suffixText?: string }) => FakeSpinner
+>((options) => {
+  lastSpinner = {
+    start: startSpinner,
+    stop: stopSpinner,
+    get isSpinning() {
+      return spinning;
+    },
+    suffixText: options.suffixText
+  };
+
+  return lastSpinner;
+});
 
 mock.module('ora', { defaultExport: ora });
 
@@ -1125,6 +1133,41 @@ describe('the spinner', () => {
     await assert.rejects(makeThinker().think({ messages: ask() }));
 
     cleared();
+  });
+
+  test('offers escape from the moment it appears', async () => {
+    respond(chunk({ content: 'ok' }));
+
+    await makeThinker().think({ messages: ask() });
+
+    assert.equal(
+      ora.mock.calls[0].arguments[0].suffixText,
+      'esc to interrupt (0s)'
+    );
+  });
+
+  test('counts up while waiting, and stops once taken back', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'] });
+
+    // hold the response back, the way a model still loading would
+    let answer!: () => void;
+    chat.mock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = () => resolve(streamOf([chunk({ content: 'ok' })]));
+        })
+    );
+
+    const turn = makeThinker().think({ messages: ask() });
+
+    t.mock.timers.tick(90_000);
+    assert.equal(lastSpinner?.suffixText, 'esc to interrupt (1m30s)');
+
+    answer();
+    await turn;
+
+    t.mock.timers.tick(10_000);
+    assert.equal(lastSpinner?.suffixText, 'esc to interrupt (1m30s)');
   });
 
   test('is never shown when input is piped', async () => {

@@ -85,6 +85,24 @@ export const describeAge = (timestamp: number) => {
   return `${Math.floor(value)}d ago`;
 };
 
+// how long something has been running, to the second - "1m30s" rather than
+// the single rounded unit describeAge settles for, since it ticks while shown
+export const describeElapsed = (ms: number) => {
+  let rest = Math.floor(Math.max(ms, 0) / 1000);
+  let result = '';
+
+  for (const [size, unit] of scales) {
+    result = `${rest % size}${unit}${result}`;
+    rest = Math.floor(rest / size);
+
+    if (!rest) {
+      return result;
+    }
+  }
+
+  return `${rest}d${result}`;
+};
+
 export const getTokenString = (value: number) =>
   `[${filesize(value, {
     fullform: true,

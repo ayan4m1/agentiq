@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { ollama } from '../modules/config';
 import {
   describeAge,
+  describeElapsed,
   describeError,
   getContentBudget,
   getParameters,
@@ -66,6 +67,33 @@ describe('describeAge', () => {
 
   test('never reports a negative age for a clock skewed forward', () => {
     assert.equal(describeAge(Date.now() + 10_000), '0s ago');
+  });
+});
+
+describe('describeElapsed', () => {
+  test('starts at zero seconds', () => {
+    assert.equal(describeElapsed(0), '0s');
+  });
+
+  test('counts whole seconds below a minute', () => {
+    assert.equal(describeElapsed(59_999), '59s');
+  });
+
+  test('keeps the seconds once it rolls over into minutes', () => {
+    assert.equal(describeElapsed(90_000), '1m30s');
+    assert.equal(describeElapsed(60_000), '1m0s');
+  });
+
+  test('keeps every smaller unit once it reaches hours', () => {
+    assert.equal(describeElapsed(3_725_000), '1h2m5s');
+  });
+
+  test('rolls over into days', () => {
+    assert.equal(describeElapsed(90_000_000), '1d1h0m0s');
+  });
+
+  test('never reports a negative time', () => {
+    assert.equal(describeElapsed(-5_000), '0s');
   });
 });
 

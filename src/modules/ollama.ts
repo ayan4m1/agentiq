@@ -15,9 +15,12 @@ import { watchForInterrupt } from './interrupt';
 import { supportsThinking } from './preflight';
 import type { AgentMessage, ThoughtState, TokenStats } from '../types';
 import { tools } from '../tools';
-import { describeError, serializeResult } from '../utils';
+import { describeElapsed, describeError, serializeResult } from '../utils';
 
 const log = getLogger('ollama');
+
+const interruptHint = (ms: number) =>
+  `esc to interrupt (${describeElapsed(ms)})`;
 
 // compacting on the way to the limit rather than at it leaves room for the
 // summarization call itself, which still has to fit in the same window
@@ -205,10 +208,15 @@ export const makeThinker = () => {
       // watchForInterrupt owns stdin in raw mode for the turn, and ora's own
       // discard would fight it for the escape byte
       discardStdin: false,
-      suffixText: 'esc to interrupt'
+      suffixText: interruptHint(0)
     });
+    // counts up beside the hint, so a model slow to load or to answer shows
+    // how long it has been at it
+    let clock: NodeJS.Timeout | undefined;
 
     const stopSpinner = () => {
+      clearInterval(clock);
+
       if (spinner.isSpinning) {
         spinner.stop();
       }
@@ -220,6 +228,13 @@ export const makeThinker = () => {
 
     if (process.stdin.isTTY) {
       spinner.start();
+
+      const startedAt = Date.now();
+
+      // ora redraws on its own frame timer, which picks up the new text
+      clock = setInterval(() => {
+        spinner.suffixText = interruptHint(Date.now() - startedAt);
+      }, 1000).unref();
     }
 
     const assistantMessage: Message = { role: 'assistant', content: '' };
