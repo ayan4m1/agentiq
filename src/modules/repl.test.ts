@@ -74,6 +74,7 @@ mock.module('./tokenizer', {
   namedExports: {
     ensureTokenizer,
     estimateTokens: (value: string) => value.length,
+    localTokenizerDir: () => undefined,
     makeTokenizer: () => (value: string) => value.length
   }
 });

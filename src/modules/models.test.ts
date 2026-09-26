@@ -2,7 +2,7 @@ import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { ListResponse } from 'ollama';
 
 // the store lives under the home directory, which is read as the config module
@@ -212,9 +212,29 @@ describe('validateRepo', () => {
     assert.equal(typeof validateRepo('google/gemma/extra'), 'string');
   });
 
+  test('accepts a local directory that exists', () => {
+    mkdirSync(resolve(home, 'my-tokenizer'), { recursive: true });
+
+    assert.equal(validateRepo('./my-tokenizer'), true);
+    assert.equal(validateRepo(resolve(home, 'my-tokenizer')), true);
+  });
+
+  test('refuses a local directory that does not exist', () => {
+    assert.equal(typeof validateRepo('./missing'), 'string');
+    assert.equal(typeof validateRepo(resolve(home, 'missing')), 'string');
+  });
+
   test('refuses a name that would climb out of the cache directory', () => {
-    // the repo name is joined into a path under ~/.agentiq/tokenizers
-    for (const repo of ['../../etc', '../evil', 'owner/..', '../..', './.']) {
+    // the repo name is joined into a path under ~/.agentiq/tokenizers. one that
+    // names an existing directory is taken as a local tokenizer instead, which
+    // is only ever read - so these are all spelled to miss
+    for (const repo of [
+      '../../missing',
+      '../evil',
+      'owner/..',
+      '../../..missing',
+      './.missing'
+    ]) {
       assert.equal(typeof validateRepo(repo), 'string', repo);
     }
   });

@@ -104,7 +104,9 @@ export type OllamaConfig = {
 
 // an ollama model and the huggingface repo whose tokenizer matches it. the two
 // are only useful together - a tokenizer from the wrong model counts a prompt
-// the server will render differently - so they are chosen and saved as a pair
+// the server will render differently - so they are chosen and saved as a pair.
+// the tokenizer may instead be a local directory holding tokenizer.json and
+// tokenizer_config.json, ./-relative to ~/.agentiq or absolute
 export type ModelEntry = {
   model: string;
   tokenizer: string;

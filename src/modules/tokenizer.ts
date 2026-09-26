@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { filesize } from 'filesize';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -31,6 +31,19 @@ const repoPattern = /^(?!\.+\/)[\w.-]+\/(?!\.+$)[\w.-]+$/;
 export const estimateTokens = (value: string) =>
   Math.ceil(value.length / charsPerToken);
 
+// a directory the user already has on disk, used as it stands rather than
+// downloaded into. relative paths hang off the state directory like everything
+// else agentiq keeps, and resolve() leaves an absolute one as it is
+export const localTokenizerDir = (value: string) => {
+  if (!/\.[\\/]/.test(value) && !isAbsolute(value)) {
+    return;
+  }
+
+  const dir = resolve(home, value);
+
+  return existsSync(dir) && statSync(dir).isDirectory() ? dir : undefined;
+};
+
 // undefined rather than a throw: counting falls back to an estimate that the
 // server corrects on the first turn, which is not worth refusing to start over
 const getCacheDir = () => {
@@ -38,15 +51,21 @@ const getCacheDir = () => {
     return;
   }
 
+  const local = localTokenizerDir(config.repo);
+
+  if (local) {
+    return { dir: local, local: true };
+  }
+
   if (!repoPattern.test(config.repo)) {
     log.warn(
-      `Ignoring the tokenizer repo "${config.repo}" - expected an owner/name pair`
+      `Ignoring the tokenizer "${config.repo}" - expected an owner/name pair or an existing directory`
     );
 
     return;
   }
 
-  return resolve(home, 'tokenizers', config.repo);
+  return { dir: resolve(home, 'tokenizers', config.repo), local: false };
 };
 
 const download = async (fileName: string, targetDir: string) => {
@@ -92,9 +111,9 @@ const download = async (fileName: string, targetDir: string) => {
 // is slow enough that it has to finish before the first prompt renders, so this
 // is awaited at startup rather than lazily on first encode
 export const ensureTokenizer = async () => {
-  const cacheDir = getCacheDir();
+  const cache = getCacheDir();
 
-  if (!cacheDir) {
+  if (!cache) {
     log.warn(
       'No tokenizer is configured - use /model to pair this model with a huggingface.co repository, e.g. google/gemma-3-12b-it.'
     );
@@ -103,18 +122,28 @@ export const ensureTokenizer = async () => {
   }
 
   const missing = fileNames.filter(
-    (fileName) => !existsSync(resolve(cacheDir, fileName))
+    (fileName) => !existsSync(resolve(cache.dir, fileName))
   );
 
   if (!missing.length) {
     return true;
   }
 
+  // a directory of the user's own is theirs to fill - there is no repo to
+  // fetch from, and nothing is written into it
+  if (cache.local) {
+    log.warn(
+      `The tokenizer directory ${cache.dir} is missing ${missing.join(' and ')}`
+    );
+
+    return false;
+  }
+
   try {
-    mkdirSync(cacheDir, { recursive: true });
+    mkdirSync(cache.dir, { recursive: true });
 
     for (const fileName of missing) {
-      await download(fileName, cacheDir);
+      await download(fileName, cache.dir);
     }
 
     return true;
@@ -128,7 +157,7 @@ export const ensureTokenizer = async () => {
 };
 
 export const makeTokenizer = () => {
-  const cacheDir = getCacheDir();
+  const cacheDir = getCacheDir()?.dir;
 
   if (!cacheDir) {
     return estimateTokens;

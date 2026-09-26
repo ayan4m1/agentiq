@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { getLogger } from './logging';
 import { terminal } from './turn';
 import { pickModel } from './picker';
+import { localTokenizerDir } from './tokenizer';
 import { type Api, listModels, matchesModel } from './preflight';
 import { home, ollama, tokenizer } from './config';
 import type { ModelEntry, ModelStore } from '../types';
@@ -36,7 +37,8 @@ export const validateRepo = (value: string) => {
 
   return (
     repoPattern.test(spelled) ||
-    'Expected an owner/name pair, e.g. google/gemma-4-E4B'
+    Boolean(localTokenizerDir(spelled)) ||
+    'Expected an owner/name pair, e.g. google/gemma-4-E4B, or a directory such as ./my-tokenizer'
   );
 };
 
@@ -173,7 +175,8 @@ const addEntry = async (
     }
 
     const repo = await input({
-      message: 'Which huggingface.co repo has its tokenizer?',
+      message:
+        'Which huggingface.co repo (or local directory) has its tokenizer?',
       validate: validateRepo
     });
 

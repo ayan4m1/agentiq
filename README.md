@@ -58,6 +58,10 @@ the tokenizer comes from, and saves the pair to `~/.agentiq/models.json`:
 
 You will be asked to register a model on first startup.
 
+The tokenizer can also be a local directory containing `tokenizer.json` and `tokenizer_config.json`,
+either relative to `~/.agentiq` (e.g. `./my-tokenizer`) or an absolute path. Nothing is downloaded
+for a local directory; it is used as it stands.
+
 Switching mid-conversation keeps the history. The tokenizer is downloaded, the system prompt is
 built again around the new model, and the context is counted again from scratch.
 

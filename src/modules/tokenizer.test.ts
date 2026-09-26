@@ -1,7 +1,7 @@
 import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 
 // the cache lives under the state directory, which has to be somewhere a test
@@ -20,7 +20,7 @@ mock.module('@lenml/tokenizers', {
   namedExports: { TokenizerLoader: { fromPreTrained } }
 });
 
-const { estimateTokens, ensureTokenizer, makeTokenizer } =
+const { estimateTokens, ensureTokenizer, localTokenizerDir, makeTokenizer } =
   await import('./tokenizer');
 const { home, tokenizer: config } = await import('./config');
 const { charsPerToken } = await import('../utils');
@@ -40,6 +40,22 @@ const seedCache = (repo: string, files: Record<string, string>) => {
     writeFileSync(resolve(cacheDir(repo), fileName), contents);
   }
 };
+
+// a directory of the user's own, somewhere a test chooses rather than under
+// tokenizers/
+let localCount = 0;
+const seedLocal = (parent: string, files: Record<string, string>) => {
+  const dir = resolve(parent, `local-${++localCount}`);
+
+  mkdirSync(dir, { recursive: true });
+
+  for (const [fileName, contents] of Object.entries(files)) {
+    writeFileSync(resolve(dir, fileName), contents);
+  }
+
+  return dir;
+};
+const outside = mkdtempSync(resolve(tmpdir(), 'agentiq-local-'));
 
 const fetched = mock.method(
   globalThis,
@@ -91,6 +107,41 @@ describe('estimateTokens', () => {
 
     assert.ok(estimate > prose.length / 8, 'should not be wildly low');
     assert.ok(estimate < prose.length / 2, 'should not be wildly high');
+  });
+});
+
+describe('localTokenizerDir', () => {
+  test('resolves a ./ path against the state directory', () => {
+    const dir = seedLocal(home, {});
+
+    assert.equal(localTokenizerDir(`./${basename(dir)}`), dir);
+  });
+
+  test('takes an absolute path as it stands', () => {
+    const dir = seedLocal(outside, {});
+
+    assert.equal(localTokenizerDir(dir), dir);
+  });
+
+  test('ignores a path that does not exist', () => {
+    assert.equal(localTokenizerDir('./does-not-exist'), undefined);
+    assert.equal(
+      localTokenizerDir(resolve(outside, 'does-not-exist')),
+      undefined
+    );
+  });
+
+  test('ignores a file where a directory was expected', () => {
+    const dir = seedLocal(outside, { 'tokenizer.json': '{}' });
+
+    assert.equal(localTokenizerDir(resolve(dir, 'tokenizer.json')), undefined);
+  });
+
+  test('leaves an owner/name pair to huggingface', () => {
+    // even one that happens to name a directory under the state directory
+    mkdirSync(resolve(home, 'owner', 'name'), { recursive: true });
+
+    assert.equal(localTokenizerDir('owner/name'), undefined);
   });
 });
 
@@ -209,6 +260,39 @@ describe('ensureTokenizer', () => {
     }
   });
 
+  test('uses a complete local directory without a network call', async () => {
+    const files = { 'tokenizer.json': '{}', 'tokenizer_config.json': '{}' };
+
+    for (const repo of [
+      `./${basename(seedLocal(home, files))}`,
+      seedLocal(outside, files)
+    ]) {
+      config.repo = repo;
+
+      assert.equal(await ensureTokenizer(), true, repo);
+    }
+
+    assert.equal(fetched.mock.callCount(), 0);
+  });
+
+  test('reports failure for an incomplete local directory without filling it', async () => {
+    const dir = seedLocal(outside, { 'tokenizer.json': '{}' });
+
+    config.repo = dir;
+
+    assert.equal(await ensureTokenizer(), false);
+    assert.equal(fetched.mock.callCount(), 0);
+    assert.equal(existsSync(resolve(dir, 'tokenizer_config.json')), false);
+  });
+
+  test('reports failure for a local directory that does not exist', async () => {
+    config.repo = './does-not-exist';
+
+    assert.equal(await ensureTokenizer(), false);
+    assert.equal(fetched.mock.callCount(), 0);
+    assert.equal(existsSync(resolve(home, 'does-not-exist')), false);
+  });
+
   test('leaves nothing behind when a download drops partway through', async () => {
     const repo = freshRepo();
     const target = resolve(cacheDir(repo), 'tokenizer.json');
@@ -264,6 +348,34 @@ describe('makeTokenizer', () => {
       tokenizerConfig: { model: 'config' },
       tokenizerJSON: { model: 'json' }
     });
+  });
+
+  test('counts with a local directory when there is one', () => {
+    const files = {
+      'tokenizer.json': '{"model":"json"}',
+      'tokenizer_config.json': '{"model":"config"}'
+    };
+
+    for (const repo of [
+      `./${basename(seedLocal(home, files))}`,
+      seedLocal(outside, files)
+    ]) {
+      fromPreTrained.mock.resetCalls();
+      config.repo = repo;
+
+      assert.equal(makeTokenizer()('abcd'), 4, repo);
+      assert.deepEqual(fromPreTrained.mock.calls[0].arguments[0], {
+        tokenizerConfig: { model: 'config' },
+        tokenizerJSON: { model: 'json' }
+      });
+    }
+  });
+
+  test('estimates when a local directory does not exist', () => {
+    config.repo = './does-not-exist';
+
+    assert.equal(makeTokenizer(), estimateTokens);
+    assert.equal(fromPreTrained.mock.callCount(), 0);
   });
 
   test('estimates when the cache is missing a file', () => {
