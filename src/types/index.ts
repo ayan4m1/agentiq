@@ -196,8 +196,6 @@ export type Skill = {
 export type TokenStats = {
   tools: number;
   total: number;
-  // counted as part of the system prompt they are embedded in, and carved out
-  // of it so /context can show them separately
   system: number;
   skills: number;
   messages: number;
