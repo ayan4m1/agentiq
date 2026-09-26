@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { confirm, select } from '@inquirer/prompts';
 import type { Message } from 'ollama';
 
-import { ollama, session } from './config';
+import { ollama, saveSetting, session } from './config';
 import { getLogger } from './logging';
 import { cycleMode } from './approval';
 import { modelContextLength, preflight } from './preflight';
@@ -395,8 +395,9 @@ export const createController = ({
     );
   };
 
-  // shows the limit, or changes it for the rest of this session. every reader
-  // of ollama.contextLimit asks at call time, so assigning it is enough
+  // shows the limit, or changes it and saves it to config.yml for the runs
+  // that follow. every reader of ollama.contextLimit asks at call time, so
+  // assigning it is enough for this session
   const contextLimit = async (value?: string) => {
     const supported = modelContextLength();
 
@@ -426,6 +427,16 @@ export const createController = ({
 
     ollama.contextLimit = limit;
     log.info(chalk.green(`Context limit set to ${limit} tokens`));
+
+    try {
+      saveSetting('ollama', 'contextLimit', limit);
+    } catch (error) {
+      log.warn(
+        chalk.red(
+          `Could not save the context limit to config.yml - ${describeError(error)}`
+        )
+      );
+    }
 
     if (supported && limit > supported) {
       log.warn(

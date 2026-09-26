@@ -6,7 +6,13 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { parse } from 'yaml';
 
-import { loadConfigFile, toBoolean, toLogLevel, toThink } from './config';
+import {
+  loadConfigFile,
+  saveSetting,
+  toBoolean,
+  toLogLevel,
+  toThink
+} from './config';
 import { defaultConfig } from './config.default';
 import { LogLevel } from '../types';
 
@@ -187,6 +193,57 @@ describe('loadConfigFile', () => {
       quietly(() => loadConfigFile(dir)),
       {}
     );
+  });
+});
+
+describe('saveSetting', () => {
+  const seed = (tag: string, yaml: string) => {
+    const dir = resolve(root, `save-${tag}`);
+
+    mkdirSync(dir);
+    writeFileSync(resolve(dir, 'config.yml'), yaml);
+
+    return dir;
+  };
+  const read = (dir: string) =>
+    readFileSync(resolve(dir, 'config.yml'), 'utf8');
+
+  test('changes the one value and keeps the comments', () => {
+    const dir = seed('defaults', defaultConfig);
+
+    saveSetting('ollama', 'contextLimit', 32768, dir);
+
+    assert.equal(
+      read(dir),
+      defaultConfig.replace('contextLimit: 131072', 'contextLimit: 32768')
+    );
+  });
+
+  test('adds a setting the file leaves out', () => {
+    const dir = seed('missing', 'session:\n  limit: 7\n');
+
+    saveSetting('ollama', 'contextLimit', 32768, dir);
+
+    assert.deepEqual(parse(read(dir)), {
+      session: { limit: 7 },
+      ollama: { contextLimit: 32768 }
+    });
+  });
+
+  test('fills a section that holds nothing but comments', () => {
+    const dir = seed('comments', 'ollama:\n  # nothing yet\n');
+
+    saveSetting('ollama', 'contextLimit', 32768, dir);
+
+    assert.deepEqual(parse(read(dir)), { ollama: { contextLimit: 32768 } });
+  });
+
+  test('refuses to overwrite a file that is not valid yaml', () => {
+    const written = 'session: [unclosed\n';
+    const dir = seed('broken', written);
+
+    assert.throws(() => saveSetting('ollama', 'contextLimit', 32768, dir));
+    assert.equal(read(dir), written);
   });
 });
 

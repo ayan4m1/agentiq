@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 
-import { parse } from 'yaml';
+import { isCollection, parse, parseDocument } from 'yaml';
 
 import { defaultConfig } from './config.default';
 
@@ -154,6 +154,36 @@ export const loadConfigFile = (dir: string): ConfigFile => {
 
     return {};
   }
+};
+
+// writes one setting back into config.yml for the runs that follow. the file
+// is edited in place rather than written out again, so the comments and
+// anything else the user put there survive. throws if the file cannot be read
+// or parsed - overwriting one that is broken would lose whatever was in it
+export const saveSetting = (
+  section: string,
+  key: string,
+  value: unknown,
+  dir = home
+) => {
+  const path = resolve(dir, 'config.yml');
+  const document = parseDocument(readFileSync(path, 'utf8'));
+
+  if (document.errors.length) {
+    throw document.errors[0];
+  }
+
+  // a section holding nothing but comments parses as null, which setIn
+  // cannot reach into
+  if (document.has(section) && !isCollection(document.get(section, true))) {
+    document.set(section, document.createNode({ [key]: value }));
+  } else {
+    document.setIn([section, key], value);
+  }
+
+  writeFileSync(path, document.toString());
+
+  return path;
 };
 
 const defaults = parse(defaultConfig) as ConfigFile;

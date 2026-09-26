@@ -711,6 +711,10 @@ describe('commands', () => {
     await make().runCommand(`${Command.ContextLimit} 8192`);
 
     assert.equal(ollama.contextLimit, 8192);
+    assert.match(
+      readFileSync(resolve(root, 'home', 'config.yml'), 'utf8'),
+      /^ {2}contextLimit: 8192$/m
+    );
   });
 
   test('keeps the context limit for a value that is not a token count', async () => {
