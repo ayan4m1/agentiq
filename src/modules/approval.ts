@@ -152,7 +152,7 @@ const prompt = createPrompt<ApprovalAnswer, ApprovalRequest>(
 // no leaves the model guessing and it tends to retry the identical call
 const askReason = async () => {
   const reason = await input({
-    message: chalk.gray('Why not? (optional, enter to skip)')
+    message: `Why not? ${chalk.gray('(optional, enter to skip)')}`
   });
 
   return reason.trim() || undefined;
