@@ -157,7 +157,10 @@ const readOverlay = (path?: string) => {
 
     return content;
   } catch (error) {
-    log.warn(`Could not read ${path}: ${(error as Error).message}`);
+    // the global overlay is optional, so its absence is not worth mentioning
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      log.warn(`Could not read ${path}: ${(error as Error).message}`);
+    }
 
     return;
   }
