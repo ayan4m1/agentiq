@@ -25,7 +25,7 @@ type PromptOptions = {
 };
 
 type ControllerOptions = {
-  compactAt: number;
+  compactAt: () => number;
   rememberPrompts: (prompts: string[]) => void;
 };
 
@@ -233,7 +233,7 @@ describe('startRepl', () => {
   test('compacts at the threshold of the context limit', async () => {
     await exitCodeOf();
 
-    assert.equal(controllerOptions?.compactAt, 500);
+    assert.equal(controllerOptions?.compactAt(), 500);
   });
 
   test('resumes a session by id', async () => {

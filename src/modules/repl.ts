@@ -5,7 +5,7 @@ import type { Message } from 'ollama';
 import { ollama, session } from './config';
 import { getLogger } from './logging';
 import { cycleMode } from './approval';
-import { preflight } from './preflight';
+import { modelContextLength, preflight } from './preflight';
 import { beginTurn, changes, countSince, rewind } from './checkpoints';
 import { ensureTokenizer } from './tokenizer';
 import {
@@ -38,6 +38,7 @@ export const systemColor = chalk.yellow;
 // command only has to be added in one place
 export const Command = {
   Context: 'context',
+  ContextLimit: 'context-limit',
   Mode: 'mode',
   Model: 'model',
   Compact: 'compact',
@@ -61,8 +62,9 @@ type Schedule = (work: () => Promise<ThoughtState>) => Promise<ThoughtState>;
 
 type ControllerOptions = {
   thinker: Thinker;
-  // the context size past which the history is compacted after a turn
-  compactAt: number;
+  // the context size past which the history is compacted after a turn - asked
+  // each time, since /context-limit can move it mid-session
+  compactAt: () => number;
   // handed everything the user typed in a session that was just restored, so
   // the prompt they type into next can offer it back. the prompt itself is the
   // caller's business - this module never touches it
@@ -382,12 +384,66 @@ export const createController = ({
     );
   };
 
-  // a slash command, named without its slash. quitting is left to the caller,
-  // which owns the process and what has to be cleaned up before it exits
-  const runCommand = async (name: string) => {
+  // shows the limit, or changes it for the rest of this session. every reader
+  // of ollama.contextLimit asks at call time, so assigning it is enough
+  const contextLimit = async (value?: string) => {
+    const supported = modelContextLength();
+
+    if (value === undefined) {
+      console.log(
+        systemColor(
+          `Context limit is ${ollama.contextLimit} tokens${
+            supported ? ` (${ollama.model} supports ${supported})` : ''
+          }`
+        )
+      );
+
+      return;
+    }
+
+    const limit = /^\d+$/.test(value) ? parseInt(value, 10) : NaN;
+
+    if (!(limit > 0)) {
+      log.error(
+        chalk.red(
+          'Expected a positive number of tokens, e.g. /context-limit 32768'
+        )
+      );
+
+      return;
+    }
+
+    ollama.contextLimit = limit;
+    log.info(chalk.green(`Context limit set to ${limit} tokens`));
+
+    if (supported && limit > supported) {
+      log.warn(
+        chalk.red(
+          `${ollama.model} supports ${supported} - the prompt will be silently truncated`
+        )
+      );
+    }
+
+    // a lowered limit can leave the history already past the new threshold,
+    // and the next turn would go out with a num_ctx too small to hold it
+    if (thinker.tokens.total > compactAt()) {
+      compactionStalled = false;
+      await compact();
+    }
+  };
+
+  // a slash command, without its slash, and anything typed after its name.
+  // quitting is left to the caller, which owns the process and what has to be
+  // cleaned up before it exits
+  const runCommand = async (input: string) => {
+    const [name, ...args] = input.trim().split(/\s+/);
+
     switch (name) {
       case Command.Context:
         showContext();
+        break;
+      case Command.ContextLimit:
+        await contextLimit(args[0]);
         break;
       case Command.Mode:
         cycleMode();
@@ -481,7 +537,7 @@ export const createController = ({
     if (nextThought.interrupted) {
       nextThought.interrupted = false;
       needsUserInput = true;
-    } else if (!compactionStalled && thinker.tokens.total > compactAt) {
+    } else if (!compactionStalled && thinker.tokens.total > compactAt()) {
       await compact();
     }
   };

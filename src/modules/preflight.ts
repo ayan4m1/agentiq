@@ -15,6 +15,12 @@ const capabilities = new Set<string>();
 
 export const supportsThinking = () => capabilities.has('thinking');
 
+// the most context the model says it can take, for /context-limit to check a
+// new value against. undefined when the server did not say
+let contextLength: number | undefined;
+
+export const modelContextLength = () => contextLength;
+
 // only the two calls this needs, so a test can stand in for the server
 export type Api = {
   list: () => Promise<ListResponse>;
@@ -138,7 +144,7 @@ const inspect = async (api: Api) => {
     );
   }
 
-  const contextLength = readContextLength(details.model_info);
+  contextLength = readContextLength(details.model_info);
 
   if (contextLength && ollama.contextLimit > contextLength) {
     // num_ctx above what the model supports is not an error anywhere - ollama
@@ -158,6 +164,7 @@ export const preflight = async (api: Api = client) => {
   // whatever was learned about a previous model says nothing about this one,
   // and a run that gets no further must not leave the old answer standing
   capabilities.clear();
+  contextLength = undefined;
 
   const installed = await listModels(api);
 

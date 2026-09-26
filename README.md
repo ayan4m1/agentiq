@@ -31,6 +31,9 @@ single run by the `AQ_*` environment variable named beside it in the file, such 
 `AQ_LOG_LEVEL=debug`. `AQ_HOME` moves the whole directory, config file included, somewhere other than
 `~/.agentiq`.
 
+In a running session, `/context-limit` shows the current `contextLimit`, and `/context-limit <tokens>`
+changes it for the rest of that session without touching the config file.
+
 ## Choosing a model
 
 The model agentiq talks to, and the huggingface.co repository whose tokenizer matches it are chosen

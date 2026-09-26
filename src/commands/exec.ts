@@ -42,7 +42,7 @@ if (!agent) {
 const { thinker, schedule, cleanUp } = agent;
 const controller = createController({
   thinker,
-  compactAt: ollama.contextLimit * compactThreshold
+  compactAt: () => ollama.contextLimit * compactThreshold
 });
 
 pruneSessions();

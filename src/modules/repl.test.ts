@@ -45,6 +45,9 @@ mock.module('@inquirer/prompts', {
 let preflightPasses = true;
 
 const preflight = mock.fn(async () => preflightPasses);
+
+// what the model says it can hold, for /context-limit to warn against
+let contextLength: number | undefined;
 const ensureTokenizer = mock.fn(async () => true);
 
 // /model picks from a prompt of its own
@@ -60,7 +63,8 @@ mock.module('./preflight', {
     listModels: async () => [],
     matchesModel: (installed: string, configured: string) =>
       installed === configured,
-    supportsThinking: () => false
+    supportsThinking: () => false,
+    modelContextLength: () => contextLength
   }
 });
 mock.module('./tokenizer', {
@@ -117,7 +121,11 @@ const make = (
   rememberPrompts?: (prompts: string[]) => void
 ) =>
   // the fake covers what the controller uses, not every field of a thinker
-  createController({ thinker: thinker as never, compactAt, rememberPrompts });
+  createController({
+    thinker: thinker as never,
+    compactAt: () => compactAt,
+    rememberPrompts
+  });
 
 // what a restore handed to the prompt, for the tests that care
 const seeded = () => {
@@ -165,6 +173,8 @@ beforeEach(() => {
   thinker = makeThinker();
   approval.mode = ApprovalMode.Manual;
   preflightPasses = true;
+  contextLength = undefined;
+  ollama.contextLimit = 4096;
   preflight.mock.resetCalls();
   ensureTokenizer.mock.resetCalls();
   log.mock.resetCalls();
@@ -593,6 +603,52 @@ describe('commands', () => {
     assert.match(printed(), /\{TOOLS {4}\} - 20 tokens/);
     assert.match(printed(), /\{MESSAGES \} - 0 tokens/);
     assert.match(printed(), /\{TOTAL {4}\} - 30 tokens/);
+  });
+
+  test('shows the context limit for /context-limit', async () => {
+    contextLength = 8192;
+    ollama.model = gemma.model;
+    await make().runCommand(Command.ContextLimit);
+
+    assert.match(printed(), /Context limit is 4096 tokens/);
+    assert.match(printed(), /gemma4:e4b supports 8192/);
+  });
+
+  test('changes the context limit for /context-limit <value>', async () => {
+    await make().runCommand(`${Command.ContextLimit} 8192`);
+
+    assert.equal(ollama.contextLimit, 8192);
+  });
+
+  test('keeps the context limit for a value that is not a token count', async () => {
+    const controller = make();
+
+    for (const value of ['abc', '0', '-5', '12.5']) {
+      await controller.runCommand(`${Command.ContextLimit} ${value}`);
+    }
+
+    assert.equal(ollama.contextLimit, 4096);
+  });
+
+  test('allows a context limit past what the model supports', async () => {
+    contextLength = 2048;
+    await make().runCommand(`${Command.ContextLimit} 16384`);
+
+    assert.equal(ollama.contextLimit, 16384);
+  });
+
+  test('compacts at once when the limit drops below the context', async () => {
+    const controller = createController({
+      thinker: thinker as never,
+      compactAt: () => ollama.contextLimit / 2
+    });
+
+    await controller.runCommand(`${Command.ContextLimit} 1000`);
+    assert.equal(thinker.compact.mock.callCount(), 0);
+
+    // 35 tokens is past half of 60
+    await controller.runCommand(`${Command.ContextLimit} 60`);
+    assert.equal(thinker.compact.mock.callCount(), 1);
   });
 
   test('drops the conversation for /clear and starts a new session', async () => {

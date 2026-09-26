@@ -79,7 +79,7 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
 
   const controller = createController({
     thinker,
-    compactAt: ollama.contextLimit * compactThreshold,
+    compactAt: () => ollama.contextLimit * compactThreshold,
     rememberPrompts: (prompts) => {
       historyContext = `history-${++historyGeneration}`;
       prompts.forEach((prompt) =>
