@@ -34,6 +34,10 @@ single run by the `AQ_*` environment variable named beside it in the file, such 
 In a running session, `/context-limit` shows the current `contextLimit`, and `/context-limit <tokens>`
 changes it for the rest of that session without touching the config file.
 
+`/recap` asks the model for a short recap of the last `session.recapTurns` turns (`AQ_RECAP_TURNS`,
+default 3), and `/recap <turns>` covers that many instead. The recap is only printed - it is never
+added to the conversation or the session file - so it is handy after `/resume` or a compaction.
+
 ## Choosing a model
 
 The model agentiq talks to, and the huggingface.co repository whose tokenizer matches it are chosen

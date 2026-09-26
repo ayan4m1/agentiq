@@ -65,9 +65,9 @@ session:
   # how many of a resumed session's prompts the up arrow reaches back through.
   # 0 seeds them all (AQ_HISTORY_LIMIT)
   historyLimit: 100
-  # how many of the most recent turns the model recaps when a session is
-  # resumed or compacted. the recap is only printed, never added to the
-  # conversation. 0 turns recaps off (AQ_RECAP_TURNS)
+  # how many of the most recent turns /recap covers when no count is given.
+  # the recap is only printed, never added to the conversation. 0 covers them
+  # all (AQ_RECAP_TURNS)
   recapTurns: 3
 
 tokenizer:

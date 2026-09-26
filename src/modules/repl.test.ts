@@ -77,12 +77,13 @@ mock.module('./tokenizer', {
 
 const { Command, createController } = await import('./repl');
 const { approval } = await import('./approval');
-const { ollama, tokenizer } = await import('./config');
+const { ollama, session, tokenizer } = await import('./config');
 const { loadStore, saveStore } = await import('./models');
-const { terminal, yieldToUser, takeYield } = await import('./turn');
+const { yieldToUser, takeYield } = await import('./turn');
 const { append, listSessions, loadSession, startSession } =
   await import('./session');
 const { discardCheckpoints, record } = await import('./checkpoints');
+const { getLogger } = await import('./logging');
 
 // the commands print, which is only noise here - but what they print is worth
 // checking, so it is kept rather than dropped
@@ -116,9 +117,9 @@ const makeThinker = () => ({
   reset: mock.fn(() => 0),
   rebuild: mock.fn((messages: Message[]) => messages.length),
   compact: mock.fn(async (messages: Message[]) => ({ messages, freed: 0 })),
-  recap: mock.fn<(messages: Message[]) => Promise<string | undefined>>(
-    async () => undefined
-  ),
+  recap: mock.fn<
+    (messages: Message[], turns?: number) => Promise<string | undefined>
+  >(async () => undefined),
   think: mock.fn(
     async (thought: ThoughtState): Promise<ThoughtState> => thought
   )
@@ -193,7 +194,6 @@ beforeEach(() => {
   confirm.mock.resetCalls();
   discardCheckpoints();
   takeYield();
-  terminal.interactive = true;
 });
 
 after(() => {
@@ -468,40 +468,9 @@ describe('compaction', () => {
     assert.equal(controller.compactionStalled, false);
   });
 
-  test('recaps what was there before the compaction', async () => {
+  test('does not recap on its own', async () => {
     const controller = make();
 
-    controller.addUserMessage('hello');
-
-    const before = controller.messages;
-
-    thinker.compact.mock.mockImplementationOnce(async () => ({
-      messages: [{ role: 'user', content: 'summary' }],
-      freed: 5
-    }));
-    thinker.recap.mock.mockImplementationOnce(async () => 'you said hello');
-    await controller.compact();
-
-    assert.equal(thinker.recap.mock.calls[0].arguments[0], before);
-    // printed, never kept
-    assert.ok(
-      !controller.messages.some(({ content }) => content.includes('hello'))
-    );
-  });
-
-  test('does not recap a compaction that freed nothing', async () => {
-    const controller = make();
-
-    controller.addUserMessage('hello');
-    await controller.compact();
-
-    assert.equal(thinker.recap.mock.callCount(), 0);
-  });
-
-  test('does not recap when nobody is at the terminal', async () => {
-    const controller = make();
-
-    terminal.interactive = false;
     controller.addUserMessage('hello');
     thinker.compact.mock.mockImplementationOnce(async (messages) => ({
       messages,
@@ -514,15 +483,15 @@ describe('compaction', () => {
 });
 
 describe('restore', () => {
-  test('fails when there is nothing to resume', async () => {
-    assert.equal(await make().restore(), false);
+  test('fails when there is nothing to resume', () => {
+    assert.equal(make().restore(), false);
   });
 
-  test('fails for a session that does not exist', async () => {
-    assert.equal(await make().restore('no-such-session'), false);
+  test('fails for a session that does not exist', () => {
+    assert.equal(make().restore('no-such-session'), false);
   });
 
-  test('picks up the most recent session', async () => {
+  test('picks up the most recent session', () => {
     const messages: Message[] = [
       { role: 'user', content: 'earlier' },
       { role: 'assistant', content: 'reply' }
@@ -532,13 +501,13 @@ describe('restore', () => {
 
     const controller = make();
 
-    assert.equal(await controller.restore(), true);
+    assert.equal(controller.restore(), true);
     assert.deepEqual(controller.messages, messages);
     assert.deepEqual(thinker.load.mock.calls[0].arguments[0], messages);
     assert.equal(controller.needsUserInput, true);
   });
 
-  test('picks up a session by id', async () => {
+  test('picks up a session by id', () => {
     const id = startSession();
 
     append([{ role: 'user', content: 'by id' }]);
@@ -546,11 +515,11 @@ describe('restore', () => {
 
     const controller = make();
 
-    assert.equal(await controller.restore(id), true);
+    assert.equal(controller.restore(id), true);
     assert.equal(controller.messages[0].content, 'by id');
   });
 
-  test('offers back what the user typed, oldest first', async () => {
+  test('offers back what the user typed, oldest first', () => {
     append([
       { role: 'user', content: 'first' },
       { role: 'assistant', content: 'reply' },
@@ -560,11 +529,11 @@ describe('restore', () => {
 
     const { remember, prompts } = seeded();
 
-    assert.equal(await make(1000, remember).restore(), true);
+    assert.equal(make(1000, remember).restore(), true);
     assert.deepEqual(prompts(), ['first', 'second']);
   });
 
-  test('leaves out the notes compaction wrote', async () => {
+  test('leaves out the notes compaction wrote', () => {
     append([
       { role: 'user', content: 'typed' },
       // deliberately one line: a multi-line fixture would be dropped by the
@@ -574,11 +543,11 @@ describe('restore', () => {
 
     const { remember, prompts } = seeded();
 
-    assert.equal(await make(1000, remember).restore(), true);
+    assert.equal(make(1000, remember).restore(), true);
     assert.deepEqual(prompts(), ['typed']);
   });
 
-  test('leaves out blank and multi-line prompts', async () => {
+  test('leaves out blank and multi-line prompts', () => {
     append([
       { role: 'user', content: '   ' },
       { role: 'user', content: 'pasted\nover two lines' },
@@ -587,11 +556,11 @@ describe('restore', () => {
 
     const { remember, prompts } = seeded();
 
-    assert.equal(await make(1000, remember).restore(), true);
+    assert.equal(make(1000, remember).restore(), true);
     assert.deepEqual(prompts(), ['typed']);
   });
 
-  test('offers back only the most recent prompts', async () => {
+  test('offers back only the most recent prompts', () => {
     append(
       ['oldest', 'older', 'newer', 'newest'].map((content) => ({
         role: 'user',
@@ -601,49 +570,26 @@ describe('restore', () => {
 
     const { remember, prompts } = seeded();
 
-    assert.equal(await make(1000, remember).restore(), true);
+    assert.equal(make(1000, remember).restore(), true);
     // AQ_HISTORY_LIMIT is 3 for this run
     assert.deepEqual(prompts(), ['older', 'newer', 'newest']);
   });
 
-  test('prints a recap in place of the last reply', async () => {
-    const messages: Message[] = [
-      { role: 'user', content: 'earlier' },
-      { role: 'assistant', content: 'the last reply' }
-    ];
-
-    append(messages);
-    thinker.recap.mock.mockImplementationOnce(
-      async () => 'you were working on earlier'
-    );
-
-    const { remember, prompts } = seeded();
-    const controller = make(1000, remember);
-
-    assert.equal(await controller.restore(), true);
-    assert.deepEqual(thinker.recap.mock.calls[0].arguments[0], messages);
-    // the recap is only printed - the model, the session file and the up
-    // arrow never see it
-    assert.deepEqual(controller.messages, messages);
-    assert.deepEqual(saved(), messages);
-    assert.deepEqual(prompts(), ['earlier']);
-  });
-
-  test('falls back to the last reply without a recap', async () => {
+  test('does not recap on its own', () => {
     append([
       { role: 'user', content: 'earlier' },
       { role: 'assistant', content: 'the last reply' }
     ]);
 
-    assert.equal(await make().restore(), true);
-    assert.equal(thinker.recap.mock.callCount(), 1);
+    assert.equal(make().restore(), true);
+    assert.equal(thinker.recap.mock.callCount(), 0);
   });
 
-  test('offers nothing back when there is nothing to resume', async () => {
+  test('offers nothing back when there is nothing to resume', () => {
     const { remember } = seeded();
 
-    assert.equal(await make(1000, remember).restore(), false);
-    assert.equal(await make(1000, remember).restore('no-such-session'), false);
+    assert.equal(make(1000, remember).restore(), false);
+    assert.equal(make(1000, remember).restore('no-such-session'), false);
     assert.equal(remember.mock.callCount(), 0);
   });
 });
@@ -660,6 +606,64 @@ const onModel = (entry: typeof gemma) => {
 
   return make();
 };
+
+describe('/recap', () => {
+  const conversation = (): Message[] => [
+    { role: 'user', content: 'earlier' },
+    { role: 'assistant', content: 'the last reply' }
+  ];
+
+  test('recaps the conversation over the configured turns', async () => {
+    const messages = conversation();
+
+    append(messages);
+
+    const { remember, prompts } = seeded();
+    const controller = make(1000, remember);
+
+    controller.restore();
+    thinker.recap.mock.mockImplementationOnce(
+      async () => 'you were working on earlier'
+    );
+    await controller.runCommand(Command.Recap);
+
+    assert.equal(thinker.recap.mock.callCount(), 1);
+    assert.deepEqual(thinker.recap.mock.calls[0].arguments, [
+      messages,
+      session.recapTurns
+    ]);
+    // the recap is only printed - the model, the session file and the up
+    // arrow never see it
+    assert.deepEqual(controller.messages, messages);
+    assert.deepEqual(saved(), messages);
+    assert.deepEqual(prompts(), ['earlier']);
+  });
+
+  test('covers as many turns as it is asked to', async () => {
+    const controller = make();
+
+    controller.addUserMessage('hello');
+    await controller.runCommand(`${Command.Recap} 5`);
+
+    assert.equal(thinker.recap.mock.calls[0].arguments[1], 5);
+  });
+
+  test('refuses a count that is not a positive number', async () => {
+    const controller = make();
+
+    controller.addUserMessage('hello');
+    await controller.runCommand(`${Command.Recap} abc`);
+    await controller.runCommand(`${Command.Recap} 0`);
+
+    assert.equal(thinker.recap.mock.callCount(), 0);
+  });
+
+  test('asks for nothing when there is nothing to recap', async () => {
+    await make().runCommand(Command.Recap);
+
+    assert.equal(thinker.recap.mock.callCount(), 0);
+  });
+});
 
 describe('commands', () => {
   test('lists every command for /help', async () => {
@@ -985,10 +989,20 @@ describe('/undo', () => {
     assert.equal(controller.takePrefill(), undefined);
   });
 
-  test('says so when there is no prompt to undo', async () => {
+  test('says so when there is no prompt to undo', async (t) => {
+    // the controller logs through the 'run' logger, which getLogger caches -
+    // so this is the very instance it warns through
+    const warn = t.mock.method(getLogger('run'), 'warn', () => {});
+
     await make().runCommand(Command.Undo);
 
-    assert.match(printed(), /There is nothing to undo/);
+    assert.match(
+      String(warn.mock.calls[0]?.arguments[0]).replaceAll(
+        /\x1B\[[0-9;]*m/g,
+        ''
+      ),
+      /There is nothing to undo/
+    );
     assert.equal(select.mock.callCount(), 0);
   });
 
@@ -1001,7 +1015,7 @@ describe('/undo', () => {
 
     const controller = make();
 
-    await controller.restore();
+    controller.restore();
     controller.addUserMessage('typed');
     writes({ 'a.txt': 'changed' });
     await controller.takeTurn();

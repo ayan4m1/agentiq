@@ -23,7 +23,7 @@ import {
   rewrite,
   startSession
 } from './session';
-import { takeYield, terminal } from './turn';
+import { takeYield } from './turn';
 import type { makeThinker } from './ollama';
 import type { AgentMessage, ThoughtState } from '../types';
 import { describeAge, describeError } from '../utils';
@@ -42,6 +42,7 @@ export const Command = {
   Mode: 'mode',
   Model: 'model',
   Compact: 'compact',
+  Recap: 'recap',
   Clear: 'clear',
   Reset: 'reset',
   Resume: 'resume',
@@ -124,22 +125,9 @@ export const createController = ({
   // so it can be edited and sent again
   let prefill: string | undefined;
 
-  // printed and nothing more - it goes into neither the conversation, the
-  // session file nor the prompt history, so it can never be mistaken for
-  // something the user said or be sent back to the model
-  const showRecap = async (messages: Message[]) => {
-    const recap = await thinker.recap(messages);
-
-    if (recap) {
-      log.info(chalk.gray(recap));
-    }
-
-    return Boolean(recap);
-  };
-
   // loading an earlier conversation also hands the session file back to it, so
   // the resumed history keeps growing where it left off
-  const restore = async (id?: string) => {
+  const restore = (id?: string) => {
     const target = id ?? listSessions(1)[0]?.id;
 
     if (!target) {
@@ -168,16 +156,11 @@ export const createController = ({
       )
     );
 
-    if (await showRecap(messages)) {
-      return true;
-    }
-
     const lastResponse = messages.findLast(
       (message) => message.role === 'assistant'
     );
 
-    // with recaps off, or when one could not be had, the last response is the
-    // next best way to establish context with the user
+    // print out last response to establish context with user
     if (lastResponse) {
       log.info(
         lastResponse.thinking
@@ -201,10 +184,7 @@ export const createController = ({
 
   const compact = async () => {
     const before = thinker.tokens.total;
-    // the recap is written from what was there before, since a summary is
-    // exactly the thing the user cannot see into
-    const previous = nextThought.messages;
-    const { messages, freed } = await thinker.compact(previous);
+    const { messages, freed } = await thinker.compact(nextThought.messages);
 
     nextThought.messages = messages;
     compactionStalled = freed <= 0;
@@ -218,12 +198,6 @@ export const createController = ({
       );
     } else {
       logFreed(freed, before);
-
-      // nobody is at the terminal to read one during `agentiq exec`, and it
-      // would cost a model call all the same
-      if (terminal.interactive) {
-        await showRecap(previous);
-      }
     }
   };
 
@@ -268,13 +242,13 @@ export const createController = ({
     const summaries = listSessions();
 
     if (!summaries.length) {
-      await restore();
+      restore();
 
       return;
     }
 
     try {
-      await restore(
+      restore(
         await select({
           message: 'Which session?',
           choices: summaries.map((summary) => ({
@@ -469,6 +443,39 @@ export const createController = ({
     }
   };
 
+  // what the last few turns were about, only when asked for since it costs a
+  // model call. printed and nothing more - it goes into neither the
+  // conversation, the session file nor the prompt history, so it can never be
+  // mistaken for something the user said or be sent back to the model
+  const recap = async (value?: string) => {
+    const count =
+      value === undefined
+        ? session.recapTurns
+        : /^\d+$/.test(value)
+          ? parseInt(value, 10)
+          : NaN;
+
+    if (value !== undefined && !(count > 0)) {
+      log.error(
+        chalk.red('Expected a positive number of turns, e.g. /recap 5')
+      );
+
+      return;
+    }
+
+    if (!nextThought.messages.length) {
+      log.warn(systemColor('There is nothing to recap yet'));
+
+      return;
+    }
+
+    const text = await thinker.recap(nextThought.messages, count);
+
+    if (text) {
+      log.info(chalk.gray(text));
+    }
+  };
+
   // a slash command, without its slash, and anything typed after its name.
   // quitting is left to the caller, which owns the process and what has to be
   // cleaned up before it exits
@@ -492,6 +499,9 @@ export const createController = ({
         // an explicit request overrides an earlier stalled attempt
         compactionStalled = false;
         await compact();
+        break;
+      case Command.Recap:
+        await recap(args[0]);
         break;
       case Command.Clear:
       case Command.Reset:

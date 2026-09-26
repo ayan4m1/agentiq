@@ -123,8 +123,8 @@ export type SessionConfig = {
   // how many of a resumed session's prompts the up arrow reaches back through -
   // 0 seeds them all
   historyLimit: number;
-  // how many of the most recent turns a recap covers on resume and after
-  // compaction - 0 turns recaps off
+  // how many of the most recent turns /recap covers when no count is given -
+  // 0 covers them all
   recapTurns: number;
 };
 

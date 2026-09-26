@@ -36,9 +36,9 @@ describe('recentTurns', () => {
     assert.equal(recentTurns(conversation, 3), conversation);
   });
 
-  test('takes nothing when recaps are off', () => {
-    assert.deepEqual(recentTurns(conversation, 0), []);
-    assert.deepEqual(recentTurns(conversation, NaN), []);
+  test('takes everything when not given a positive count', () => {
+    assert.equal(recentTurns(conversation, 0), conversation);
+    assert.equal(recentTurns(conversation, NaN), conversation);
   });
 });
 

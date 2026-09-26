@@ -15,9 +15,10 @@ export const recapPrompt =
 const startsTurn = ({ role, summary }: AgentMessage) =>
   role === 'user' && !summary;
 
+// the last `count` turns, or all of them when count is not a positive number
 export const recentTurns = (messages: AgentMessage[], count: number) => {
   if (!(count > 0)) {
-    return [];
+    return messages;
   }
 
   const starts = messages.flatMap((message, index) =>

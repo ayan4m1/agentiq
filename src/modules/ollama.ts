@@ -582,11 +582,9 @@ export const makeThinker = () => {
 
   // a few lines for the user on what the last few turns were about. it is only
   // ever printed, so nothing here is counted - and a failure is only a warning,
-  // since a recap is never worth losing a resume or a compaction over
-  const recap = async (messages: Message[]) => {
-    const transcript = renderTranscript(
-      recentTurns(messages, session.recapTurns)
-    );
+  // since a recap is never worth losing the conversation over
+  const recap = async (messages: Message[], turns = session.recapTurns) => {
+    const transcript = renderTranscript(recentTurns(messages, turns));
 
     if (!transcript) {
       return;

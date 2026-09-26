@@ -940,11 +940,25 @@ describe('recapping the last few turns', () => {
     assert.deepEqual(thinker.tokens, before);
   });
 
-  test('asks for nothing when recaps are off', async () => {
-    session.recapTurns = 0;
+  test('covers the turns it is asked to over the configured ones', async () => {
+    recapAs('a recap');
+    await makeThinker().recap(talk(), 2);
 
-    assert.equal(await makeThinker().recap(talk()), undefined);
-    assert.equal(chat.mock.callCount(), 0);
+    const [message] = requests()[0].messages ?? [];
+
+    assert.match(message.content, /User: first\n\nAssistant: first reply/);
+    assert.match(message.content, /User: second\n\nAssistant: second reply$/);
+  });
+
+  test('covers every turn when asked for none', async () => {
+    session.recapTurns = 0;
+    recapAs('a recap');
+    await makeThinker().recap(talk());
+
+    const [message] = requests()[0].messages ?? [];
+
+    assert.match(message.content, /User: first/);
+    assert.match(message.content, /User: second/);
   });
 
   test('gives up quietly when the model call fails', async () => {
