@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { existsSync, statSync } from 'node:fs';
-import { confirm, select } from '@inquirer/prompts';
+import { confirm, editor, select } from '@inquirer/prompts';
 import type { Message } from 'ollama';
 
 import { ollama, saveSetting, session } from './config';
@@ -45,6 +45,7 @@ export const Command = {
   Model: 'model',
   Compact: 'compact',
   Recap: 'recap',
+  Paste: 'paste',
   Clear: 'clear',
   Reset: 'reset',
   Resume: 'resume',
@@ -85,20 +86,22 @@ type ControllerOptions = {
 // typed is what they would recognise and want back
 const typedText = ({ content, typed }: AgentMessage) => typed ?? content;
 
-// what the user typed, oldest first - so the last thing they said is one press
-// away. tool output and the notes compaction flags as its own are not prompts,
-// and a multi-line one cannot be recalled into readline's single-line buffer
-// without corrupting the display, so it is dropped rather than truncated
-const isTypedPrompt = (message: AgentMessage) => {
-  const text = typedText(message);
+// something the user said, typed or pasted - tool output and the notes
+// compaction flags as its own are not prompts
+const isUserPrompt = (message: AgentMessage) =>
+  message.role === 'user' &&
+  Boolean(typedText(message).trim()) &&
+  !message.summary;
 
-  return (
-    message.role === 'user' &&
-    Boolean(text.trim()) &&
-    !message.summary &&
-    !text.includes('\n')
-  );
-};
+// what the user typed, oldest first - so the last thing they said is one press
+// away. a multi-line one cannot be recalled into readline's single-line buffer
+// without corrupting the display, so it is dropped rather than truncated
+const isTypedPrompt = (message: AgentMessage) =>
+  isUserPrompt(message) && !typedText(message).includes('\n');
+
+// a prompt on one line, for a list or a question that has only one to give it
+const oneLine = (message: AgentMessage) =>
+  typedText(message).replace(/\s+/g, ' ').trim();
 
 // start-of-text or whitespace before the @, so an email address is left alone
 const mentionPattern = /(?:^|\s)@(\S+)/g;
@@ -313,7 +316,7 @@ export const createController = ({
   const undoTurn = async () => {
     const { messages } = nextThought;
     const prompts = [...messages.entries()].filter(([, message]) =>
-      isTypedPrompt(message)
+      isUserPrompt(message)
     );
 
     if (!prompts.length) {
@@ -339,7 +342,7 @@ export const createController = ({
       const index = await select({
         message: 'Undo back to before which prompt?',
         choices: prompts.reverse().map(([index, message]) => {
-          const content = typedText(message);
+          const content = oneLine(message);
           const label =
             content.length > 60 ? `${content.slice(0, 60)}…` : content;
 
@@ -355,7 +358,7 @@ export const createController = ({
 
       if (
         !(await confirm({
-          message: `Undo "${typedText(prompt)}"? This reverts ${files} file change(s) and drops ${dropped} message(s). Anything done by shell commands is not reversed.`,
+          message: `Undo "${oneLine(prompt)}"? This reverts ${files} file change(s) and drops ${dropped} message(s). Anything done by shell commands is not reversed.`,
           default: false
         }))
       ) {
@@ -379,7 +382,9 @@ export const createController = ({
       compactionStalled = false;
       thinker.load(nextThought.messages);
       rewrite(nextThought.messages);
-      prefill = typedText(prompt);
+      // a pasted prompt would corrupt the single-line prompt it was put back
+      // into, so it is only offered back when it fits there
+      prefill = isTypedPrompt(prompt) ? typedText(prompt) : undefined;
 
       log.info(
         chalk.green(
@@ -497,6 +502,32 @@ export const createController = ({
     }
   };
 
+  // a prompt longer than one line, written in the user's own editor since the
+  // command prompt cannot hold one. sent as though it had been typed, so the
+  // loop goes straight on to the turn instead of asking again
+  const paste = async () => {
+    try {
+      const text = await editor({
+        message: 'Compose a prompt',
+        postfix: '.md',
+        waitForUserInput: false
+      });
+
+      if (!text.trim()) {
+        log.warn(systemColor('Nothing was pasted'));
+
+        return;
+      }
+
+      addUserMessage(text);
+    } catch (error) {
+      // log but swallow an error (if the editor could not be opened)
+      if (error instanceof Error) {
+        log.error(error.message);
+      }
+    }
+  };
+
   // what the last few turns were about, only when asked for since it costs a
   // model call. printed and nothing more - it goes into neither the
   // conversation, the session file nor the prompt history, so it can never be
@@ -556,6 +587,9 @@ export const createController = ({
         break;
       case Command.Recap:
         await recap(args[0]);
+        break;
+      case Command.Paste:
+        await paste();
         break;
       case Command.Clear:
       case Command.Reset:

@@ -36,8 +36,11 @@ const confirm = mock.fn<(config: { message: string }) => Promise<boolean>>(
   async () => true
 );
 
+// /paste opens the user's editor, which here hands back whatever the test says
+const editor = mock.fn<(config: unknown) => Promise<string>>();
+
 mock.module('@inquirer/prompts', {
-  namedExports: { select, confirm, input: mock.fn() }
+  namedExports: { select, confirm, editor, input: mock.fn() }
 });
 
 // /model asks the server whether the model it was given is really there, and
@@ -192,6 +195,7 @@ beforeEach(() => {
   select.mock.resetCalls();
   pickModel.mock.resetCalls();
   confirm.mock.resetCalls();
+  editor.mock.resetCalls();
   discardCheckpoints();
   takeYield();
 });
@@ -1136,5 +1140,127 @@ describe('/undo', () => {
 
     assert.equal(read('a.txt'), 'before clear');
     assert.deepEqual(controller.messages, []);
+  });
+});
+
+describe('/paste', () => {
+  const pasted =
+    'why does this throw?\n\nTypeError: x is undefined\n    at main';
+
+  // what the editor hands back the next time it is opened
+  const writesInEditor = (text: string) =>
+    editor.mock.mockImplementationOnce(async () => text);
+
+  test('sends what was written as a prompt and goes straight to the turn', async () => {
+    const controller = make();
+
+    writesInEditor(pasted);
+    assert.equal(await controller.runCommand(Command.Paste), undefined);
+
+    assert.deepEqual(controller.messages, [{ role: 'user', content: pasted }]);
+    assert.equal(controller.needsUserInput, false);
+
+    answers(reply);
+    await controller.takeTurn();
+
+    assert.equal(
+      thinker.think.mock.calls[0].arguments[0].messages[0].content,
+      pasted
+    );
+    assert.equal(controller.needsUserInput, true);
+  });
+
+  test('attaches files mentioned in what was written', async () => {
+    const controller = make();
+
+    writeFileSync('notes.txt', 'alpha');
+    writesInEditor('look at\n@notes.txt');
+    await controller.runCommand(Command.Paste);
+
+    assert.deepEqual(controller.messages, [
+      {
+        role: 'user',
+        content: 'look at\n@notes.txt\n\nContents of notes.txt:\n     1\talpha',
+        typed: 'look at\n@notes.txt'
+      }
+    ]);
+  });
+
+  test('keeps it out of the history of a resumed session', async () => {
+    const controller = make();
+
+    writesInEditor(pasted);
+    await controller.runCommand(Command.Paste);
+    controller.addUserMessage('typed');
+    answers(reply);
+    await controller.takeTurn();
+
+    const { remember, prompts } = seeded();
+
+    make(1000, remember).restore();
+
+    assert.deepEqual(prompts(), ['typed']);
+  });
+
+  test('sends nothing when nothing was written', async (t) => {
+    const warn = t.mock.method(getLogger('run'), 'warn', () => {});
+    const controller = make();
+
+    writesInEditor('  \n\n');
+    await controller.runCommand(Command.Paste);
+
+    assert.deepEqual(controller.messages, []);
+    assert.equal(controller.needsUserInput, true);
+    assert.match(
+      String(warn.mock.calls[0]?.arguments[0]),
+      /Nothing was pasted/
+    );
+  });
+
+  test('carries on when the editor cannot be opened', async (t) => {
+    const error = t.mock.method(getLogger('run'), 'error', () => {});
+    const controller = make();
+
+    editor.mock.mockImplementationOnce(async () => {
+      throw new Error('Failed to launch an external editor');
+    });
+
+    assert.equal(await controller.runCommand(Command.Paste), undefined);
+    assert.deepEqual(controller.messages, []);
+    assert.equal(controller.needsUserInput, true);
+    assert.match(String(error.mock.calls[0]?.arguments[0]), /Failed to launch/);
+  });
+
+  test('can be undone, files and all, without being offered back', async () => {
+    const controller = make();
+
+    writeFileSync('a.txt', 'original');
+    writesInEditor(pasted);
+    await controller.runCommand(Command.Paste);
+    thinker.think.mock.mockImplementationOnce(async (thought) => {
+      record('a.txt');
+      writeFileSync('a.txt', 'changed');
+
+      return {
+        ...thought,
+        messages: [...thought.messages, reply.message as Message],
+        lastResponse: reply as ThoughtState['lastResponse']
+      };
+    });
+    await controller.takeTurn();
+
+    select.mock.mockImplementationOnce(async () => 0 as never);
+    await controller.runCommand(Command.Undo);
+
+    const { choices } = select.mock.calls[0].arguments[0] as unknown as {
+      choices: { name: string }[];
+    };
+
+    assert.match(choices[0].name, /^why does this throw\? TypeError: x is /);
+    assert.doesNotMatch(choices[0].name, /\n/);
+    assert.doesNotMatch(confirm.mock.calls[0].arguments[0].message, /\n/);
+    assert.equal(readFileSync('a.txt').toString(), 'original');
+    assert.deepEqual(controller.messages, []);
+    assert.equal(controller.takePrefill(), undefined);
   });
 });

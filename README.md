@@ -39,6 +39,10 @@ saved value when it is set.
 default 3), and `/recap <turns>` covers that many instead. The recap is only printed - it is never
 added to the conversation or the session file - so it is handy after `/resume` or a compaction.
 
+`/paste` opens `$VISUAL` or `$EDITOR` (notepad or vim when neither is set) for a prompt that spans
+more than one line, such as a stack trace, and sends it once the editor is closed. It is not offered
+back by the up arrow, but `/undo` can still take it back.
+
 ## Choosing a model
 
 The model agentiq talks to, and the huggingface.co repository whose tokenizer matches it are chosen
