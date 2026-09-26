@@ -4,6 +4,7 @@ import { ollama } from './config';
 import { killAllJobs } from './jobs';
 import { makeThinker } from './ollama';
 import { preflight } from './preflight';
+import { loadSkills } from './skills';
 import { ensureTokenizer } from './tokenizer';
 import { resolveStartupEntry } from './models';
 import { discardCheckpoints } from './checkpoints';
@@ -30,6 +31,10 @@ export const startAgent = async () => {
   // makeThinker() tokenizes the system prompt and every tool definition up
   // front, so the tokenizer has to be on disk before it runs
   await ensureTokenizer();
+
+  // read once here, so a malformed skill is reported before the first prompt
+  // rather than in the middle of it
+  loadSkills();
 
   const thinker = makeThinker();
   // maxConcurrent is what matters here: turns must not overlap. minTime is for

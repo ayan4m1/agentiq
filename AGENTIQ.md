@@ -29,7 +29,7 @@ general instructions about how to be an agent.
   and whether a tool has already handed control back to the user.
 - `src/modules/` - otherwise one concern per file: approval modes, checkpoints,
   config, session persistence, background jobs, tokenizer caching, preflight,
-  the roadmap, the system prompt.
+  the roadmap, skills from `~/.agentiq/skills`, the system prompt.
 - `src/tools/` - one tool per file, each exporting a `definition` built with
   `makeTool()` and a `handler`. `src/tools/index.ts` is the registry.
 - `src/utils/index.ts` - shared helpers, including the content budget used to

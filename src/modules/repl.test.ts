@@ -103,7 +103,14 @@ const toolCall = {
 const reply = { message: { role: 'assistant', content: 'done' } };
 
 const makeThinker = () => ({
-  tokens: { system: 10, tools: 20, messages: 0, total: 30, measured: false },
+  tokens: {
+    system: 10,
+    skills: 5,
+    tools: 20,
+    messages: 0,
+    total: 35,
+    measured: false
+  },
   turnCount: 0,
   load: mock.fn((messages: Message[]) => messages.length),
   reset: mock.fn(() => 0),
@@ -600,9 +607,10 @@ describe('commands', () => {
     await make().runCommand(Command.Context);
 
     assert.match(printed(), /\{SYSTEM {3}\} - 10 tokens/);
+    assert.match(printed(), /\{SKILLS {3}\} - 5 tokens/);
     assert.match(printed(), /\{TOOLS {4}\} - 20 tokens/);
     assert.match(printed(), /\{MESSAGES \} - 0 tokens/);
-    assert.match(printed(), /\{TOTAL {4}\} - 30 tokens/);
+    assert.match(printed(), /\{TOTAL {4}\} - 35 tokens/);
   });
 
   test('shows the context limit for /context-limit', async () => {

@@ -52,6 +52,26 @@ You will be asked to register a model on first startup.
 Switching mid-conversation keeps the history. The tokenizer is downloaded, the system prompt is
 built again around the new model, and the context is counted again from scratch.
 
+## Skills
+
+agentiq supports [Agent Skills](https://agentskills.io). Put each skill in its own directory under
+`~/.agentiq/skills/`, with a `SKILL.md` whose frontmatter names and describes it:
+
+```markdown
+---
+name: pdf-tools
+description: Extract text and tables from PDF files. Use when the user mentions a PDF.
+---
+
+# Steps
+
+...
+```
+
+Skills are read once at startup. Only each skill's name, description and location go into the
+system prompt; the model reads the full `SKILL.md` when a task matches it. `/context` shows what the
+listing costs on its `SKILLS` line.
+
 ## Non-interactive use
 
 `agentiq exec` runs a single prompt to completion without asking anything, for short one-off prompts or scripts:

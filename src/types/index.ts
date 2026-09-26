@@ -178,10 +178,22 @@ export type ThoughtState = {
   interrupted?: boolean;
 };
 
+// a skill directory under ~/.agentiq/skills, as its SKILL.md describes it
+export type Skill = {
+  name: string;
+  description: string;
+  // the SKILL.md itself, which the model reads when a task calls for it
+  path: string;
+  directory: string;
+};
+
 export type TokenStats = {
   tools: number;
   total: number;
+  // counted as part of the system prompt they are embedded in, and carved out
+  // of it so /context can show them separately
   system: number;
+  skills: number;
   messages: number;
   // whether total came from ollama's own count of the last prompt rather than
   // from the tokenizer. the parts stay estimates either way, so they will not

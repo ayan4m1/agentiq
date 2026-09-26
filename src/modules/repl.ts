@@ -206,15 +206,18 @@ export const createController = ({
   };
 
   const showContext = () => {
-    const { measured, messages, system, tools, total } = thinker.tokens;
+    const { measured, messages, skills, system, tools, total } = thinker.tokens;
     const share = Math.round((total / ollama.contextLimit) * 100);
-    const estimated = chalk.dim('(estimated)');
+    const estimated = chalk.gray('(estimated)');
 
-    // the three parts are always the tokenizer's estimate, while the total is
+    // the parts are always the tokenizer's estimate, while the total is
     // ollama's own count of the last prompt once there has been one - so they
     // deliberately do not add up
     console.log(
       `${systemColor('{SYSTEM   }')} - ${system} tokens ${estimated}`
+    );
+    console.log(
+      `${systemColor('{SKILLS   }')} - ${skills} tokens ${estimated}`
     );
     console.log(`${systemColor('{TOOLS    }')} - ${tools} tokens ${estimated}`);
     console.log(
@@ -222,7 +225,7 @@ export const createController = ({
     );
     console.log(
       `${systemColor('{TOTAL    }')} - ${total} tokens / ${ollama.contextLimit} max (${share}%) ${
-        measured ? chalk.dim('(counted by ollama)') : estimated
+        measured ? chalk.gray('(counted by ollama)') : estimated
       }`
     );
   };

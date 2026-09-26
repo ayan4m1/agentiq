@@ -9,6 +9,7 @@ import { getLogger } from './logging';
 import { makeTokenizer } from './tokenizer';
 import { recoverToolCalls, validateArgs } from './tools';
 import { buildSystemPrompt } from './prompt';
+import { describeSkills } from './skills';
 import { watchForInterrupt } from './interrupt';
 import { supportsThinking } from './preflight';
 import type { AgentMessage, ThoughtState, TokenStats } from '../types';
@@ -64,6 +65,7 @@ export const makeThinker = () => {
   const tokens: TokenStats = {
     messages: 0,
     system: 0,
+    skills: 0,
     tools: 0,
     total: 0,
     // until ollama has answered once, every number here is a tokenizer estimate
@@ -136,15 +138,31 @@ export const makeThinker = () => {
     tokens.measured = true;
   };
 
+  // the parts of the prompt that are sent whatever the conversation holds
+  const fixedCost = () => tokens.system + tokens.skills + tokens.tools;
+
   // what every turn pays before a single message is sent. it is counted here
   // rather than inline so that rebuild() can count it again with a different
   // tokenizer and the two can never disagree about what they measured
   const countFixed = () => {
     tokens.system = 0;
+    tokens.skills = 0;
     tokens.tools = 0;
 
     if (systemPrompt) {
-      const sysPromptCost = tokenizer(systemPrompt);
+      const skills = describeSkills();
+
+      // the skills are sent inside the system prompt, so their cost is taken
+      // out of it rather than added to it - otherwise they would be counted
+      // twice. measuring the parts apart can differ from the whole by a token
+      // at the seam, which an estimate can live with
+      if (skills) {
+        tokens.skills = tokenizer(skills);
+
+        log.debug(`Skills will consume ${tokens.skills} tokens`);
+      }
+
+      const sysPromptCost = tokenizer(systemPrompt) - tokens.skills;
 
       log.debug(`System prompt will consume ${sysPromptCost} tokens`);
 
@@ -161,7 +179,7 @@ export const makeThinker = () => {
       tokens.tools += toolCost;
     }
 
-    tokens.total = tokens.system + tokens.tools + tokens.messages;
+    tokens.total = fixedCost() + tokens.messages;
   };
 
   log.debug(`Loaded ${tools.length} tools`);
@@ -572,7 +590,7 @@ export const makeThinker = () => {
     // last one does not describe this one - drop back to a self-consistent
     // estimate and let the next turn measure it again
     tokens.measured = false;
-    tokens.total = tokens.system + tokens.tools + tokens.messages;
+    tokens.total = fixedCost() + tokens.messages;
 
     return counted;
   };
@@ -587,7 +605,7 @@ export const makeThinker = () => {
     // as in load(): nothing measured describes an empty conversation, so the
     // total goes back to what the tokenizer says the fixed parts cost
     tokens.measured = false;
-    tokens.total = tokens.system + tokens.tools;
+    tokens.total = fixedCost();
 
     return freed;
   };

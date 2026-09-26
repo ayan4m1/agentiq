@@ -63,11 +63,22 @@ mock.module('./preflight', {
 // the real prompt reads the working tree and the rules files. all that matters
 // here is that it names the model, and that it can be switched off entirely
 let promptBlank = false;
+// the real skills block is read from ~/.agentiq/skills. the prompt below embeds
+// it the way the real one does, so the thinker has something to carve out
+let skillsBlock: string | undefined;
+
+mock.module('./skills', {
+  namedExports: { describeSkills: () => skillsBlock }
+});
 
 mock.module('./prompt', {
   namedExports: {
     buildSystemPrompt: () =>
-      promptBlank ? '' : `You are running as ${ollama.model}.`
+      promptBlank
+        ? ''
+        : [`You are running as ${ollama.model}.`, skillsBlock]
+            .filter(Boolean)
+            .join('\n\n')
   }
 });
 
@@ -333,7 +344,10 @@ describe('rebuilding around a model that was just switched to', () => {
     assert.equal(thinker.tokens.messages, before);
     assert.equal(
       thinker.tokens.total,
-      thinker.tokens.system + thinker.tokens.tools + thinker.tokens.messages
+      thinker.tokens.system +
+        thinker.tokens.skills +
+        thinker.tokens.tools +
+        thinker.tokens.messages
     );
   });
 
@@ -893,11 +907,37 @@ describe('starting the conversation over', () => {
     assert.equal(thinker.tokens.messages, 0);
     assert.equal(
       thinker.tokens.total,
-      thinker.tokens.system + thinker.tokens.tools
+      thinker.tokens.system + thinker.tokens.skills + thinker.tokens.tools
     );
     assert.ok(thinker.tokens.system > 0);
     assert.equal(thinker.tokens.measured, false);
     assert.equal(thinker.turnCount, 0);
+  });
+});
+
+describe('counting the skills on offer', () => {
+  afterEach(() => {
+    skillsBlock = undefined;
+  });
+
+  test('costs nothing when there are no skills', () => {
+    assert.equal(makeThinker().tokens.skills, 0);
+  });
+
+  test('counts them apart from the rest of the system prompt', () => {
+    const bare = makeThinker().tokens.system;
+
+    skillsBlock = `## Skills\n\n${'a skill description '.repeat(40)}`;
+
+    const { tokens } = makeThinker();
+
+    assert.equal(tokens.skills, estimateTokens(skillsBlock));
+    // carved out of the prompt they are sent in, not counted on top of it
+    assert.ok(Math.abs(tokens.system - bare) <= 1);
+    assert.equal(
+      tokens.total,
+      tokens.system + tokens.skills + tokens.tools + tokens.messages
+    );
   });
 });
 

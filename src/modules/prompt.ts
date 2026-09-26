@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { getLogger } from './logging';
 import { home, ollama, roadmap, shell } from './config';
 import { describeRoadmap } from './roadmap';
+import { describeSkills } from './skills';
 
 const log = getLogger('prompt');
 // the same name in a project directory and in ~/.agentiq, so a user who learns
@@ -162,14 +163,15 @@ const readOverlay = (path?: string) => {
   }
 };
 
-// the built-in prompt, then the facts about this run, then the user's own
-// instructions - global first and project second, so the more specific file is
-// the last thing the model reads
+// the built-in prompt, then the facts about this run and the skills on offer,
+// then the user's own instructions - global first and project second, so the
+// more specific file is the last thing the model reads
 export const buildSystemPrompt = () => {
   const cwd = process.cwd();
   const sections = [
     defaultPrompt,
     describeEnvironment(),
+    describeSkills(),
     readOverlay(resolve(home, overlayName)),
     readOverlay(findProjectOverlay(cwd)),
     // AGENTIQ.md is how the project instructs the model; the roadmap is what the

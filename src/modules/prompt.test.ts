@@ -25,6 +25,7 @@ process.chdir(project);
 
 const { buildSystemPrompt } = await import('./prompt');
 const { ollama, roadmap } = await import('./config');
+const { loadSkills, skillsDir } = await import('./skills');
 
 process.chdir(original);
 const globalOverlay = resolve(stateDir, 'AGENTIQ.md');
@@ -41,6 +42,8 @@ afterEach(() => {
   rmSync(globalOverlay, { force: true });
   rmSync(projectOverlay, { force: true });
   rmSync(roadmapFile, { force: true });
+  rmSync(skillsDir, { recursive: true, force: true });
+  loadSkills();
   roadmap.enabled = false;
   process.chdir(project);
 });
@@ -147,6 +150,42 @@ describe('overlays', () => {
     writeFileSync(projectOverlay, '   \n  \n');
 
     assert.doesNotMatch(buildSystemPrompt(), /\n\n\n/);
+  });
+});
+
+describe('skills', () => {
+  const addSkill = () => {
+    mkdirSync(resolve(skillsDir, 'pdf-tools'), { recursive: true });
+    writeFileSync(
+      resolve(skillsDir, 'pdf-tools', 'SKILL.md'),
+      '---\nname: pdf-tools\ndescription: SKILL_DESCRIPTION_MARKER\n---\n'
+    );
+    loadSkills();
+  };
+
+  test('are left out when there are none', () => {
+    assert.doesNotMatch(buildSystemPrompt(), /## Skills/);
+  });
+
+  test('are listed with their descriptions', () => {
+    addSkill();
+
+    const prompt = buildSystemPrompt();
+
+    assert.match(prompt, /<name>pdf-tools<\/name>/);
+    assert.match(prompt, /SKILL_DESCRIPTION_MARKER/);
+  });
+
+  test("come before the user's own instructions", () => {
+    addSkill();
+    writeFileSync(projectOverlay, 'PROJECT_OVERLAY_MARKER');
+
+    const prompt = buildSystemPrompt();
+
+    assert.ok(
+      prompt.indexOf('SKILL_DESCRIPTION_MARKER') <
+        prompt.indexOf('PROJECT_OVERLAY_MARKER')
+    );
   });
 });
 
