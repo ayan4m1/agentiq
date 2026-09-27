@@ -15,6 +15,8 @@ let needsInput: boolean[];
 let rememberedPrompts: string[] | undefined;
 // how many times the prompt had been shown when each turn was taken
 let promptsBeforeTurns: number[];
+// the session that is active when asked - /clear and /resume change it mid-run
+let activeSession: string | undefined;
 
 type PromptOptions = {
   type: string;
@@ -102,6 +104,7 @@ const startAgent = mock.fn(async () =>
 );
 
 const controller = {
+  messages: [] as unknown[],
   get needsUserInput() {
     return needsInput.length ? needsInput.shift() : true;
   },
@@ -127,6 +130,8 @@ const createController = mock.fn((options: ControllerOptions) => {
 
 const pruneSessions = mock.fn();
 const startSession = mock.fn();
+const sessionId = mock.fn(() => activeSession);
+const info = mock.fn<(message: string) => void>();
 const cycleMode = mock.fn();
 const describeMode = mock.fn(() => 'manual');
 // empty while check mode is off, which is how every session starts
@@ -142,7 +147,10 @@ mock.module('./repl', {
     systemColor: (text: string) => text
   }
 });
-mock.module('./session', { namedExports: { pruneSessions, startSession } });
+mock.module('./session', {
+  namedExports: { pruneSessions, sessionId, startSession }
+});
+mock.module('./logging', { namedExports: { getLogger: () => ({ info }) } });
 mock.module('./approval', { namedExports: { cycleMode, describeMode } });
 mock.module('./check', { namedExports: { describeCheck } });
 mock.module('./config', { namedExports: { ollama: { contextLimit: 1000 } } });
@@ -203,6 +211,8 @@ describe('startRepl', () => {
     needsInput = [];
     rememberedPrompts = undefined;
     promptsBeforeTurns = [];
+    activeSession = undefined;
+    controller.messages = [];
     controllerOptions = undefined;
 
     for (const fn of [
@@ -223,6 +233,8 @@ describe('startRepl', () => {
       createController,
       pruneSessions,
       startSession,
+      sessionId,
+      info,
       cycleMode,
       describeMode,
       invalidate,
@@ -382,6 +394,29 @@ describe('startRepl', () => {
     assert.equal(await exitCodeOf(), 0);
 
     assert.equal(cleanUp.mock.callCount(), 1);
+  });
+
+  test('offers no resume hint for an empty session', async () => {
+    await exitCodeOf();
+
+    assert.equal(info.mock.callCount(), 0);
+  });
+
+  test('names the session active at exit, not the one it started with', async () => {
+    activeSession = 'first';
+    controller.messages = [{ role: 'user', content: 'hello' }];
+    controller.runCommand.mock.mockImplementationOnce(async (name: string) => {
+      // what /clear or /resume does to the session module
+      activeSession = 'second';
+
+      return name;
+    });
+    answers = ['/clear', '/quit'];
+
+    await exitCodeOf();
+
+    assert.equal(info.mock.callCount(), 1);
+    assert.match(info.mock.calls[0].arguments[0], /--resume second$/);
   });
 
   describe('mode prompt', () => {

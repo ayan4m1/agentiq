@@ -152,6 +152,10 @@ export const rewrite = (messages: AgentMessage[]) => {
   }
 };
 
+// /clear and /resume both switch files mid-run, so this is read when needed
+// rather than kept from the first startSession call
+export const sessionId = () => meta?.id;
+
 export const sessionCheck = () => meta?.check;
 
 // the meta record is the file's first line, so a change to it rewrites only

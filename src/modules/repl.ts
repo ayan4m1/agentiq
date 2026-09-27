@@ -192,7 +192,7 @@ export const createController = ({
     const messages = loadSession(target);
 
     if (!messages) {
-      log.error(chalk.red(`There is no session called ${target}`));
+      log.error(chalk.red(`There is no session with ID ${target}`));
 
       return false;
     }

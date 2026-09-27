@@ -7,15 +7,18 @@ import { startAgent } from './startup';
 import { compactThreshold } from './ollama';
 import { cycleMode, describeMode } from './approval';
 import { describeCheck } from './check';
-import { pruneSessions, startSession } from './session';
+import { pruneSessions, sessionId, startSession } from './session';
 import { complete, createPathIndex, shortCompletions } from './completion';
 import { Command, createController, systemColor } from './repl';
 import { getTokenString } from '../utils';
+import { getLogger } from './logging';
 
 type ReplOptions = {
   // true for the most recent session, or the id of one
   resume?: string | boolean;
 };
+
+const log = getLogger('interactive');
 
 // the interactive session commands/run.ts starts - kept apart from it so that a
 // test can start one as often as it likes, where the command can only be run
@@ -164,6 +167,13 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
           Command.Quit
         ) {
           cleanUp();
+          if (controller.messages.length) {
+            log.info(
+              chalk.gray(
+                `Resume this session with: agentiq --resume ${sessionId()}`
+              )
+            );
+          }
           process.exit(0);
         }
 
