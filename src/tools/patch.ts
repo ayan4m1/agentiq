@@ -8,6 +8,7 @@ import {
   requestApproval
 } from '../modules/approval';
 import { makeParameter, makeTool, renderDiff } from '../utils';
+import { unescapeContent } from './write';
 
 const log = getLogger('patch');
 
@@ -81,6 +82,10 @@ const readEdit = (entry: unknown, index: number): Edit | string => {
     return `Entry ${index + 1} of edits needs both oldText and newText, as strings.`;
   }
 
+  if (!oldText) {
+    return `Entry ${index + 1} of edits has an empty oldText; give the text to replace.`;
+  }
+
   return { oldText, newText, replaceAll: replaceAll === true };
 };
 
@@ -111,7 +116,57 @@ export const collectEdits = ({
     return 'Call patch with oldText and newText for a single replacement, or with edits for several.';
   }
 
+  // an empty needle matches everywhere and never advances, so counting it
+  // would never finish
+  if (!oldText) {
+    return 'oldText is empty; give the text to replace. To write a whole new file, use the write tool.';
+  }
+
   return [{ oldText, newText, replaceAll: replaceAll === true }];
+};
+
+// the read tool splits on \n alone, so on a crlf file the model sees lines
+// whose \r it cannot tell is there and sends its snippets back joined with
+// bare \n. the replacement gets the file's endings too, so a patch does not
+// leave a run of lf lines in the middle of a crlf file
+const toCrlf = (edit: Edit): Edit => ({
+  ...edit,
+  oldText: edit.oldText.replace(/\r?\n/g, '\r\n'),
+  newText: edit.newText.replace(/\r?\n/g, '\r\n')
+});
+
+// the edit as the model sent it when that matches, otherwise the first reading
+// of it that does: crlf line breaks, then double-encoded escapes (the same
+// mistake the write tool undoes). the verbatim text always gets the first
+// chance, so code that really does contain a \n escape is matched as written.
+// only the match is adjusted - every byte outside it stays as it was, which
+// normalising the whole file would not do for one with mixed endings
+export const resolveEdit = (text: string, edit: Edit): Edit => {
+  const crlf = text.includes('\r\n');
+  const decoded: Edit = {
+    ...edit,
+    oldText: unescapeContent(edit.oldText),
+    newText: unescapeContent(edit.newText)
+  };
+  const candidates = [edit];
+
+  if (crlf) {
+    candidates.push(toCrlf(edit));
+  }
+
+  if (decoded.oldText !== edit.oldText) {
+    candidates.push(decoded);
+
+    if (crlf) {
+      candidates.push(toCrlf(decoded));
+    }
+  }
+
+  return (
+    candidates.find(
+      (candidate) => countOccurrences(text, candidate.oldText) > 0
+    ) ?? edit
+  );
 };
 
 // applies every edit to the text in memory, refusing the whole batch the
@@ -125,7 +180,8 @@ export const applyEdits = (
   let text = contents;
   let replacements = 0;
 
-  for (const [index, edit] of edits.entries()) {
+  for (const [index, requested] of edits.entries()) {
+    const edit = resolveEdit(text, requested);
     const occurrences = countOccurrences(text, edit.oldText);
     // which edit failed is the first thing worth knowing about a batch
     const which =

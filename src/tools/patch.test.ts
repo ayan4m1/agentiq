@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 
-import { applyEdits, collectEdits, countOccurrences, handler } from './patch';
+import {
+  applyEdits,
+  collectEdits,
+  countOccurrences,
+  handler,
+  resolveEdit
+} from './patch';
 import { approval } from '../modules/approval';
 import { ApprovalMode } from '../types';
 
@@ -141,6 +147,19 @@ describe('handler', () => {
     assert.equal(read(path), 'y\ny\ny\n');
   });
 
+  test('patches a crlf file from an lf snippet without changing its endings', async () => {
+    const path = fileWith('first\r\nsecond\r\nthird\r\n');
+
+    approval.mode = ApprovalMode.Auto;
+
+    const result = await quietly(() =>
+      handler({ path, oldText: 'first\nsecond', newText: 'one\ntwo' })
+    );
+
+    assert.match(String(result), /Replaced 1 occurrence/);
+    assert.equal(read(path), 'one\r\ntwo\r\nthird\r\n');
+  });
+
   test('does not return the file body, which the model already has', async () => {
     const path = fileWith('secret marker here');
 
@@ -202,6 +221,25 @@ describe('collectEdits', () => {
 
     assert.match(String(result), /Entry 2/);
     assert.match(String(result), /oldText and newText/);
+  });
+
+  test('refuses an empty oldText, which would never finish counting', () => {
+    assert.match(
+      String(collectEdits({ oldText: '', newText: 'x' })),
+      /oldText is empty/
+    );
+  });
+
+  test('names a batch entry with an empty oldText', () => {
+    const result = collectEdits({
+      edits: [
+        { oldText: 'a', newText: 'b' },
+        { oldText: '', newText: 'c' }
+      ]
+    });
+
+    assert.match(String(result), /Entry 2/);
+    assert.match(String(result), /empty oldText/);
   });
 
   test('treats an empty edits array as no batch at all', () => {
@@ -286,6 +324,80 @@ describe('applyEdits', () => {
       typeof result === 'string' ? result : result.text,
       '$1 and $2'
     );
+  });
+
+  test('matches an lf snippet in a crlf file and keeps its endings', () => {
+    // read splits on \n alone, so this is the shape the model sends back
+    const result = applyEdits(
+      'one\r\ntwo\r\nthree\r\n',
+      [edit('one\ntwo', 'uno\ndos')],
+      'f'
+    );
+    const text = typeof result === 'string' ? result : result.text;
+
+    assert.equal(text, 'uno\r\ndos\r\nthree\r\n');
+    assert.doesNotMatch(text, /[^\r]\n/);
+  });
+
+  test('still matches a crlf snippet as written', () => {
+    const result = applyEdits(
+      'one\r\ntwo\r\n',
+      [edit('one\r\ntwo', 'uno\r\ndos')],
+      'f'
+    );
+
+    assert.equal(
+      typeof result === 'string' ? result : result.text,
+      'uno\r\ndos\r\n'
+    );
+  });
+
+  test('decodes a double-encoded snippet and its replacement', () => {
+    const result = applyEdits('a\nb\nc', [edit('a\\nb', 'x\\ny')], 'f');
+
+    assert.equal(typeof result === 'string' ? result : result.text, 'x\ny\nc');
+  });
+
+  test('decodes a double-encoded snippet in a crlf file', () => {
+    const result = applyEdits('a\r\nb\r\n', [edit('a\\nb', 'x\\ny')], 'f');
+
+    assert.equal(
+      typeof result === 'string' ? result : result.text,
+      'x\r\ny\r\n'
+    );
+  });
+
+  test('matches an escape that really is in the file as written', () => {
+    const result = applyEdits(
+      'const s = "x\\ny";\n',
+      [edit('"x\\ny"', '"z\\nw"')],
+      'f'
+    );
+
+    assert.equal(
+      typeof result === 'string' ? result : result.text,
+      'const s = "z\\nw";\n'
+    );
+  });
+
+  test('still refuses an ambiguous snippet found through crlf', () => {
+    const result = applyEdits('a\r\nb\r\na\r\nb\r\n', [edit('a\nb', 'c')], 'f');
+
+    assert.match(String(result), /appears 2 times/);
+  });
+});
+
+describe('resolveEdit', () => {
+  test('leaves an edit that matches verbatim alone', () => {
+    const requested = { oldText: 'a\nb', newText: 'c\nd' };
+
+    assert.equal(resolveEdit('a\nb', requested), requested);
+  });
+
+  test('hands back the edit unchanged when nothing matches', () => {
+    const requested = { oldText: 'z\nq', newText: 'c' };
+
+    assert.equal(resolveEdit('a\r\nb', requested), requested);
   });
 });
 
