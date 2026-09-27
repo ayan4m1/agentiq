@@ -12,7 +12,7 @@ import type { AgentMessage } from '../types';
 // predictable. it also has to be set before the module first evaluates
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-thinker-'));
 
-const { ollama, session } = await import('./config');
+const { logging, ollama, session } = await import('./config');
 const { makeTool, makeParameter } = await import('../utils');
 
 // escape is watched for on a real terminal, which a test does not have - so
@@ -1168,6 +1168,41 @@ describe('the spinner', () => {
 
     t.mock.timers.tick(10_000);
     assert.equal(lastSpinner?.suffixText, 'esc to interrupt (1m30s)');
+  });
+
+  // streams reasoning, then notes whether the spinner was still up before
+  // the answer arrives
+  const spinningAfterThoughts = async () => {
+    let during: boolean | undefined;
+
+    chat.mock.mockImplementationOnce(async () =>
+      (async function* () {
+        yield chunk({ thinking: 'hmm' });
+        during = spinning;
+        yield chunk({ content: 'ok' });
+      })()
+    );
+
+    await makeThinker().think({ messages: ask() });
+
+    return during;
+  };
+
+  test('keeps spinning through reasoning that is not logged', async () => {
+    logging.logThoughts = false;
+
+    assert.equal(await spinningAfterThoughts(), true);
+    cleared();
+  });
+
+  test('is taken back for reasoning when logThoughts is on', async (t) => {
+    logging.logThoughts = true;
+    t.after(() => {
+      logging.logThoughts = false;
+    });
+
+    assert.equal(await spinningAfterThoughts(), false);
+    cleared();
   });
 
   test('is never shown when input is piped', async () => {

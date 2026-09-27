@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import type { Message } from 'ollama';
 
 import { client } from './client';
-import { ollama, session } from './config';
+import { logging, ollama, session } from './config';
 import { describeElision, findSplit, isElided, pairCalls } from './compaction';
 import { getLogger } from './logging';
 import { makeTokenizer } from './tokenizer';
@@ -235,6 +235,7 @@ export const makeThinker = () => {
     }
 
     const assistantMessage: Message = { role: 'assistant', content: '' };
+    let wroteThoughts = false;
     let wroteOutput = false;
     let lastChunk;
 
@@ -294,19 +295,23 @@ export const makeThinker = () => {
 
         // reasoning arrives in its own field when the model separates it, and
         // is deliberately not kept: it describes how this one answer was
-        // reached, and re-sending it on every later turn buys nothing
-        if (chunk.message?.thinking) {
+        // reached, and re-sending it on every later turn buys nothing. it is
+        // only shown when asked for - otherwise the spinner keeps running
+        // until the answer itself starts
+        if (logging.logThoughts && chunk.message?.thinking) {
           stopSpinner();
 
           process.stdout.write(chalk.gray(chunk.message.thinking));
+          wroteThoughts = true;
         }
 
         if (chunk.message?.content) {
           stopSpinner();
 
           // put the answer on its own, rather than running it straight on from
-          // the reasoning that led to it
-          if (chunk.message?.thinking && !wroteOutput) {
+          // the reasoning that led to it - which ollama streams in the chunks
+          // before the answer, not alongside its first one
+          if (wroteThoughts && !wroteOutput) {
             process.stdout.write('\n\n');
           }
 
@@ -338,7 +343,7 @@ export const makeThinker = () => {
 
     // a turn that only reasoned before calling a tool still has to close the
     // line it was writing on
-    if (wroteOutput) {
+    if (wroteThoughts || wroteOutput) {
       process.stdout.write('\n\n');
     }
 

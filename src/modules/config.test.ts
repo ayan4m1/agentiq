@@ -143,6 +143,7 @@ describe('loadConfigFile', () => {
     const seeded = parse(defaultConfig);
 
     assert.equal(seeded.logging.level, LogLevel.Info);
+    assert.equal(seeded.logging.logThoughts, false);
     assert.equal(seeded.approval.mode, 'manual');
     assert.equal(seeded.shell.timeout, 120000);
     assert.equal(seeded.ollama.contextLimit, 131072);
@@ -288,6 +289,7 @@ describe('settings', () => {
     assert.equal(config.ollama.keepAlive, '30m');
     assert.equal(config.ollama.recoverToolCalls, true);
     assert.equal(config.ollama.think, undefined);
+    assert.equal(config.logging.logThoughts, false);
   });
 
   test('lets an AQ_* env var override the file', async () => {
@@ -306,5 +308,46 @@ describe('settings', () => {
 
     assert.equal(config.home, resolve(root, 'settings-home'));
     assert.equal(config.logging.level, LogLevel.Debug);
+  });
+
+  test('reads logging.logThoughts from config.yml', async () => {
+    const config = await load(
+      'thoughts-file',
+      'logging:\n  logThoughts: true\n'
+    );
+
+    assert.equal(config.logging.logThoughts, true);
+  });
+
+  test('lets AQ_LOG_THOUGHTS override logging.logThoughts', async () => {
+    const on = await load('thoughts-env-on', 'logging:\n  level: info\n', {
+      AQ_LOG_THOUGHTS: 'yes'
+    });
+    const off = await load(
+      'thoughts-env-off',
+      'logging:\n  logThoughts: true\n',
+      { AQ_LOG_THOUGHTS: 'false' }
+    );
+
+    assert.equal(on.logging.logThoughts, true);
+    assert.equal(off.logging.logThoughts, false);
+  });
+
+  test('keeps logThoughts off rather than reading a typo as on', async () => {
+    // quietly restores console.warn before an async import has run, so the
+    // warning has to be silenced for the whole load
+    const spoke = console.warn;
+
+    console.warn = () => {};
+
+    try {
+      const config = await load('thoughts-typo', 'logging:\n  level: info\n', {
+        AQ_LOG_THOUGHTS: 'ture'
+      });
+
+      assert.equal(config.logging.logThoughts, false);
+    } finally {
+      console.warn = spoke;
+    }
   });
 });

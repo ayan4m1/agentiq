@@ -15,6 +15,7 @@ export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel];
 export type LoggingConfig = {
   level: LogLevel;
   detailed: boolean;
+  logThoughts: boolean;
 };
 
 // manual asks before every mutating action, auto asks for none, and plan

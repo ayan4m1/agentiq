@@ -12,6 +12,8 @@ logging:
   # whether or not to prefix log lines with their level and category
   # (AQ_LOG_DETAILED)
   detailed: false
+  # whether or not to log the model's thinking (AQ_LOG_THOUGHTS)
+  logThoughts: false
 
 approval:
   # manual, auto, or plan - cycle at runtime with shift+tab. also the default

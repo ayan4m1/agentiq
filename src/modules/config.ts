@@ -218,6 +218,10 @@ export const logging: LoggingConfig = {
   detailed: toBoolean(
     setting('AQ_LOG_DETAILED', 'logging', 'detailed'),
     'logging.detailed (AQ_LOG_DETAILED)'
+  ),
+  logThoughts: toBoolean(
+    setting('AQ_LOG_THOUGHTS', 'logging', 'logThoughts'),
+    'logging.logThoughts (AQ_LOG_THOUGHTS)'
   )
 };
 
