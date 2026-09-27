@@ -1,8 +1,11 @@
-import { test, describe } from 'node:test';
+import { test, describe, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import type { ChatRequest } from 'ollama';
 
+import { client } from '../modules/client';
 import { ollama } from '../modules/config';
 import {
+  askModel,
   describeAge,
   describeElapsed,
   describeError,
@@ -160,5 +163,30 @@ describe('makeTool', () => {
 
   test('returns nothing for a tool that was never made', () => {
     assert.equal(getParameters('no_such_tool'), undefined);
+  });
+});
+
+describe('askModel', () => {
+  test('asks once with the configured model and returns the reply', async () => {
+    const chat = mock.method(
+      client as unknown as { chat: (request: ChatRequest) => Promise<unknown> },
+      'chat',
+      async () => ({ message: { role: 'assistant', content: 'an answer' } })
+    );
+
+    try {
+      const messages = [{ role: 'user', content: 'a question' }];
+
+      assert.equal(await askModel(messages), 'an answer');
+      assert.equal(chat.mock.callCount(), 1);
+      assert.deepEqual(chat.mock.calls[0].arguments[0], {
+        model: ollama.model,
+        messages,
+        keep_alive: ollama.keepAlive,
+        options: { num_ctx: ollama.contextLimit }
+      });
+    } finally {
+      chat.mock.restore();
+    }
   });
 });

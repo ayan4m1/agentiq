@@ -22,9 +22,11 @@ import {
   listSessions,
   loadSession,
   rewrite,
+  sessionCheck,
   startSession
 } from './session';
 import { takeYield } from './turn';
+import { check, restoreCheck, runCheck, setCheck } from './check';
 import type { makeThinker } from './ollama';
 import { readFile } from '../tools/read';
 import type { AgentMessage, ThoughtState } from '../types';
@@ -51,6 +53,7 @@ export const Command = {
   Resume: 'resume',
   Undo: 'undo',
   Changes: 'changes',
+  Check: 'check',
   Help: 'help',
   Quit: 'quit'
 } as const;
@@ -166,6 +169,11 @@ export const createController = ({
   // the turn each prompt typed here started, for /undo. a prompt restored from
   // a session file has none, since its changes were made by another process
   const turns = new WeakMap<Message, number>();
+  // the turn the latest prompt started, and the first turn whose changes the
+  // check has not run against yet - a turn that wrote nothing has nothing new
+  // to check, but one cut short still leaves its changes for the next
+  let currentTurn = 0;
+  let checkFrom = 0;
   // what the next prompt should start out holding - the prompt /undo took back,
   // so it can be edited and sent again
   let prefill: string | undefined;
@@ -194,6 +202,7 @@ export const createController = ({
     compactionStalled = false;
     thinker.load(messages);
     rememberPrompts?.(typedPrompts(messages));
+    restoreCheck(sessionCheck());
 
     log.info(
       chalk.green(
@@ -252,7 +261,7 @@ export const createController = ({
     compactionStalled = false;
     // a new file rather than an emptied one - starting over should not
     // destroy the conversation being walked away from
-    startSession();
+    startSession(check.command);
     const before = thinker.tokens.total;
 
     logFreed(thinker.reset(), before);
@@ -604,6 +613,11 @@ export const createController = ({
       case Command.Changes:
         console.log(systemColor(changes()));
         break;
+      case Command.Check:
+        // a command of its own is split into words above, and has to reach
+        // check mode exactly as it was typed
+        await setCheck(input.trim().slice(name.length).trim() || undefined);
+        break;
       case Command.Help:
         console.log(systemColor('\n--- Available Commands ---'));
         Object.values(Command).forEach((cmd) =>
@@ -628,7 +642,8 @@ export const createController = ({
       : { role: 'user', content };
 
     nextThought.messages.push(message);
-    turns.set(message, beginTurn());
+    currentTurn = beginTurn();
+    turns.set(message, currentTurn);
 
     needsUserInput = false;
   };
@@ -672,11 +687,24 @@ export const createController = ({
     // here to be picked up by the next one
     append(nextThought.messages);
 
+    const interrupted = Boolean(nextThought.interrupted);
+
     if (nextThought.interrupted) {
       nextThought.interrupted = false;
       needsUserInput = true;
     } else if (!compactionStalled && thinker.tokens.total > compactAt()) {
       await compact();
+    }
+
+    // only once the model is done with the turn - a round that is still
+    // calling tools would be checked halfway through its own work - and only
+    // when a file has been written or patched since the last check
+    if (needsUserInput && !failed && !interrupted && countSince(checkFrom)) {
+      if (check.command) {
+        checkFrom = currentTurn + 1;
+      }
+
+      await runCheck();
     }
   };
 

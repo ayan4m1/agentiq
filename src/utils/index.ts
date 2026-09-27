@@ -1,10 +1,28 @@
-import type { Tool } from 'ollama';
+import type { Message, Tool } from 'ollama';
 import chalk from 'chalk';
 import { filesize } from 'filesize';
 import { structuredPatch } from 'diff';
 
 import type { ToolParameter } from '../types';
+import { client } from '../modules/client';
 import { ollama } from '../modules/config';
+
+// a single call with no tools and no streaming - for asking the model something
+// on the side, where the reply is used and never kept in the history
+export const askModel = async (messages: Message[]) => {
+  const response = await client.chat({
+    model: ollama.model,
+    messages,
+    keep_alive: ollama.keepAlive,
+    // without this ollama falls back to the model default and silently
+    // truncates the prompt
+    options: {
+      num_ctx: ollama.contextLimit
+    }
+  });
+
+  return response.message.content;
+};
 
 // the schema handed to ollama describes a parameter well enough for the model
 // but not well enough to check an answer against, so keep the list that built

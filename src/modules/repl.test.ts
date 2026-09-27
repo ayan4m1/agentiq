@@ -79,13 +79,30 @@ mock.module('./tokenizer', {
   }
 });
 
+// check mode is tested on its own - here it only matters when the controller
+// reaches for it, and with what
+const check: { command?: string } = {};
+const setCheck = mock.fn<(value?: string) => Promise<void>>(async () => {});
+const restoreCheck = mock.fn<(command?: string) => void>();
+const runCheck = mock.fn<() => Promise<void>>(async () => {});
+
+mock.module('./check', {
+  namedExports: { check, setCheck, restoreCheck, runCheck }
+});
+
 const { Command, createController } = await import('./repl');
 const { approval } = await import('./approval');
 const { ollama, session, tokenizer } = await import('./config');
 const { loadStore, saveStore } = await import('./models');
 const { yieldToUser, takeYield } = await import('./turn');
-const { append, listSessions, loadSession, startSession } =
-  await import('./session');
+const {
+  append,
+  listSessions,
+  loadSession,
+  sessionCheck,
+  setSessionCheck,
+  startSession
+} = await import('./session');
 const { discardCheckpoints, record } = await import('./checkpoints');
 const { getLogger } = await import('./logging');
 
@@ -199,6 +216,10 @@ beforeEach(() => {
   editor.mock.resetCalls();
   discardCheckpoints();
   takeYield();
+  check.command = undefined;
+  setCheck.mock.resetCalls();
+  restoreCheck.mock.resetCalls();
+  runCheck.mock.resetCalls();
 });
 
 after(() => {
@@ -571,6 +592,135 @@ describe('compaction', () => {
     await controller.compact();
 
     assert.equal(thinker.recap.mock.callCount(), 0);
+  });
+});
+
+describe('/check', () => {
+  test('hands its argument to check mode', async () => {
+    await make().runCommand('check on');
+
+    assert.deepEqual(setCheck.mock.calls[0].arguments, ['on']);
+  });
+
+  test('hands over a command of its own exactly as it was typed', async () => {
+    const controller = make();
+
+    await controller.runCommand('check  npm run  lint -- --quiet');
+    await controller.runCommand('check');
+
+    assert.deepEqual(setCheck.mock.calls[0].arguments, [
+      'npm run  lint -- --quiet'
+    ]);
+    assert.deepEqual(setCheck.mock.calls[1].arguments, [undefined]);
+  });
+
+  test('runs once the model hands back to the user', async () => {
+    const controller = make();
+
+    controller.addUserMessage('hello');
+    record('a.txt');
+    answers(reply);
+    await controller.takeTurn();
+
+    assert.equal(runCheck.mock.callCount(), 1);
+  });
+
+  test('does not run when the turn changed no files', async () => {
+    const controller = make();
+
+    controller.addUserMessage('hello');
+    answers(reply);
+    await controller.takeTurn();
+
+    assert.equal(runCheck.mock.callCount(), 0);
+  });
+
+  test('does not check the same changes twice', async () => {
+    const controller = make();
+
+    check.command = 'yarn lint';
+    controller.addUserMessage('hello');
+    record('a.txt');
+    answers(reply);
+    await controller.takeTurn();
+    controller.addUserMessage('thanks');
+    answers(reply);
+    await controller.takeTurn();
+
+    assert.equal(runCheck.mock.callCount(), 1);
+  });
+
+  test('checks changes left by an interrupted turn on the next one', async () => {
+    const controller = make();
+
+    check.command = 'yarn lint';
+    controller.addUserMessage('hello');
+    record('a.txt');
+    thinker.think.mock.mockImplementationOnce(async (thought) => ({
+      ...thought,
+      interrupted: true
+    }));
+    await controller.takeTurn();
+    assert.equal(runCheck.mock.callCount(), 0);
+
+    controller.addUserMessage('go on');
+    answers(reply);
+    await controller.takeTurn();
+
+    assert.equal(runCheck.mock.callCount(), 1);
+  });
+
+  test('waits while the model is still calling tools', async () => {
+    const controller = make();
+
+    controller.addUserMessage('hello');
+    answers(toolCall);
+    await controller.takeTurn();
+
+    assert.equal(runCheck.mock.callCount(), 0);
+  });
+
+  test('does not run after an interrupted turn', async () => {
+    const controller = make();
+
+    controller.addUserMessage('hello');
+    thinker.think.mock.mockImplementationOnce(async (thought) => ({
+      ...thought,
+      interrupted: true
+    }));
+    await controller.takeTurn();
+
+    assert.equal(runCheck.mock.callCount(), 0);
+  });
+
+  test('does not run after a failed model call', async () => {
+    const controller = make();
+
+    controller.addUserMessage('hello');
+    thinker.think.mock.mockImplementationOnce(async () => {
+      throw new Error('connection refused');
+    });
+    await controller.takeTurn();
+
+    assert.equal(runCheck.mock.callCount(), 0);
+  });
+
+  test('comes back with a resumed session', () => {
+    append([{ role: 'user', content: 'earlier' }]);
+    setSessionCheck('yarn test');
+    startSession();
+
+    make().restore();
+
+    assert.deepEqual(restoreCheck.mock.calls[0].arguments, ['yarn test']);
+  });
+
+  test('carries over into the session /clear starts', () => {
+    check.command = 'yarn lint';
+
+    make().clear();
+
+    assert.equal(sessionCheck(), 'yarn lint');
   });
 });
 

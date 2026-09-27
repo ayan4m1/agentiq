@@ -43,6 +43,14 @@ added to the conversation or the session file - so it is handy after `/resume` o
 more than one line, such as a stack trace, and sends it once the editor is closed. It is not offered
 back by the up arrow, but `/undo` can still take it back.
 
+`/check on` asks the model to pick a command that tests, lints or type-checks the project, then runs
+it each time the model finishes a turn that wrote or patched files. Its result shows after the token count above the prompt: `✔`
+when it passed, `✘` when it failed (along with the last few lines of its output), and `·` before it
+has run. The command goes through the same approval as any other, so plan mode skips it and manual
+mode asks first. Check mode starts off in every new session. The chosen command is saved with the
+session, so `/resume` brings it back. `/check <command>`, such as `/check yarn lint`, uses that command
+instead of asking the model. `/check off` turns it off, and `/check` alone shows what it is set to.
+
 ## Choosing a model
 
 The model agentiq talks to, and the huggingface.co repository whose tokenizer matches it are chosen

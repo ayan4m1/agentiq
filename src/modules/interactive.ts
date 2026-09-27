@@ -6,6 +6,7 @@ import { ollama } from './config';
 import { startAgent } from './startup';
 import { compactThreshold } from './ollama';
 import { cycleMode, describeMode } from './approval';
+import { describeCheck } from './check';
 import { pruneSessions, startSession } from './session';
 import { complete, createPathIndex, shortCompletions } from './completion';
 import { Command, createController, systemColor } from './repl';
@@ -28,7 +29,7 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
   const { thinker, schedule, cleanUp } = agent;
 
   const renderPrompt = () =>
-    `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.messages)}`)}\n${chalk.blue('>')}`;
+    `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.messages)}${describeCheck()}`)}\n${chalk.blue('>')}`;
 
   // the prompt's own tab branch has no shift guard, so shift+tab would otherwise
   // fall into autocompletion and leave a literal tab in the buffer

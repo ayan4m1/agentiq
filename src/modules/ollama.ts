@@ -12,15 +12,20 @@ import { recapPrompt, recentTurns, renderTranscript } from './recap';
 import { buildSystemPrompt } from './prompt';
 import { describeSkills } from './skills';
 import { watchForInterrupt } from './interrupt';
+import { showElapsed } from './elapsed';
 import { supportsThinking } from './preflight';
 import type { AgentMessage, ThoughtState, TokenStats } from '../types';
 import { tools } from '../tools';
-import { describeElapsed, describeError, serializeResult } from '../utils';
+import {
+  askModel,
+  describeElapsed,
+  describeError,
+  serializeResult
+} from '../utils';
 
 const log = getLogger('ollama');
 
-const interruptHint = (ms: number) =>
-  `esc to interrupt (${describeElapsed(ms)})`;
+const interruptHint = (elapsed: string) => `esc to interrupt (${elapsed})`;
 
 // compacting on the way to the limit rather than at it leaves room for the
 // summarization call itself, which still has to fit in the same window
@@ -208,14 +213,12 @@ export const makeThinker = () => {
       // watchForInterrupt owns stdin in raw mode for the turn, and ora's own
       // discard would fight it for the escape byte
       discardStdin: false,
-      suffixText: interruptHint(0)
+      suffixText: interruptHint(describeElapsed(0))
     });
-    // counts up beside the hint, so a model slow to load or to answer shows
-    // how long it has been at it
-    let clock: NodeJS.Timeout | undefined;
+    let stopClock = () => {};
 
     const stopSpinner = () => {
-      clearInterval(clock);
+      stopClock();
 
       if (spinner.isSpinning) {
         spinner.stop();
@@ -228,13 +231,7 @@ export const makeThinker = () => {
 
     if (process.stdin.isTTY) {
       spinner.start();
-
-      const startedAt = Date.now();
-
-      // ora redraws on its own frame timer, which picks up the new text
-      clock = setInterval(() => {
-        spinner.suffixText = interruptHint(Date.now() - startedAt);
-      }, 1000).unref();
+      stopClock = showElapsed(spinner, interruptHint);
     }
 
     const assistantMessage: Message = { role: 'assistant', content: '' };
@@ -532,18 +529,14 @@ export const makeThinker = () => {
     const recent = messages.slice(splitAt);
     // no tools on this call - the model is writing notes, not taking another
     // turn, and offering it tools invites it to start working again
-    const response = await client.chat({
-      model: ollama.model,
-      messages: [...older, { role: 'user', content: summaryPrompt }],
-      keep_alive: ollama.keepAlive,
-      options: {
-        num_ctx: ollama.contextLimit
-      }
-    });
+    const summary = await askModel([
+      ...older,
+      { role: 'user', content: summaryPrompt }
+    ]);
     const compacted: AgentMessage[] = [
       {
         role: 'user',
-        content: `Here are notes on everything that happened earlier in this conversation:\n\n${response.message.content}`,
+        content: `Here are notes on everything that happened earlier in this conversation:\n\n${summary}`,
         summary: true
       },
       ...recent
@@ -610,32 +603,29 @@ export const makeThinker = () => {
       discardStdin: false,
       text: 'Recapping'
     });
+    let stopClock = () => {};
 
     if (process.stdin.isTTY) {
       spinner.start();
+      stopClock = showElapsed(spinner);
     }
 
     try {
       // one user message holding the whole excerpt, rather than the messages
       // themselves - there are no tool calls left in it to pair results with,
       // and no tools are offered, since the model is not meant to act on it
-      const response = await client.chat({
-        model: ollama.model,
-        messages: [
-          { role: 'user', content: `${recapPrompt}\n\n${transcript}` }
-        ],
-        keep_alive: ollama.keepAlive,
-        options: {
-          num_ctx: ollama.contextLimit
-        }
-      });
+      const reply = await askModel([
+        { role: 'user', content: `${recapPrompt}\n\n${transcript}` }
+      ]);
 
-      return response.message.content.trim() || undefined;
+      return reply.trim() || undefined;
     } catch (error) {
       log.warn(`Could not recap the session: ${describeError(error)}`);
 
       return;
     } finally {
+      stopClock();
+
       if (spinner.isSpinning) {
         spinner.stop();
       }

@@ -30,6 +30,9 @@ type Meta = {
   startedAt: string;
   model: string;
   cwd: string;
+  // the command /check runs after each turn, kept here so a resumed session
+  // picks check mode back up. absent in files written before it existed
+  check?: string;
 };
 
 // one JSON object per line: the meta record first, then a record per message
@@ -76,7 +79,9 @@ const ensureFile = () => {
   writeFileSync(activePath, encode(meta));
 };
 
-export const startSession = () => {
+// /clear starts a new file for a conversation that carries on, and whatever
+// check mode was doing carries on with it
+export const startSession = (check?: string) => {
   const cwd = process.cwd();
   // the slug can never contain an underscore, so it and the uuid stay
   // separable even though both are full of dashes
@@ -87,7 +92,8 @@ export const startSession = () => {
     id,
     startedAt: new Date().toISOString(),
     model: ollama.model,
-    cwd
+    cwd,
+    check
   };
   activePath = pathFor(id);
   persisted = new WeakSet<AgentMessage>();
@@ -143,6 +149,28 @@ export const rewrite = (messages: AgentMessage[]) => {
     }
   } catch (error) {
     log.warn(`Could not rewrite the session file: ${describeError(error)}`);
+  }
+};
+
+export const sessionCheck = () => meta?.check;
+
+// the meta record is the file's first line, so a change to it rewrites only
+// that line. a session with no file yet has nothing to rewrite - ensureFile
+// writes the meta as it stands along with the first message
+export const setSessionCheck = (check?: string) => {
+  meta = { ...meta, check };
+
+  if (!activePath || !existsSync(activePath)) {
+    return;
+  }
+
+  try {
+    const lines = readFileSync(activePath).toString().split('\n');
+
+    lines[0] = JSON.stringify(meta);
+    writeFileSync(activePath, lines.join('\n'));
+  } catch (error) {
+    log.warn(`Could not update the session file: ${describeError(error)}`);
   }
 };
 

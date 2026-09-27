@@ -30,6 +30,8 @@ const {
   loadSession,
   pruneSessions,
   rewrite,
+  sessionCheck,
+  setSessionCheck,
   startSession
 } = await import('./session');
 const { slugFor } = await import('../utils');
@@ -196,6 +198,89 @@ describe('rewrite', () => {
     assert.equal(records.length, 2);
     assert.equal(records[0].type, 'meta');
     assert.equal(records[1].message.content, 'a summary of all that');
+  });
+});
+
+describe('check command', () => {
+  // a directory of its own, so the files made here do not count towards the
+  // per-directory limits the tests below rely on
+  const projectD = resolve(root, 'project-d');
+
+  before(() => {
+    mkdirSync(projectD, { recursive: true });
+    process.chdir(projectD);
+  });
+
+  after(() => {
+    process.chdir(projectA);
+  });
+
+  test('is written with the meta once there is a message', () => {
+    const id = startSession();
+
+    setSessionCheck('yarn test');
+
+    assert.equal(existsSync(resolve(sessionDir, `${id}.jsonl`)), false);
+
+    append([user('hello')]);
+
+    assert.equal(JSON.parse(lines(id)[0]).check, 'yarn test');
+  });
+
+  test('rewrites only the meta line of a file that exists', () => {
+    const id = startSession();
+
+    append([user('one'), user('two')]);
+    setSessionCheck('make check');
+
+    const records = lines(id).map((line) => JSON.parse(line));
+
+    assert.equal(records.length, 3);
+    assert.equal(records[0].check, 'make check');
+    assert.equal(records[2].message.content, 'two');
+
+    setSessionCheck(undefined);
+
+    assert.equal(JSON.parse(lines(id)[0]).check, undefined);
+    assert.equal(lines(id).length, 3);
+  });
+
+  test('comes back with a resumed session', () => {
+    const id = startSession();
+
+    append([user('hello')]);
+    setSessionCheck('cargo test');
+    startSession();
+
+    assert.equal(sessionCheck(), undefined);
+
+    loadSession(id);
+
+    assert.equal(sessionCheck(), 'cargo test');
+  });
+
+  test('is absent from a session written before it existed', () => {
+    const id = `${slugFor(process.cwd())}_old`;
+
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(
+      resolve(sessionDir, `${id}.jsonl`),
+      `${JSON.stringify({ type: 'meta', id, startedAt: '', model: 'm', cwd: '' })}\n`
+    );
+
+    loadSession(id);
+
+    assert.equal(sessionCheck(), undefined);
+  });
+
+  test('carries into a session started with one', () => {
+    const id = startSession('yarn lint');
+
+    assert.equal(sessionCheck(), 'yarn lint');
+
+    append([user('hello')]);
+
+    assert.equal(JSON.parse(lines(id)[0]).check, 'yarn lint');
   });
 });
 

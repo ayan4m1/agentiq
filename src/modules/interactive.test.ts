@@ -129,6 +129,8 @@ const pruneSessions = mock.fn();
 const startSession = mock.fn();
 const cycleMode = mock.fn();
 const describeMode = mock.fn(() => 'manual');
+// empty while check mode is off, which is how every session starts
+const describeCheck = mock.fn(() => '');
 
 mock.module('inquirer', { defaultExport: { prompt, registerPrompt } });
 mock.module('inquirer-command-prompt', { defaultExport: CommandPromptBase });
@@ -142,6 +144,7 @@ mock.module('./repl', {
 });
 mock.module('./session', { namedExports: { pruneSessions, startSession } });
 mock.module('./approval', { namedExports: { cycleMode, describeMode } });
+mock.module('./check', { namedExports: { describeCheck } });
 mock.module('./config', { namedExports: { ollama: { contextLimit: 1000 } } });
 mock.module('./ollama', { namedExports: { compactThreshold: 0.5 } });
 
@@ -425,6 +428,14 @@ describe('startRepl', () => {
       assert.equal(instance.rl.cursor, 2);
       assert.match(instance.opt.message, /^auto\[42 tok\]/);
       assert.equal(superRender.mock.callCount(), 1);
+    });
+
+    test('shows the check badge after the token count', async () => {
+      describeCheck.mock.mockImplementationOnce(() => '[✔]');
+
+      await instance.onKeypress({ key: { name: 'tab', shift: true } });
+
+      assert.match(instance.opt.message, /^manual\[42 tok\]\[✔\]/);
     });
 
     test('keeps a completion list on screen when redrawing', async () => {
