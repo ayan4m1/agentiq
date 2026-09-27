@@ -8,7 +8,7 @@ export const definition = makeTool(
     makeParameter(
       'number',
       'id',
-      'The job to read, as returned by run_background. Omit to list all jobs',
+      'The job to read, as returned by start_job. Omit to list all jobs',
       false
     )
   ]

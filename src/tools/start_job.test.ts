@@ -22,7 +22,7 @@ mock.module('@inquirer/core', {
 });
 mock.module('@inquirer/prompts', { namedExports: { input } });
 
-const { handler } = await import('./run_background');
+const { handler } = await import('./start_job');
 const { approval } = await import('../modules/approval');
 const { killAllJobs, listJobs } = await import('../modules/jobs');
 
@@ -37,7 +37,7 @@ after(() => {
   killAllJobs();
 });
 
-describe('run_background', () => {
+describe('start_job', () => {
   test('refuses to start anything in plan mode', async () => {
     approval.mode = ApprovalMode.Plan;
 

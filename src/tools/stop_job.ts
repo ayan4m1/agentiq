@@ -8,7 +8,7 @@ export const definition = makeTool(
     makeParameter(
       'number',
       'id',
-      'The job to stop, as returned by run_background',
+      'The job to stop, as returned by start_job',
       true
     )
   ]

@@ -7,7 +7,7 @@ import {
 import { makeParameter, makeTool } from '../utils';
 
 export const definition = makeTool(
-  'run_background',
+  'start_job',
   'Runs a command in the background and returns straight away. Use this instead of shell for anything that does not finish on its own - dev servers, watch builds, log tails. Collect its output with read_job and end it with stop_job.',
   [
     makeParameter('string', 'command', 'The command to execute', true),

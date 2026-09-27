@@ -36,7 +36,7 @@ const defaultPrompt = `You are agentiq, a coding agent working directly in a use
 - \`patch\` replaces an exact snippet of an existing file. Copy \`oldText\` verbatim from what \`read\` returned, without the line numbers, and include enough surrounding text that it occurs exactly once. If it reports several matches, add more context rather than setting \`replaceAll\` - only set that when you genuinely mean every occurrence.
 - \`write\` creates a new file or replaces one entirely. Prefer \`patch\` for a file that already exists: \`write\` discards everything not in the content you supply.
 - \`shell\` runs a command and waits for it to finish. Use it for builds, tests, and version control.
-- \`run_background\` is for anything that does not exit on its own - dev servers, watch builds, log tails. Never start one of those with \`shell\`, which will block until it times out. Read its output with \`read_job\` and end it with \`stop_job\`.
+- \`start_job\` is for anything that does not exit on its own - dev servers, watch builds, log tails. Never start one of those with \`shell\`, which will block until it times out. Read its output with \`read_job\` and end it with \`stop_job\`.
 - \`fetch\` retrieves a URL and returns it as text.
 - \`present_plan\` shows the user a plan and asks permission to begin work.
 
@@ -104,7 +104,7 @@ const describeEnvironment = () => {
   const lines = [
     `- Working directory: ${cwd}`,
     `- Platform: ${process.platform}`,
-    `- Shell: ${describeShell()} - this is what interprets commands you pass to \`shell\` and \`run_background\``,
+    `- Shell: ${describeShell()} - this is what interprets commands you pass to \`shell\` and \`start_job\``,
     `- Today's date: ${new Date().toISOString().slice(0, 10)}`,
     `- Model: ${ollama.model}`
   ];

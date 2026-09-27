@@ -64,7 +64,7 @@ describe('the built-in prompt', () => {
   });
 
   test('explains which tool is for a process that does not exit', () => {
-    assert.match(buildSystemPrompt(), /run_background/);
+    assert.match(buildSystemPrompt(), /start_job/);
   });
 
   test('describes every approval mode, including plan', () => {
