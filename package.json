@@ -13,6 +13,17 @@
     "type": "git",
     "url": "git+https://github.com/ayan4m1/agentiq.git"
   },
+  "keywords": [
+    "agentic-ai",
+    "agent",
+    "ai-assistant",
+    "chat-assistant",
+    "code-assistant",
+    "terminal",
+    "cli",
+    "ollama",
+    "agent-skills"
+  ],
   "type": "module",
   "module": "./lib/index.js",
   "main": "N/A",
