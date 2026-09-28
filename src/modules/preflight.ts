@@ -22,7 +22,7 @@ let contextLength: number | undefined;
 export const modelContextLength = () => contextLength;
 
 // only the two calls this needs, so a test can stand in for the server
-export type Api = {
+export type PreflightApi = {
   list: () => Promise<ListResponse>;
   show: (request: { model: string }) => Promise<ShowResponse>;
 };
@@ -30,7 +30,7 @@ export type Api = {
 // what the server has, or undefined when it could not be asked. modules/models.ts
 // needs the same list to offer a choice of model, and an unreachable host is the
 // same problem said the same way wherever it is noticed
-export const listModels = async (api: Api = client) => {
+export const listModels = async (api: PreflightApi = client) => {
   try {
     return (await api.list()).models;
   } catch (error) {
@@ -101,7 +101,7 @@ const listInstalled = (models: ListResponse['models']) => {
 
 // everything here is advisory: the model exists, and the session can go ahead
 // even when these checks have something to say about it
-const inspect = async (api: Api) => {
+const inspect = async (api: PreflightApi) => {
   let details;
 
   try {
@@ -160,7 +160,7 @@ const inspect = async (api: Api) => {
 // run before the first prompt: an unreachable host or a model that is not
 // there otherwise surfaces as a failed turn, after the user has typed
 // something and waited for it
-export const preflight = async (api: Api = client) => {
+export const preflight = async (api: PreflightApi = client) => {
   // whatever was learned about a previous model says nothing about this one,
   // and a run that gets no further must not leave the old answer standing
   capabilities.clear();

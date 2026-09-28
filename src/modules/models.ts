@@ -7,7 +7,7 @@ import { getLogger } from './logging';
 import { terminal } from './turn';
 import { pickModel } from './picker';
 import { localTokenizerDir } from './tokenizer';
-import { type Api, listModels, matchesModel } from './preflight';
+import { type PreflightApi, listModels, matchesModel } from './preflight';
 import { home, ollama, tokenizer } from './config';
 import type { ModelEntry, ModelStore } from '../types';
 import { describeError } from '../utils';
@@ -143,7 +143,7 @@ const cancelled = (error: unknown) => {
 // about to be pulled, plus the repo whose tokenizer matches it. the caller may
 // already have asked the server, and there is no need to ask twice
 const addEntry = async (
-  api?: Api,
+  api?: PreflightApi,
   known?: Awaited<ReturnType<typeof listModels>>
 ): Promise<ModelEntry | undefined> => {
   const installed = known ?? (await listModels(api));
@@ -190,7 +190,7 @@ const addEntry = async (
 // do with it - this neither saves nor applies anything, except that a pair the
 // user removes from the list is gone from the store as soon as they say so
 export const chooseEntry = async (
-  api?: Api
+  api?: PreflightApi
 ): Promise<ModelEntry | undefined> => {
   const store = loadStore();
 
@@ -250,7 +250,7 @@ export const chooseEntry = async (
 // run before preflight: nothing else works until the config knows which model
 // it is talking about. a store with an active entry starts without a prompt,
 // which is the ordinary case - the question is only asked on a fresh install
-export const resolveStartupEntry = async (api?: Api) => {
+export const resolveStartupEntry = async (api?: PreflightApi) => {
   const store = loadStore();
   const active = findEntry(store, store.active) ?? store.models[0];
 
