@@ -8,6 +8,7 @@ import * as shell from './shell';
 import * as askList from './ask_list';
 import * as askBoolean from './ask_boolean';
 import * as presentPlan from './present_plan';
+import * as readPlan from './read_plan';
 import * as startJob from './start_job';
 import * as readJob from './read_job';
 import * as stopJob from './stop_job';
@@ -42,5 +43,6 @@ export const tools: ToolCall[] = [
   askList,
   askBoolean,
   presentPlan,
+  readPlan,
   ...(roadmap.enabled ? roadmapTools : [])
 ];

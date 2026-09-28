@@ -2,15 +2,20 @@ import chalk from 'chalk';
 import { select } from '@inquirer/prompts';
 
 import { approval, setMode } from '../modules/approval';
+import { getLogger } from '../modules/logging';
+import { planName, writePlan } from '../modules/plan';
 import { terminal, yieldToUser } from '../modules/turn';
 import { roadmap } from '../modules/config';
 import { ApprovalMode } from '../types';
 import { makeParameter, makeTool } from '../utils';
 
+const log = getLogger('present_plan');
+
 export const definition = makeTool(
   'present_plan',
   [
     'Show the user a plan and ask permission to start work. Use this before making any changes to a codebase you have just finished investigating, and always while plan mode is active. The user replies with how they want the work approved.',
+    `The plan is saved to ${planName}, and read_plan returns it again later.`,
     // add_todo is not offered without the roadmap, so it must not be named
     ...(roadmap.enabled
       ? [
@@ -47,6 +52,8 @@ const Answer = {
 
 type Answer = (typeof Answer)[keyof typeof Answer];
 
+const reminder = `The steps are saved in ${planName} - call read_plan to see them again.`;
+
 const renderPlan = ({ title, steps }: Args) => {
   console.log(`\n${chalk.cyan.bold(title)}\n`);
 
@@ -62,6 +69,11 @@ export const handler = async ({ title, steps }: Args) => {
   // an array of strings whatever the model actually sent
   renderPlan({ title, steps });
 
+  // saved before the user answers, so a plan sent back for more work can still
+  // be read and revised
+  writePlan({ title, steps });
+  log.info(`Wrote the plan to ${planName}`);
+
   // the approval mode was chosen on the command line, so that stands as the
   // answer - except plan mode, where producing the plan was the whole point
   if (!terminal.interactive) {
@@ -71,7 +83,7 @@ export const handler = async ({ title, steps }: Args) => {
       return 'agentiq is running non-interactively, so the plan cannot be approved. No work was done.';
     }
 
-    return 'The plan is approved under the approval mode chosen at launch. Start working through the steps.';
+    return `The plan is approved under the approval mode chosen at launch. Start working through the steps. ${reminder}`;
   }
 
   // deliberately not requestApproval - that answers itself in auto mode, which
@@ -93,11 +105,11 @@ export const handler = async ({ title, steps }: Args) => {
     case Answer.Auto:
       setMode(ApprovalMode.Auto);
 
-      return 'The user approved the plan and turned on auto-approval. Start working through the steps - changes will apply without further prompting.';
+      return `The user approved the plan and turned on auto-approval. Start working through the steps - changes will apply without further prompting. ${reminder}`;
     case Answer.Manual:
       setMode(ApprovalMode.Manual);
 
-      return 'The user approved the plan. Start working through the steps, but expect to be asked to confirm every change.';
+      return `The user approved the plan. Start working through the steps, but expect to be asked to confirm every change. ${reminder}`;
     default:
       // the run loop stops here rather than taking another turn, so this is
       // read alongside whatever the user types next - it reports what happened

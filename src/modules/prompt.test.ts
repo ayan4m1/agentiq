@@ -73,6 +73,7 @@ describe('the built-in prompt', () => {
     assert.match(prompt, /manual/);
     assert.match(prompt, /auto/);
     assert.match(prompt, /present_plan/);
+    assert.match(prompt, /read_plan/);
   });
 });
 
