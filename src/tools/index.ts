@@ -4,6 +4,7 @@ import * as write from './write';
 import * as find from './find';
 import * as list from './list';
 import * as fetch from './fetch';
+import * as explore from './explore';
 import * as shell from './shell';
 import * as askList from './ask_list';
 import * as askBoolean from './ask_boolean';
@@ -17,7 +18,10 @@ import * as completeTodo from './complete_todo';
 import * as removeTodo from './remove_todo';
 import * as updateNotes from './update_notes';
 
-import { roadmap } from '../modules/config';
+import {
+  explore as exploreConfig,
+  roadmap as roadmapConfig
+} from '../modules/config';
 import type { ToolCall } from '../types';
 
 // offered only when AQ_ENABLE_ROADMAP is set - a model that cannot see them has
@@ -44,5 +48,6 @@ export const tools: ToolCall[] = [
   askBoolean,
   presentPlan,
   readPlan,
-  ...(roadmap.enabled ? roadmapTools : [])
+  ...(exploreConfig.enabled ? [explore] : []),
+  ...(roadmapConfig.enabled ? roadmapTools : [])
 ];

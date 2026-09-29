@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 // empty rather than deleted, so a value in a local .env cannot fill it back in
 process.env.AQ_ENABLE_ROADMAP = '';
+process.env.AQ_EXPLORE = '';
 
 const { tools } = await import('./index');
 
@@ -41,6 +42,12 @@ describe('tools', () => {
     for (const name of roadmapToolNames) {
       assert.ok(!names.includes(name), `${name} should not be offered`);
     }
+  });
+
+  test('offers explore unless AQ_EXPLORE turns it off', () => {
+    const names = tools.map((tool) => tool.definition.function.name);
+
+    assert.ok(names.includes('explore'));
   });
 
   test('does not point the model at a roadmap tool it cannot call', () => {

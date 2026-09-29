@@ -14,6 +14,7 @@ import {
   type LoggingConfig,
   LogLevel,
   type OllamaConfig,
+  type ExploreConfig,
   type RoadmapConfig,
   type SessionConfig,
   type ShellConfig,
@@ -285,4 +286,15 @@ export const roadmap: RoadmapConfig = {
     setting('AQ_ENABLE_ROADMAP', 'roadmap', 'enabled'),
     'roadmap.enabled (AQ_ENABLE_ROADMAP)'
   )
+};
+
+// on by default: an exploration only ever reads, so there is nothing to approve,
+// and it keeps the files it reads out of the main conversation
+export const explore: ExploreConfig = {
+  enabled: toBoolean(
+    setting('AQ_EXPLORE', 'explore', 'enabled'),
+    'explore.enabled (AQ_EXPLORE)',
+    true
+  ),
+  rounds: integer('AQ_EXPLORE_ROUNDS', 'explore', 'rounds')
 };

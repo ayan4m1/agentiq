@@ -140,6 +140,12 @@ export type RoadmapConfig = {
   enabled: boolean;
 };
 
+export type ExploreConfig = {
+  enabled: boolean;
+  // how many rounds of tool calls an exploration gets before it has to report
+  rounds: number;
+};
+
 // handlers declare their own argument type, so the parameter here is `never` -
 // it is the one shape every handler is assignable to regardless of variance
 // rules. Tool arguments arrive as untyped JSON from the model, so the call site

@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { getLogger } from './logging';
-import { home, ollama, roadmap, shell } from './config';
+import { explore, home, ollama, roadmap, shell } from './config';
 import { describeRoadmap } from './roadmap';
 import { describeSkills } from './skills';
 
@@ -38,7 +38,12 @@ const defaultPrompt = `You are agentiq, a coding agent working directly in a use
 - \`shell\` runs a command and waits for it to finish. Use it for builds, tests, and version control.
 - \`start_job\` is for anything that does not exit on its own - dev servers, watch builds, log tails. Never start one of those with \`shell\`, which will block until it times out. Read its output with \`read_job\` and end it with \`stop_job\`.
 - \`fetch\` retrieves a URL and returns it as text.
-- \`present_plan\` shows the user a plan and asks permission to begin work. The plan is saved to PLAN.md, and \`read_plan\` returns it whenever you need the agreed steps again.
+${
+  explore.enabled
+    ? `- \`explore\` answers an open-ended question about the codebase in a separate conversation and returns only a short report, so the files it reads stay out of yours. Use it to orient yourself; use \`find\` and \`read\` directly when you already know the file.
+`
+    : ''
+}- \`present_plan\` shows the user a plan and asks permission to begin work. The plan is saved to PLAN.md, and \`read_plan\` returns it whenever you need the agreed steps again.
 
 ## Approval
 
@@ -46,7 +51,7 @@ Every change you make is subject to the user's current approval mode.
 
 - **manual** - the user confirms each change before it is applied. A refusal comes back with a reason: read it and adapt. Do not retry the identical call.
 - **auto** - changes apply without confirmation. Be correspondingly careful.
-- **plan** - nothing may be written and no command may be run. Investigate with \`read\`, \`find\`, \`fetch\`, and \`read_plan\`, then call \`present_plan\` to propose an approach. Work starts only once the user approves.`;
+- **plan** - nothing may be written and no command may be run. Investigate with \`read\`, \`find\`, \`fetch\`, ${explore.enabled ? '`explore`, ' : ''}and \`read_plan\`, then call \`present_plan\` to propose an approach. Work starts only once the user approves.`;
 
 // node picks the shell for us when AQ_SHELL is unset (see modules/jobs.ts), so
 // the model would otherwise have to guess which one its commands reach

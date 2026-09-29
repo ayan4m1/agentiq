@@ -82,4 +82,13 @@ roadmap:
   # the model the add_todo, complete_todo, remove_todo and update_notes tools
   # (AQ_ENABLE_ROADMAP)
   enabled: false
+
+explore:
+  # whether the model is offered the explore tool, which answers a question
+  # about the codebase in a separate conversation that can only read, and
+  # hands back just a short report (AQ_EXPLORE)
+  enabled: true
+  # how many rounds of tool calls an exploration gets before it has to write
+  # its report (AQ_EXPLORE_ROUNDS)
+  rounds: 8
 `;

@@ -13,14 +13,14 @@ import { buildSystemPrompt } from './prompt';
 import { describeSkills } from './skills';
 import { watchForInterrupt } from './interrupt';
 import { showElapsed } from './elapsed';
-import { supportsThinking } from './preflight';
 import type { AgentMessage, ThoughtState, TokenStats } from '../types';
 import { tools } from '../tools';
 import {
   askModel,
   describeElapsed,
   describeError,
-  serializeResult
+  serializeResult,
+  resolveThink
 } from '../utils';
 
 const log = getLogger('ollama');
@@ -33,18 +33,6 @@ export const compactThreshold = 0.8;
 // and it aims well below the trigger, so the turns that follow do not cross it
 // again straight away and pay for another round each time
 const compactTarget = 0.5;
-
-// an explicit setting wins, including an explicit false. otherwise a model
-// that reports it can reason is asked to, because the alternative is that it
-// reasons anyway and buries the result in its reply - where it is streamed as
-// though it were the answer, and then re-sent on every turn that follows
-const resolveThink = () => {
-  if (ollama.think !== undefined) {
-    return ollama.think;
-  }
-
-  return supportsThinking() ? true : undefined;
-};
 
 // what is left of a finished turn once it is history rather than output. the
 // preamble a model writes on its way to a tool call has already been streamed

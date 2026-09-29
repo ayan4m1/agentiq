@@ -27,6 +27,8 @@
               |_|    |__|_|
 ```
 
+- [x] Add a read-only `explore` tool that answers a codebase question in a separate, fresh-context sub-conversation (find/list/read/fetch/read_plan only, capped rounds and tokens) and returns just a concise report of paths, line ranges and key snippets, so orientation output never enters the main history. Implemented in src/modules/explore.ts (its own module, since tools cannot import the thinker without a cycle), reusing tool-call recovery, validation and interrupt handling. Print each sub-call indented with a `>` prefix under an "exploring…" status, and make it opt-out via `AQ_EXPLORE`. Test that it cannot dispatch write/patch/shell, that it stops at its round cap, and that only the report is appended to the main messages.
+
 ## Notes
 
 Do not stub out process.stdout.write in tests: some tests rely on the logs actually being printed.

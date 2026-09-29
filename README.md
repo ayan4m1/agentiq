@@ -51,6 +51,14 @@ mode asks first. Check mode starts off in every new session. The chosen command 
 session, so `/resume` brings it back. `/check <command>`, such as `/check yarn lint`, uses that command
 instead of asking the model. `/check off` turns it off, and `/check` alone shows what it is set to.
 
+The model can hand an open-ended question about the codebase - "where is the approval mode enforced
+for shell commands?" - to the `explore` tool. It is answered in a separate conversation that can only
+use `find`, `list`, `read`, `fetch` and `read_plan`, and only the short report it writes comes back,
+so the files it read never take up room in the main conversation. Each call it makes is shown on a
+line of its own starting with `>`, and escape stops it. It gets `explore.rounds` rounds of tool calls
+(`AQ_EXPLORE_ROUNDS`, default 8) before it has to report, and `explore.enabled: false` (`AQ_EXPLORE`)
+stops it being offered, for a model that struggles to use it.
+
 ## Choosing a model
 
 The model agentiq talks to, and the huggingface.co repository whose tokenizer matches it are chosen
