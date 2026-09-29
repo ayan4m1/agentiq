@@ -29,7 +29,7 @@ import { takeYield } from './turn';
 import { check, restoreCheck, runCheck, setCheck } from './check';
 import type { makeThinker } from './ollama';
 import { readFile } from '../tools/read';
-import type { AgentMessage, ThoughtState } from '../types';
+import type { AgentMessage, ModelEntry, ThoughtState } from '../types';
 import { describeAge, describeError } from '../utils';
 
 // the label stays that of the command it was lifted out of, so the log reads
@@ -463,6 +463,14 @@ export const createController = ({
       return;
     }
 
+    const stayOn = (kept: ModelEntry) => {
+      applyEntry(kept);
+      // the store said this entry was the one to start on, and a switch that
+      // did not happen must not change that
+      saveStore({ ...loadStore(), active: kept.model });
+      log.warn(chalk.red(`Staying on ${kept.model}`));
+    };
+
     rememberEntry(entry);
     applyEntry(entry);
 
@@ -470,11 +478,7 @@ export const createController = ({
     // that cannot call tools, is worth hearing about before the next turn
     if (!(await preflight())) {
       if (previous) {
-        applyEntry(previous);
-        // the store said this entry was the one to start on, and a switch that
-        // did not happen must not change that
-        saveStore({ ...loadStore(), active: previous.model });
-        log.warn(chalk.red(`Staying on ${previous.model}`));
+        stayOn(previous);
       }
 
       return;
@@ -482,6 +486,31 @@ export const createController = ({
 
     await ensureTokenizer();
     thinker.rebuild(nextThought.messages);
+
+    // only now is the session counted by the tokenizer the new model uses. a
+    // model that cannot hold what is already here would have ollama drop the
+    // oldest of it in silence on the very next turn
+    const supported = modelContextLength();
+    const required = thinker.tokens.total;
+
+    if (supported && supported < required) {
+      log.error(
+        chalk.red(
+          `${entry.model} supports ${supported} tokens, but this session already needs ${required} - compact or clear it first`
+        )
+      );
+
+      if (previous) {
+        stayOn(previous);
+        // preflight() replaced what was known about the old model, and
+        // rebuild() counted with the new model's tokenizer - undo both
+        await preflight();
+        await ensureTokenizer();
+        thinker.rebuild(nextThought.messages);
+      }
+
+      return;
+    }
 
     log.info(
       chalk.green(

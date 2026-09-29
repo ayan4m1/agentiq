@@ -1093,6 +1093,42 @@ describe('commands', () => {
     assert.equal(ensureTokenizer.mock.callCount(), 0);
   });
 
+  test('stays where it was when the new model cannot hold the session', async (t) => {
+    const error = t.mock.method(getLogger('run'), 'error', () => {});
+    const controller = onModel(gemma);
+
+    // the fake thinker already counts 35 tokens
+    contextLength = 20;
+    controller.addUserMessage('hello');
+    pickModel.mock.mockImplementationOnce(async () => qwen.model);
+    await controller.runCommand(Command.Model);
+
+    assert.equal(ollama.model, gemma.model);
+    assert.equal(tokenizer.repo, gemma.tokenizer);
+    assert.equal(loadStore().active, gemma.model);
+    assert.match(
+      String(error.mock.calls[0]?.arguments[0]),
+      /supports 20 tokens, but this session already needs 35/
+    );
+    // the old model is asked about again and the session counted by its tokenizer
+    assert.equal(preflight.mock.callCount(), 2);
+    assert.equal(thinker.rebuild.mock.callCount(), 2);
+    assert.deepEqual(thinker.rebuild.mock.calls[1].arguments[0], [
+      { role: 'user', content: 'hello' }
+    ]);
+  });
+
+  test('switches when the new model has room for the session', async () => {
+    const controller = onModel(gemma);
+
+    contextLength = 8192;
+    pickModel.mock.mockImplementationOnce(async () => qwen.model);
+    await controller.runCommand(Command.Model);
+
+    assert.equal(ollama.model, qwen.model);
+    assert.equal(thinker.rebuild.mock.callCount(), 1);
+  });
+
   test('does nothing for /model on the model already in use', async () => {
     const controller = onModel(gemma);
 
