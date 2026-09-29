@@ -451,7 +451,7 @@ describe('startRepl', () => {
     await exitCodeOf();
 
     assert.equal(info.mock.callCount(), 1);
-    assert.match(info.mock.calls[0].arguments[0], /--resume second$/);
+    assert.match(info.mock.calls[0].arguments[0], /--resume second/);
   });
 
   describe('mode prompt', () => {

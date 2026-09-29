@@ -12,6 +12,15 @@ import type { AgentMessage } from '../types';
 // predictable. it also has to be set before the module first evaluates
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-thinker-'));
 
+// what the server says the model can do is learned by preflight, which needs
+// the server - so the answer is whatever the test says it is. utils reads it
+// too, so this has to be in place before utils is first imported
+let modelThinks = false;
+
+mock.module('./preflight', {
+  namedExports: { supportsThinking: () => modelThinks }
+});
+
 const { logging, ollama, session } = await import('./config');
 const { makeTool, makeParameter } = await import('../utils');
 
@@ -59,14 +68,6 @@ const ora = mock.fn<
 });
 
 mock.module('ora', { defaultExport: ora });
-
-// what the server says the model can do is learned by preflight, which needs
-// the server - so the answer is whatever the test says it is
-let modelThinks = false;
-
-mock.module('./preflight', {
-  namedExports: { supportsThinking: () => modelThinks }
-});
 
 // the real prompt reads the working tree and the rules files. all that matters
 // here is that it names the model, and that it can be switched off entirely

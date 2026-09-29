@@ -15,7 +15,9 @@ const killAllJobs = mock.fn();
 const discardCheckpoints = mock.fn();
 
 mock.module('./models', { namedExports: { resolveStartupEntry } });
-mock.module('./preflight', { namedExports: { preflight } });
+mock.module('./preflight', {
+  namedExports: { preflight, supportsThinking: () => true }
+});
 mock.module('./tokenizer', { namedExports: { ensureTokenizer } });
 mock.module('./ollama', { namedExports: { makeThinker } });
 mock.module('./jobs', { namedExports: { killAllJobs } });
