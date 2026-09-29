@@ -83,6 +83,9 @@ type ControllerOptions = {
   // the prompt they type into next can offer it back. the prompt itself is the
   // caller's business - this module never touches it
   rememberPrompts?: (prompts: string[]) => void;
+  // handed each prompt sent through the editor, as the line the prompt should
+  // offer back for it - the prompt only ever saw the command that opened it
+  rememberPrompt?: (line: string) => void;
 };
 
 // a prompt that mentioned files carries them in its content, but what the user
@@ -96,11 +99,18 @@ const isUserPrompt = (message: AgentMessage) =>
   Boolean(typedText(message).trim()) &&
   !message.summary;
 
-// what the user typed, oldest first - so the last thing they said is one press
-// away. a multi-line one cannot be recalled into readline's single-line buffer
-// without corrupting the display, so it is dropped rather than truncated
-const isTypedPrompt = (message: AgentMessage) =>
-  isUserPrompt(message) && !typedText(message).includes('\n');
+// a multi-line prompt cannot be recalled into readline's single-line buffer
+// without corrupting the display, so the history holds this in its place: the
+// first line and how much more there is. sending it opens the whole of it in
+// the editor again
+export const previewOf = (text: string) => {
+  const lines = text.trim().split(/\r?\n/);
+  const first = lines[0].replace(/\s+/g, ' ').trim();
+  const label = first.length > 60 ? `${first.slice(0, 60)}…` : first;
+  const more = lines.length - 1;
+
+  return `${label} … (+${more} line${more === 1 ? '' : 's'})`;
+};
 
 // a prompt on one line, for a list or a question that has only one to give it
 const oneLine = (message: AgentMessage) =>
@@ -137,22 +147,50 @@ const expandMentions = (content: string) => {
   return attached.length ? [content, ...attached].join('\n\n') : undefined;
 };
 
-const typedPrompts = (messages: AgentMessage[]) => {
-  const prompts = messages.filter(isTypedPrompt).map(typedText);
-  const { historyLimit } = session;
-
-  return Number.isFinite(historyLimit) && historyLimit > 0
-    ? prompts.slice(-historyLimit)
-    : prompts;
-};
-
 // everything the run loop keeps between turns, and everything it does to it -
 // the loop itself is only the prompt, and the prompt cannot be tested
 export const createController = ({
   thinker,
   compactAt,
-  rememberPrompts
+  rememberPrompts,
+  rememberPrompt
 }: ControllerOptions) => {
+  // the full text behind each preview the history holds. a later prompt with
+  // the same preview takes its place, so recalling one gives the newest
+  const pasted = new Map<string, string>();
+
+  // the line the command prompt can offer back for a prompt: the prompt itself
+  // when it fits on one, or else its preview
+  const recallable = (text: string) => {
+    if (!text.includes('\n')) {
+      return text;
+    }
+
+    // the editor leaves a newline at the end of even a single line
+    if (!text.trim().includes('\n')) {
+      return text.trim();
+    }
+
+    const preview = previewOf(text);
+
+    pasted.set(preview, text);
+
+    return preview;
+  };
+
+  // what the user said, oldest first - so the last thing they said is one
+  // press away
+  const typedPrompts = (messages: AgentMessage[]) => {
+    const prompts = messages.filter(isUserPrompt);
+    const { historyLimit } = session;
+
+    return (
+      Number.isFinite(historyLimit) && historyLimit > 0
+        ? prompts.slice(-historyLimit)
+        : prompts
+    ).map((message) => recallable(typedText(message)));
+  };
+
   let nextThought: ThoughtState = {
     messages: []
   };
@@ -392,8 +430,8 @@ export const createController = ({
       thinker.load(nextThought.messages);
       rewrite(nextThought.messages);
       // a pasted prompt would corrupt the single-line prompt it was put back
-      // into, so it is only offered back when it fits there
-      prefill = isTypedPrompt(prompt) ? typedText(prompt) : undefined;
+      // into, so it comes back as its preview and is edited in the editor
+      prefill = recallable(typedText(prompt));
 
       log.info(
         chalk.green(
@@ -514,12 +552,13 @@ export const createController = ({
   // a prompt longer than one line, written in the user's own editor since the
   // command prompt cannot hold one. sent as though it had been typed, so the
   // loop goes straight on to the turn instead of asking again
-  const paste = async () => {
+  const paste = async (initial?: string) => {
     try {
       const text = await editor({
         message: 'Compose a prompt',
         postfix: '.md',
-        waitForUserInput: false
+        waitForUserInput: false,
+        default: initial
       });
 
       if (!text.trim()) {
@@ -529,6 +568,12 @@ export const createController = ({
       }
 
       addUserMessage(text);
+
+      // kept out of the call, which is skipped with no one to hand it to - the
+      // preview still has to be known for /undo to offer it back
+      const line = recallable(text);
+
+      rememberPrompt?.(line);
     } catch (error) {
       // log but swallow an error (if the editor could not be opened)
       if (error instanceof Error) {
@@ -635,6 +680,20 @@ export const createController = ({
     return undefined;
   };
 
+  // a preview sent back from the history opens its prompt in the editor again,
+  // rather than being sent as the one line it is. false for anything else
+  const reopenPaste = async (line: string) => {
+    const text = pasted.get(line);
+
+    if (text === undefined) {
+      return false;
+    }
+
+    await paste(text);
+
+    return true;
+  };
+
   const addUserMessage = (content: string) => {
     const expanded = expandMentions(content);
     const message: AgentMessage = expanded
@@ -726,6 +785,7 @@ export const createController = ({
     compact,
     clear,
     runCommand,
+    reopenPaste,
     addUserMessage,
     takeTurn,
     runPrompt,

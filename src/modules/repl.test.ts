@@ -90,7 +90,7 @@ mock.module('./check', {
   namedExports: { check, setCheck, restoreCheck, runCheck }
 });
 
-const { Command, createController } = await import('./repl');
+const { Command, createController, previewOf } = await import('./repl');
 const { approval } = await import('./approval');
 const { ollama, session, tokenizer } = await import('./config');
 const { loadStore, saveStore } = await import('./models');
@@ -150,13 +150,15 @@ let thinker: ReturnType<typeof makeThinker>;
 
 const make = (
   compactAt = 1000,
-  rememberPrompts?: (prompts: string[]) => void
+  rememberPrompts?: (prompts: string[]) => void,
+  rememberPrompt?: (line: string) => void
 ) =>
   // the fake covers what the controller uses, not every field of a thinker
   createController({
     thinker: thinker as never,
     compactAt: () => compactAt,
-    rememberPrompts
+    rememberPrompts,
+    rememberPrompt
   });
 
 // what a restore handed to the prompt, for the tests that care
@@ -778,8 +780,7 @@ describe('restore', () => {
   test('leaves out the notes compaction wrote', () => {
     append([
       { role: 'user', content: 'typed' },
-      // deliberately one line: a multi-line fixture would be dropped by the
-      // check below it, and this would pass without the flag being read at all
+      // deliberately one line, so only the flag could leave it out
       { role: 'user', content: 'what happened earlier', summary: true }
     ]);
 
@@ -789,7 +790,7 @@ describe('restore', () => {
     assert.deepEqual(prompts(), ['typed']);
   });
 
-  test('leaves out blank and multi-line prompts', () => {
+  test('leaves out blank prompts and previews multi-line ones', () => {
     append([
       { role: 'user', content: '   ' },
       { role: 'user', content: 'pasted\nover two lines' },
@@ -799,7 +800,7 @@ describe('restore', () => {
     const { remember, prompts } = seeded();
 
     assert.equal(make(1000, remember).restore(), true);
-    assert.deepEqual(prompts(), ['typed']);
+    assert.deepEqual(prompts(), ['pasted … (+1 line)', 'typed']);
   });
 
   test('offers back only the most recent prompts', () => {
@@ -1298,9 +1299,25 @@ describe('/paste', () => {
   const pasted =
     'why does this throw?\n\nTypeError: x is undefined\n    at main';
 
+  const preview = 'why does this throw? … (+3 lines)';
+
   // what the editor hands back the next time it is opened
   const writesInEditor = (text: string) =>
     editor.mock.mockImplementationOnce(async () => text);
+
+  // what the editor started out holding the last time it was opened
+  const editorDefault = () =>
+    (editor.mock.calls.at(-1)?.arguments[0] as { default?: string }).default;
+
+  // the lines handed to the prompt history, in order
+  const remembered = () => {
+    const remember = mock.fn<(line: string) => void>();
+
+    return {
+      remember,
+      lines: () => remember.mock.calls.map((call) => call.arguments[0])
+    };
+  };
 
   test('sends what was written as a prompt and goes straight to the turn', async () => {
     const controller = make();
@@ -1337,7 +1354,54 @@ describe('/paste', () => {
     ]);
   });
 
-  test('keeps it out of the history of a resumed session', async () => {
+  test('hands the prompt history a preview of it', async () => {
+    const { remember, lines } = remembered();
+    const controller = make(1000, undefined, remember);
+
+    writesInEditor(pasted);
+    await controller.runCommand(Command.Paste);
+
+    assert.deepEqual(lines(), [preview]);
+  });
+
+  test('hands the prompt history a single line as it is', async () => {
+    const { remember, lines } = remembered();
+    const controller = make(1000, undefined, remember);
+
+    writesInEditor('just the one line\n');
+    await controller.runCommand(Command.Paste);
+
+    assert.deepEqual(lines(), ['just the one line']);
+  });
+
+  test('opens the whole of a recalled preview in the editor again', async () => {
+    const controller = make();
+
+    writesInEditor(pasted);
+    await controller.runCommand(Command.Paste);
+    assert.equal(editorDefault(), undefined);
+
+    writesInEditor(`${pasted}\nand again`);
+    assert.equal(await controller.reopenPaste(preview), true);
+
+    assert.equal(editorDefault(), pasted);
+    assert.equal(controller.messages[1].content, `${pasted}\nand again`);
+    assert.equal(controller.needsUserInput, false);
+  });
+
+  test('leaves anything but a preview alone', async () => {
+    const controller = make();
+
+    writesInEditor(pasted);
+    await controller.runCommand(Command.Paste);
+
+    const opened = editor.mock.callCount();
+
+    assert.equal(await controller.reopenPaste('why does this throw?'), false);
+    assert.equal(editor.mock.callCount(), opened);
+  });
+
+  test('offers it back to a resumed session as its preview', async () => {
     const controller = make();
 
     writesInEditor(pasted);
@@ -1347,10 +1411,15 @@ describe('/paste', () => {
     await controller.takeTurn();
 
     const { remember, prompts } = seeded();
+    const resumed = make(1000, remember);
 
-    make(1000, remember).restore();
+    resumed.restore();
 
-    assert.deepEqual(prompts(), ['typed']);
+    assert.deepEqual(prompts(), [preview, 'typed']);
+
+    writesInEditor(pasted);
+    assert.equal(await resumed.reopenPaste(preview), true);
+    assert.equal(editorDefault(), pasted);
   });
 
   test('sends nothing when nothing was written', async (t) => {
@@ -1382,7 +1451,7 @@ describe('/paste', () => {
     assert.match(String(error.mock.calls[0]?.arguments[0]), /Failed to launch/);
   });
 
-  test('can be undone, files and all, without being offered back', async () => {
+  test('can be undone, files and all, and offered back as its preview', async () => {
     const controller = make();
 
     writeFileSync('a.txt', 'original');
@@ -1412,6 +1481,31 @@ describe('/paste', () => {
     assert.doesNotMatch(confirm.mock.calls[0].arguments[0].message, /\n/);
     assert.equal(readFileSync('a.txt').toString(), 'original');
     assert.deepEqual(controller.messages, []);
-    assert.equal(controller.takePrefill(), undefined);
+    assert.equal(controller.takePrefill(), preview);
+
+    writesInEditor(pasted);
+    assert.equal(await controller.reopenPaste(preview), true);
+    assert.equal(editorDefault(), pasted);
+  });
+});
+
+describe('previewOf', () => {
+  test('gives the first line and how many follow it', () => {
+    assert.equal(previewOf('one\ntwo\nthree'), 'one … (+2 lines)');
+    assert.equal(previewOf('one\r\ntwo'), 'one … (+1 line)');
+  });
+
+  test('skips blank lines around the text', () => {
+    assert.equal(
+      previewOf('\n\n  first   line \nsecond\n\n'),
+      'first line … (+1 line)'
+    );
+  });
+
+  test('cuts a long first line short', () => {
+    assert.equal(
+      previewOf(`${'x'.repeat(80)}\nmore`),
+      `${'x'.repeat(60)}… … (+1 line)`
+    );
   });
 });

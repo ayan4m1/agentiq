@@ -125,7 +125,9 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
       prompts.forEach((prompt) =>
         InquirerCommandPrompt.addToHistory(historyContext, prompt)
       );
-    }
+    },
+    rememberPrompt: (line) =>
+      InquirerCommandPrompt.addToHistory(historyContext, line)
   });
 
   const commands = Object.values(Command);
@@ -160,6 +162,12 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
         // the library's own heading says commands, which a path list is not
         autocompletePrompt: systemColor('Completions:')
       });
+
+      // a multi-line prompt recalled from the history, which only ever holds
+      // its preview - the editor it opens in sends it on from there
+      if (await controller.reopenPaste(userMessage)) {
+        continue;
+      }
 
       if (userMessage.startsWith('/')) {
         if (

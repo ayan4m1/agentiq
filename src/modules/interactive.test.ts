@@ -31,6 +31,7 @@ type PromptOptions = {
 type ControllerOptions = {
   compactAt: () => number;
   rememberPrompts: (prompts: string[]) => void;
+  rememberPrompt: (line: string) => void;
 };
 
 let controllerOptions: ControllerOptions | undefined;
@@ -116,6 +117,8 @@ const controller = {
     return restored;
   }),
   runCommand: mock.fn(async (name: string) => name),
+  // true for a preview of a pasted prompt, which none is unless a test says so
+  reopenPaste: mock.fn<(line: string) => Promise<boolean>>(async () => false),
   // what /undo left for the next prompt, handed out once like the real thing
   takePrefill: mock.fn<() => string | undefined>(() => undefined),
   addUserMessage: mock.fn<(message: string) => void>(),
@@ -227,6 +230,7 @@ describe('startRepl', () => {
       startAgent,
       controller.restore,
       controller.runCommand,
+      controller.reopenPaste,
       controller.takePrefill,
       controller.addUserMessage,
       controller.takeTurn,
@@ -341,6 +345,23 @@ describe('startRepl', () => {
     assert.equal(prompt.mock.calls[0].arguments[0].context, 'history-1');
   });
 
+  test('files pasted prompts under the current history context', async () => {
+    rememberedPrompts = ['first'];
+    answers = ['/paste', '/quit'];
+    controller.runCommand.mock.mockImplementationOnce(async (name: string) => {
+      controllerOptions?.rememberPrompt('pasted … (+1 line)');
+
+      return name;
+    });
+
+    await exitCodeOf('abc');
+
+    assert.deepEqual(argumentsOf(addToHistory), [
+      ['history-1', 'first'],
+      ['history-1', 'pasted … (+1 line)']
+    ]);
+  });
+
   test('starts each repl on a history of its own', async () => {
     rememberedPrompts = ['first'];
     await exitCodeOf('abc');
@@ -359,6 +380,20 @@ describe('startRepl', () => {
 
     assert.deepEqual(argumentsOf(controller.addUserMessage), [['hello']]);
     assert.deepEqual(argumentsOf(controller.takeTurn), [[schedule]]);
+  });
+
+  test('reopens a recalled preview rather than sending it', async () => {
+    answers = ['pasted … (+1 line)', '/quit'];
+    controller.reopenPaste.mock.mockImplementationOnce(async () => true);
+
+    await exitCodeOf();
+
+    assert.deepEqual(argumentsOf(controller.reopenPaste), [
+      ['pasted … (+1 line)'],
+      ['/quit']
+    ]);
+    assert.deepEqual(argumentsOf(controller.runCommand), [['quit']]);
+    assert.equal(controller.addUserMessage.mock.callCount(), 0);
   });
 
   test('runs a command without taking a turn on it', async () => {
