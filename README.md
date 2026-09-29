@@ -40,8 +40,8 @@ default 3), and `/recap <turns>` covers that many instead. The recap is only pri
 added to the conversation or the session file - so it is handy after `/resume` or a compaction.
 
 `/paste` opens `$VISUAL` or `$EDITOR` (notepad or vim when neither is set) for a prompt that spans
-more than one line, such as a stack trace, and sends it once the editor is closed. It is not offered
-back by the up arrow, but `/undo` can still take it back.
+more than one line, such as a stack trace, and sends it once the editor is closed. `/undo` can still
+take it back.
 
 `/check on` asks the model to pick a command that tests, lints or type-checks the project, then runs
 it each time the model finishes a turn that wrote or patched files. Its result shows after the token count above the prompt: `✔`
