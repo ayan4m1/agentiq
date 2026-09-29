@@ -3,12 +3,15 @@ import Bottleneck from 'bottleneck';
 import { ollama } from './config';
 import { killAllJobs } from './jobs';
 import { makeThinker } from './ollama';
+import { getLogger } from './logging';
 import { preflight } from './preflight';
 import { loadSkills } from './skills';
 import { ensureTokenizer } from './tokenizer';
 import { resolveStartupEntry } from './models';
 import { discardCheckpoints } from './checkpoints';
 import type { ThoughtState } from '../types';
+
+const log = getLogger('startup');
 
 // everything both commands do before the first turn. a failure has already
 // been reported by whatever failed, so the caller only has to exit - the
@@ -27,6 +30,11 @@ export const startAgent = async () => {
   if (!(await preflight())) {
     return;
   }
+
+  // an unset host is the client's own default, so say which one that is
+  log.info(
+    `Connected to ollama server ${ollama.host ?? 'http://127.0.0.1:11434'} using model ${ollama.model}`
+  );
 
   // makeThinker() tokenizes the system prompt and every tool definition up
   // front, so the tokenizer has to be on disk before it runs

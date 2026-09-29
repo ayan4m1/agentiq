@@ -13,7 +13,19 @@ const thinker = { tokens: {} };
 const makeThinker = mock.fn(() => thinker);
 const killAllJobs = mock.fn();
 const discardCheckpoints = mock.fn();
+const info = mock.fn();
 
+mock.module('./logging', { namedExports: { getLogger: () => ({ info }) } });
+mock.module('./config', {
+  namedExports: {
+    ollama: {
+      host: 'http://example:11434',
+      model: 'test-model',
+      minTurnDelay: 0
+    }
+  }
+});
+mock.module('./skills', { namedExports: { loadSkills: () => [] } });
 mock.module('./models', { namedExports: { resolveStartupEntry } });
 mock.module('./preflight', {
   namedExports: { preflight, supportsThinking: () => true }
@@ -44,7 +56,8 @@ beforeEach(() => {
     ensureTokenizer,
     makeThinker,
     killAllJobs,
-    discardCheckpoints
+    discardCheckpoints,
+    info
   ]) {
     fn.mock.resetCalls();
   }
@@ -79,6 +92,17 @@ describe('startAgent', () => {
     assert.equal(await startAgent(), undefined);
     assert.equal(ensureTokenizer.mock.callCount(), 0);
     assert.equal(makeThinker.mock.callCount(), 0);
+    assert.equal(info.mock.callCount(), 0);
+  });
+
+  test('says which server and model it connected to', async () => {
+    await startAgent();
+
+    assert.equal(info.mock.callCount(), 1);
+    assert.equal(
+      info.mock.calls[0].arguments[0],
+      'Connected to ollama server http://example:11434 using model test-model'
+    );
   });
 
   test('makes the thinker once everything it needs is in place', async () => {
