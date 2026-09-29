@@ -100,7 +100,7 @@ const schedule = mock.fn();
 const cleanUp = mock.fn();
 const startAgent = mock.fn(async () =>
   agentStarts
-    ? { thinker: { tokens: { messages: 42 } }, schedule, cleanUp }
+    ? { thinker: { tokens: { total: 42 } }, schedule, cleanUp }
     : undefined
 );
 

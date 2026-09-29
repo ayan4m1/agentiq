@@ -32,7 +32,7 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
   const { thinker, schedule, cleanUp } = agent;
 
   const renderPrompt = () =>
-    `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.messages)}${describeCheck()}`)}\n${chalk.blue('>')}`;
+    `${systemColor(`${describeMode()}${getTokenString(thinker.tokens.total)}${describeCheck()}`)}\n${chalk.blue('>')}`;
 
   // the prompt's own tab branch has no shift guard, so shift+tab would otherwise
   // fall into autocompletion and leave a literal tab in the buffer
