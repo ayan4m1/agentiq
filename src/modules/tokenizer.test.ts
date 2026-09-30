@@ -17,7 +17,7 @@ const fromPreTrained = mock.fn<
 }));
 
 mock.module('@lenml/tokenizers', {
-  namedExports: { TokenizerLoader: { fromPreTrained } }
+  exports: { TokenizerLoader: { fromPreTrained } }
 });
 
 const { estimateTokens, ensureTokenizer, localTokenizerDir, makeTokenizer } =

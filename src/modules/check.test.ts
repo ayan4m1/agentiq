@@ -22,7 +22,7 @@ const watchForInterrupt = mock.fn((onInterrupt: () => void) => {
   return stopWatching;
 });
 
-mock.module('./interrupt', { namedExports: { watchForInterrupt } });
+mock.module('./interrupt', { exports: { watchForInterrupt } });
 
 // the spinner draws on a real terminal, so a fake stands in for it
 const ora = mock.fn(() => ({
@@ -31,18 +31,18 @@ const ora = mock.fn(() => ({
   isSpinning: false
 }));
 
-mock.module('ora', { defaultExport: ora });
+mock.module('ora', { exports: { default: ora } });
 
 // the approval mode is whatever the test says it is
 let planning = false;
 const refusePlanning = mock.fn(() => (planning ? 'refused' : undefined));
 
-mock.module('./approval', { namedExports: { refusePlanning } });
+mock.module('./approval', { exports: { refusePlanning } });
 
 // the session file is tested on its own - here it only has to be told
 const setSessionCheck = mock.fn<(command?: string) => void>();
 
-mock.module('./session', { namedExports: { setSessionCheck } });
+mock.module('./session', { exports: { setSessionCheck } });
 
 // the command never really runs: each test says what it prints and how it
 // ends, and whether it ends at all before it is killed
@@ -73,7 +73,7 @@ const spawnCommand = mock.fn(
   }
 );
 
-mock.module('./jobs', { namedExports: { killTree, spawnCommand } });
+mock.module('./jobs', { exports: { killTree, spawnCommand } });
 
 const { turn } = await import('./turn');
 const { client } = await import('./client');

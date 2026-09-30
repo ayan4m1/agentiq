@@ -19,14 +19,14 @@ const answer = mock.fn<(config: { message: string }) => Promise<string>>();
 const input = mock.fn<() => Promise<string>>();
 
 mock.module('@inquirer/core', {
-  namedExports: {
+  exports: {
     createPrompt: () => answer,
     isEnterKey: () => false,
     useKeypress: () => {},
     useState: (value: unknown) => [value, () => {}]
   }
 });
-mock.module('@inquirer/prompts', { namedExports: { input } });
+mock.module('@inquirer/prompts', { exports: { input } });
 
 const {
   approval,

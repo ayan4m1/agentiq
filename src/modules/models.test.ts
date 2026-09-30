@@ -45,8 +45,8 @@ type Picked = {
 const pickModel =
   mock.fn<(config: Picked) => Promise<string | undefined>>(answer);
 
-mock.module('@inquirer/prompts', { namedExports: { select, input } });
-mock.module('./picker', { namedExports: { pickModel } });
+mock.module('@inquirer/prompts', { exports: { select, input } });
+mock.module('./picker', { exports: { pickModel } });
 
 // what the user types, in order. a prompt cancelled with ^C raises rather than
 // resolving, so an Error stands for walking away from one

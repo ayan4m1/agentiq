@@ -140,24 +140,26 @@ const describeMode = mock.fn(() => 'manual');
 // empty while check mode is off, which is how every session starts
 const describeCheck = mock.fn(() => '');
 
-mock.module('inquirer', { defaultExport: { prompt, registerPrompt } });
-mock.module('inquirer-command-prompt', { defaultExport: CommandPromptBase });
-mock.module('./startup', { namedExports: { startAgent } });
+mock.module('inquirer', { exports: { default: { prompt, registerPrompt } } });
+mock.module('inquirer-command-prompt', {
+  exports: { default: CommandPromptBase }
+});
+mock.module('./startup', { exports: { startAgent } });
 mock.module('./repl', {
-  namedExports: {
+  exports: {
     Command: { Help: 'help', Quit: 'quit' },
     createController,
     systemColor: (text: string) => text
   }
 });
 mock.module('./session', {
-  namedExports: { pruneSessions, sessionId, startSession }
+  exports: { pruneSessions, sessionId, startSession }
 });
-mock.module('./logging', { namedExports: { getLogger: () => ({ info }) } });
-mock.module('./approval', { namedExports: { cycleMode, describeMode } });
-mock.module('./check', { namedExports: { describeCheck } });
-mock.module('./config', { namedExports: { ollama: { contextLimit: 1000 } } });
-mock.module('./ollama', { namedExports: { compactThreshold: 0.5 } });
+mock.module('./logging', { exports: { getLogger: () => ({ info }) } });
+mock.module('./approval', { exports: { cycleMode, describeMode } });
+mock.module('./check', { exports: { describeCheck } });
+mock.module('./config', { exports: { ollama: { contextLimit: 1000 } } });
+mock.module('./ollama', { exports: { compactThreshold: 0.5 } });
 
 // completion is tested on its own - here it only has to be handed to the prompt
 const invalidate = mock.fn();
@@ -168,7 +170,7 @@ const complete = mock.fn<(line: string, sources: unknown) => string[]>(() => [
 const shortCompletions = mock.fn();
 
 mock.module('./completion', {
-  namedExports: {
+  exports: {
     complete,
     createPathIndex: () => pathIndex,
     shortCompletions

@@ -9,7 +9,7 @@ const projectFiles = mock.fn<(cwd: string) => Set<string>>(
 );
 
 mock.module('./ignore', {
-  namedExports: {
+  exports: {
     projectFiles,
     visibleDirectories: (files: Set<string>) => {
       const directories = new Set<string>();

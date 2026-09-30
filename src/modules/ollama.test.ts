@@ -18,7 +18,7 @@ process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-thinker-'));
 let modelThinks = false;
 
 mock.module('./preflight', {
-  namedExports: { supportsThinking: () => modelThinks }
+  exports: { supportsThinking: () => modelThinks }
 });
 
 const { logging, ollama, session } = await import('./config');
@@ -34,7 +34,7 @@ const watchForInterrupt = mock.fn((onInterrupt: () => void) => {
   return stopWatching;
 });
 
-mock.module('./interrupt', { namedExports: { watchForInterrupt } });
+mock.module('./interrupt', { exports: { watchForInterrupt } });
 
 // the spinner draws on a real terminal, which a test does not have - so a fake
 // stands in for it, recording how it was set up and when it ran
@@ -67,7 +67,7 @@ const ora = mock.fn<
   return lastSpinner;
 });
 
-mock.module('ora', { defaultExport: ora });
+mock.module('ora', { exports: { default: ora } });
 
 // the real prompt reads the working tree and the rules files. all that matters
 // here is that it names the model, and that it can be switched off entirely
@@ -77,11 +77,11 @@ let promptBlank = false;
 let skillsBlock: string | undefined;
 
 mock.module('./skills', {
-  namedExports: { describeSkills: () => skillsBlock }
+  exports: { describeSkills: () => skillsBlock }
 });
 
 mock.module('./prompt', {
-  namedExports: {
+  exports: {
     buildSystemPrompt: () =>
       promptBlank
         ? ''
@@ -109,7 +109,7 @@ const silent = {
   handler: mock.fn(async () => undefined)
 };
 
-mock.module('../tools', { namedExports: { tools: [echo, boom, silent] } });
+mock.module('../tools', { exports: { tools: [echo, boom, silent] } });
 
 const { makeThinker, replayable } = await import('./ollama');
 const { client } = await import('./client');

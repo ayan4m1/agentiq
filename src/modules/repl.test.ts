@@ -40,7 +40,7 @@ const confirm = mock.fn<(config: { message: string }) => Promise<boolean>>(
 const editor = mock.fn<(config: unknown) => Promise<string>>();
 
 mock.module('@inquirer/prompts', {
-  namedExports: { select, confirm, editor, input: mock.fn() }
+  exports: { select, confirm, editor, input: mock.fn() }
 });
 
 // /model asks the server whether the model it was given is really there, and
@@ -56,12 +56,12 @@ const ensureTokenizer = mock.fn(async () => true);
 // /model picks from a prompt of its own
 const pickModel = mock.fn<(config: unknown) => Promise<string>>();
 
-mock.module('./picker', { namedExports: { pickModel } });
+mock.module('./picker', { exports: { pickModel } });
 
 mock.module('./preflight', {
   // listModels is what modules/models.ts reaches for, and nothing here gets as
   // far as the add flow that would call it
-  namedExports: {
+  exports: {
     preflight,
     listModels: async () => [],
     matchesModel: (installed: string, configured: string) =>
@@ -71,7 +71,7 @@ mock.module('./preflight', {
   }
 });
 mock.module('./tokenizer', {
-  namedExports: {
+  exports: {
     ensureTokenizer,
     estimateTokens: (value: string) => value.length,
     localTokenizerDir: () => undefined,
@@ -87,7 +87,7 @@ const restoreCheck = mock.fn<(command?: string) => void>();
 const runCheck = mock.fn<() => Promise<void>>(async () => {});
 
 mock.module('./check', {
-  namedExports: { check, setCheck, restoreCheck, runCheck }
+  exports: { check, setCheck, restoreCheck, runCheck }
 });
 
 const { Command, createController, previewOf } = await import('./repl');

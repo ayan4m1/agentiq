@@ -15,9 +15,9 @@ const killAllJobs = mock.fn();
 const discardCheckpoints = mock.fn();
 const info = mock.fn();
 
-mock.module('./logging', { namedExports: { getLogger: () => ({ info }) } });
+mock.module('./logging', { exports: { getLogger: () => ({ info }) } });
 mock.module('./config', {
-  namedExports: {
+  exports: {
     ollama: {
       host: 'http://example:11434',
       model: 'test-model',
@@ -25,15 +25,15 @@ mock.module('./config', {
     }
   }
 });
-mock.module('./skills', { namedExports: { loadSkills: () => [] } });
-mock.module('./models', { namedExports: { resolveStartupEntry } });
+mock.module('./skills', { exports: { loadSkills: () => [] } });
+mock.module('./models', { exports: { resolveStartupEntry } });
 mock.module('./preflight', {
-  namedExports: { preflight, supportsThinking: () => true }
+  exports: { preflight, supportsThinking: () => true }
 });
-mock.module('./tokenizer', { namedExports: { ensureTokenizer } });
-mock.module('./ollama', { namedExports: { makeThinker } });
-mock.module('./jobs', { namedExports: { killAllJobs } });
-mock.module('./checkpoints', { namedExports: { discardCheckpoints } });
+mock.module('./tokenizer', { exports: { ensureTokenizer } });
+mock.module('./ollama', { exports: { makeThinker } });
+mock.module('./jobs', { exports: { killAllJobs } });
+mock.module('./checkpoints', { exports: { discardCheckpoints } });
 
 const { startAgent } = await import('./startup');
 

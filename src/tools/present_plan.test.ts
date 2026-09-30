@@ -11,7 +11,7 @@ const select =
   mock.fn<(config: { message: string; default?: string }) => Promise<string>>();
 
 mock.module('@inquirer/prompts', {
-  namedExports: { select, input: mock.fn() }
+  exports: { select, input: mock.fn() }
 });
 
 // the plan path is resolved from the working directory when the module loads,

@@ -15,20 +15,22 @@ const watchForInterrupt = mock.fn((onInterrupt: () => void) => {
   return stopWatching;
 });
 
-mock.module('./interrupt', { namedExports: { watchForInterrupt } });
+mock.module('./interrupt', { exports: { watchForInterrupt } });
 
 // the spinner draws on a real terminal, which a test does not have
 let spinning = false;
 
 mock.module('ora', {
-  defaultExport: () => ({
-    start: () => (spinning = true),
-    stop: () => (spinning = false),
-    get isSpinning() {
-      return spinning;
-    },
-    suffixText: ''
-  })
+  exports: {
+    default: () => ({
+      start: () => (spinning = true),
+      stop: () => (spinning = false),
+      get isSpinning() {
+        return spinning;
+      },
+      suffixText: ''
+    })
+  }
 });
 
 const { explore: config, ollama } = await import('./config');

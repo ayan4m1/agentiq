@@ -7,7 +7,7 @@ const select =
     (config: { message: string; choices: string[] }) => Promise<string>
   >();
 
-mock.module('@inquirer/prompts', { namedExports: { select } });
+mock.module('@inquirer/prompts', { exports: { select } });
 
 const { handler } = await import('./ask_list');
 const { terminal } = await import('../modules/turn');
