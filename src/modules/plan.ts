@@ -12,11 +12,14 @@ export type Plan = {
 };
 
 // numbered the same way present_plan prints it, so a step the user approved as
-// "3." is still step 3 when the model reads it back
+// "3." is still step 3 when the model reads it back. a plan with no steps is
+// just its title, rather than a title trailed by an empty block
 export const serializePlan = ({ title, steps }: Plan) =>
   [
     `# ${title}`,
-    steps.map((step, index) => `${index + 1}. ${step}`).join('\n')
+    ...(steps.length
+      ? [steps.map((step, index) => `${index + 1}. ${step}`).join('\n')]
+      : [])
   ].join('\n\n') + '\n';
 
 // only the latest plan matters, so each one replaces the last
