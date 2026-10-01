@@ -1,5 +1,7 @@
 # agentiq
 
+[![codecov](https://codecov.io/gh/ayan4m1/agentiq/graph/badge.svg?token=ZMpY0vGAjm)](https://codecov.io/gh/ayan4m1/agentiq)
+
 Agentiq is an agentic coding assistant for use with Ollama.
 
 ## Installation
