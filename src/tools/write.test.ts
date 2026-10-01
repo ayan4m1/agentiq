@@ -67,8 +67,11 @@ describe('definition', () => {
     const { parameters } = definition.function;
 
     assert.notEqual(parameters, undefined);
-    assert.deepEqual([...parameters.required].sort(), ['content', 'path']);
-    assert.equal(parameters.properties.path.type, 'string');
+    assert.deepEqual([...(parameters?.required ?? [])].sort(), [
+      'content',
+      'path'
+    ]);
+    assert.equal(parameters?.properties?.path.type, 'string');
     assert.equal(parameters.properties.content.type, 'string');
   });
 });

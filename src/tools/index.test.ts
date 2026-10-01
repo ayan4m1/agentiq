@@ -52,7 +52,10 @@ describe('tools', () => {
 
   test('does not point the model at a roadmap tool it cannot call', () => {
     for (const tool of tools) {
-      assert.doesNotMatch(tool.definition.function.description, /add_todo/);
+      assert.doesNotMatch(
+        tool.definition.function.description ?? '',
+        /add_todo/
+      );
     }
   });
 });
