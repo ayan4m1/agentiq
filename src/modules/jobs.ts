@@ -218,6 +218,9 @@ export const spawnCommand = ({ command, cwd, onData }: SpawnRequest) => {
     // undefined would mean "no shell at all" rather than the platform default,
     // so fall back to true and let node pick cmd.exe or /bin/sh
     shell: shell.path ?? true,
+    // its own process group off windows, so killTree can signal the shell and
+    // everything it started at once - see there
+    detached: process.platform !== 'win32',
     windowsHide: true
   });
 
@@ -238,8 +241,20 @@ export const spawnCommand = ({ command, cwd, onData }: SpawnRequest) => {
   return { child, finished };
 };
 
-// killing the child kills the shell, and on Windows that leaves whatever the
-// shell started running with no parent - the whole tree has to go
+// killing the child kills the shell, and that leaves whatever the shell started
+// running with no parent - the whole tree has to go. dash, /bin/sh on debian and
+// ubuntu, forks even a lone command rather than exec it, so this is not only a
+// windows problem: the orphan holds the output pipes open, close never fires,
+// and the caller waits on it forever
+const signalGroup = (child: ChildProcess, signal: NodeJS.Signals) => {
+  try {
+    // a negative pid is the process group spawnCommand gave the shell
+    process.kill(-child.pid!, signal);
+  } catch {
+    // ESRCH - the group is already gone, which is the outcome we were after
+  }
+};
+
 export const killTree = (child: ChildProcess) => {
   if (!child.pid || child.exitCode !== null || child.signalCode) {
     return;
@@ -259,12 +274,10 @@ export const killTree = (child: ChildProcess) => {
     return;
   }
 
-  child.kill('SIGTERM');
+  signalGroup(child, 'SIGTERM');
 
-  // a process that ignores SIGTERM would otherwise hold a job open forever
-  setTimeout(() => {
-    if (child.exitCode === null) {
-      child.kill('SIGKILL');
-    }
-  }, graceMs).unref();
+  // a process that ignores SIGTERM would otherwise hold a job open forever.
+  // the shell exiting says nothing about what it started, so the group is
+  // sent this whether or not the shell is still there
+  setTimeout(() => signalGroup(child, 'SIGKILL'), graceMs).unref();
 };
