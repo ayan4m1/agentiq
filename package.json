@@ -32,7 +32,7 @@
     "build": "rollup -c --configPlugin typescript",
     "dev": "rollup -c -w --configPlugin typescript",
     "lint": "eslint ./src ./test",
-    "test": "node --experimental-test-coverage --experimental-test-module-mocks --import ./test/register.mjs --test \"src/**/*.test.ts\"",
+    "test": "node --experimental-test-coverage --experimental-test-module-mocks --import ./test/register.mjs --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=coverage.xml --test \"src/**/*.test.ts\"",
     "prepare": "rollup -c --configPlugin typescript"
   },
   "engines": {
