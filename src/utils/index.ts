@@ -6,7 +6,6 @@ import { structuredPatch } from 'diff';
 import type { ToolParameter } from '../types';
 import { client } from '../modules/client';
 import { ollama } from '../modules/config';
-import { supportsThinking } from '../modules/preflight';
 
 // a single call with no tools and no streaming - for asking the model something
 // on the side, where the reply is used and never kept in the history
@@ -193,16 +192,4 @@ export const renderDiff = (path: string, before: string, after: string) => {
       }
     }
   }
-};
-
-// an explicit setting wins, including an explicit false. otherwise a model
-// that reports it can reason is asked to, because the alternative is that it
-// reasons anyway and buries the result in its reply - where it is streamed as
-// though it were the answer, and then re-sent on every turn that follows
-export const resolveThink = () => {
-  if (ollama.think !== undefined) {
-    return ollama.think;
-  }
-
-  return supportsThinking() ? true : undefined;
 };

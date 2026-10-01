@@ -200,3 +200,15 @@ export const preflight = async (api: PreflightApi = client) => {
 
   return true;
 };
+
+// an explicit setting wins, including an explicit false. otherwise a model
+// that reports it can reason is asked to, because the alternative is that it
+// reasons anyway and buries the result in its reply - where it is streamed as
+// though it were the answer, and then re-sent on every turn that follows
+export const resolveThink = () => {
+  if (ollama.think !== undefined) {
+    return ollama.think;
+  }
+
+  return supportsThinking() ? true : undefined;
+};

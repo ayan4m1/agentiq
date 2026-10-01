@@ -22,7 +22,10 @@ process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-thinker-'));
 let modelThinks = false;
 
 mock.module('./preflight', {
-  exports: fakePreflight({ supportsThinking: () => modelThinks }).exports
+  exports: fakePreflight({
+    supportsThinking: () => modelThinks,
+    resolveThink: () => modelThinks || undefined
+  }).exports
 });
 
 const { logging, ollama, session } = await import('./config');
@@ -363,7 +366,6 @@ describe('taking a turn', () => {
   });
 
   afterEach(() => {
-    ollama.think = undefined;
     ollama.replayPreamble = false;
     ollama.recoverToolCalls = true;
   });
@@ -422,17 +424,6 @@ describe('taking a turn', () => {
     await makeThinker().think({ messages: ask() });
 
     assert.equal(requests()[0].think, undefined);
-  });
-
-  test('lets an explicit setting win, even an explicit false', async () => {
-    // the model says it can reason, and the user said not to
-    modelThinks = true;
-    ollama.think = false;
-    respond(chunk({ content: 'ok' }));
-
-    await makeThinker().think({ messages: ask() });
-
-    assert.equal(requests()[0].think, false);
   });
 
   test('assembles the streamed reply into one message', async () => {

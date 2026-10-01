@@ -9,6 +9,7 @@ import { getLogger } from './logging';
 import { makeTokenizer } from './tokenizer';
 import { recoverToolCalls, validateArgs } from './tools';
 import { recapPrompt, recentTurns, renderTranscript } from './recap';
+import { resolveThink } from './preflight';
 import { buildSystemPrompt } from './prompt';
 import { describeSkills } from './skills';
 import { watchForInterrupt } from './interrupt';
@@ -19,8 +20,7 @@ import {
   askModel,
   describeElapsed,
   describeError,
-  serializeResult,
-  resolveThink
+  serializeResult
 } from '../utils';
 
 const log = getLogger('ollama');
@@ -201,6 +201,7 @@ export const makeThinker = () => {
       // watchForInterrupt owns stdin in raw mode for the turn, and ora's own
       // discard would fight it for the escape byte
       discardStdin: false,
+      text: 'Thinking',
       suffixText: interruptHint(describeElapsed(0))
     });
     let stopClock = () => {};

@@ -8,6 +8,7 @@ import { getLogger } from './logging';
 import { recoverToolCalls, validateArgs } from './tools';
 import { watchForInterrupt } from './interrupt';
 import { showElapsed } from './elapsed';
+import { resolveThink } from './preflight';
 import { yieldToUser } from './turn';
 import type { ToolCall } from '../types';
 import * as find from '../tools/find';
@@ -21,8 +22,7 @@ import {
   describeError,
   getContentBudget,
   serializeResult,
-  truncate,
-  resolveThink
+  truncate
 } from '../utils';
 
 const log = getLogger('explore');

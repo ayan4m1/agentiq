@@ -16,6 +16,7 @@ export const fakePreflight = <O extends ModuleMock<Preflight>>(
     matchesModel: (installed: string, configured: string) =>
       installed === configured,
     supportsThinking: () => false,
+    resolveThink: (): boolean | undefined => undefined,
     modelContextLength: (): number | undefined => undefined,
     readContextLength: (): number | undefined => undefined,
     ...overrides

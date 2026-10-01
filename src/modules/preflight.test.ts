@@ -7,6 +7,7 @@ import {
   matchesModel,
   preflight,
   readContextLength,
+  resolveThink,
   supportsThinking
 } from './preflight';
 
@@ -271,5 +272,46 @@ describe('supportsThinking', () => {
     );
 
     assert.equal(supportsThinking(), false);
+  });
+});
+
+describe('resolveThink', () => {
+  const reporting = (...reported: string[]) =>
+    api({ show: () => Promise.resolve(showing({ capabilities: reported })) });
+
+  // the setting is shared config, so whatever a test chooses must not leak
+  const withSetting = (think: boolean | undefined, check: () => void) => {
+    ollama.think = think;
+
+    try {
+      check();
+    } finally {
+      ollama.think = undefined;
+    }
+  };
+
+  test('asks a model that can reason to do so', async () => {
+    await quietly(() => preflight(reporting('tools', 'thinking')));
+
+    withSetting(undefined, () => assert.equal(resolveThink(), true));
+  });
+
+  test('leaves reasoning to the server default for a model that cannot', async () => {
+    await quietly(() => preflight(reporting('tools')));
+
+    withSetting(undefined, () => assert.equal(resolveThink(), undefined));
+  });
+
+  test('lets an explicit setting win, even an explicit false', async () => {
+    // the model says it can reason, and the user said not to
+    await quietly(() => preflight(reporting('tools', 'thinking')));
+
+    withSetting(false, () => assert.equal(resolveThink(), false));
+  });
+
+  test('lets an explicit true through for a model that does not report it', async () => {
+    await quietly(() => preflight(reporting('tools')));
+
+    withSetting(true, () => assert.equal(resolveThink(), true));
   });
 });
