@@ -1,7 +1,6 @@
 name: Upload coverage on push
 on:
-  push:
-    branches: ['main']
+  workflow_dispatch:
 jobs:
   cover:
     runs-on: ubuntu-latest
