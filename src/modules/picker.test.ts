@@ -274,4 +274,52 @@ describe('pickModel', { timeout: 2000 }, () => {
       assert.equal(await picker.answer, 'llama3');
     });
   });
+
+  describe('browsing', () => {
+    test('closes on enter without choosing anything', async () => {
+      const picker = await open({ browse: true });
+
+      assert.match(picker.screen(), /esc\/⏎ close/);
+      assert.ok(!picker.screen().includes('select'));
+
+      picker.press('enter');
+
+      assert.equal(await picker.answer, undefined);
+      assert.ok(!picker.screen().includes('llama3'));
+    });
+
+    test('names a choice by its label when asking to remove it', async () => {
+      const picker = await open({
+        browse: true,
+        choices: [
+          {
+            name: 'yarn test',
+            value: 'command:yarn test',
+            label: 'the rule yarn test'
+          }
+        ]
+      });
+
+      picker.press('r');
+
+      assert.match(picker.screen(), /Remove the rule yarn test\? \(y\/N\)/);
+
+      picker.press('n');
+      picker.press('escape');
+      await picker.answer;
+    });
+
+    test('finishes once the last choice is removed', async () => {
+      const picker = await open({
+        browse: true,
+        choices: [{ name: 'llama3', value: 'llama3' }]
+      });
+
+      picker.press('r');
+      picker.press('y');
+
+      assert.deepEqual(picker.remove.mock.calls[0].arguments, ['llama3']);
+      assert.equal(await picker.answer, undefined);
+    });
+  });
 });

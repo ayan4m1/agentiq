@@ -20,6 +20,9 @@ export type PickerChoice = {
   missing?: boolean;
   // why r does nothing on this row - any row without one can be removed
   locked?: string;
+  // how the confirmation names this row, when the value alone would not read
+  // well there
+  label?: string;
 };
 
 type PickerRequest = {
@@ -29,6 +32,9 @@ type PickerRequest = {
   // called the moment removal is confirmed, so it has already happened by the
   // time the prompt finishes - or is cancelled
   remove: (value: string) => void;
+  // a list to look through and prune rather than choose from - enter closes it
+  // the way escape does, and the prompt finishes once nothing is left
+  browse?: boolean;
 };
 
 // escape resolves with nothing rather than a value
@@ -39,14 +45,23 @@ type Picked = string | undefined;
 const pointer = '❯';
 const hideCursor = '\u001B[?25l';
 
-const help = [
+const describeKeys = (keys: string[][]) =>
+  keys
+    .map(([key, action]) => `${chalk.bold(key)} ${chalk.gray(action)}`)
+    .join(chalk.gray(' • '));
+
+const help = describeKeys([
   ['esc', 'cancel'],
   ['↑↓', 'navigate'],
   ['⏎', 'select'],
   ['r', 'remove']
-]
-  .map(([key, action]) => `${chalk.bold(key)} ${chalk.gray(action)}`)
-  .join(chalk.gray(' • '));
+]);
+
+const browseHelp = describeKeys([
+  ['esc/⏎', 'close'],
+  ['↑↓', 'navigate'],
+  ['r', 'remove']
+]);
 
 // @inquirer/select has no way to hook a key of its own, so this is the same
 // list with r to remove the highlighted entry and red for one ollama lacks
@@ -87,14 +102,23 @@ export const pickModel = createPrompt<Picked, PickerRequest>((config, done) => {
       const remaining = items.filter((item) => item !== confirming);
 
       setItems(remaining);
-      setActive(Math.min(active, remaining.length - 1));
+      setActive(Math.max(0, Math.min(active, remaining.length - 1)));
+
+      // an empty list has nothing left to browse
+      if (config.browse && !remaining.length) {
+        setStatus('done');
+        done(undefined);
+      }
 
       return;
     }
 
-    if (key.name === 'escape') {
-      setStatus('cancelled');
+    if (key.name === 'escape' || (config.browse && isEnterKey(key))) {
+      setStatus(config.browse ? 'done' : 'cancelled');
       done(undefined);
+    } else if (!selected) {
+      // nothing to move to, choose or remove
+      return;
     } else if (isEnterKey(key)) {
       setStatus('done');
       done(selected.value);
@@ -126,6 +150,10 @@ export const pickModel = createPrompt<Picked, PickerRequest>((config, done) => {
   const message = theme.style.message(config.message, status);
 
   // hooks are matched up by call order, so this comes after every one of them
+  if (status === 'done' && (config.browse || !selected)) {
+    return `${prefix} ${message}`;
+  }
+
   if (status === 'done') {
     return `${prefix} ${message} ${theme.style.answer(selected.value || selected.name)}`;
   }
@@ -135,8 +163,10 @@ export const pickModel = createPrompt<Picked, PickerRequest>((config, done) => {
   }
 
   const footer = confirming
-    ? `Remove ${confirming.value}? ${chalk.gray('(y/N)')}`
-    : help;
+    ? `Remove ${confirming.label ?? confirming.value}? ${chalk.gray('(y/N)')}`
+    : config.browse
+      ? browseHelp
+      : help;
 
   return `${[
     `${prefix} ${message}`,

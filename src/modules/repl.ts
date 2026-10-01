@@ -5,7 +5,14 @@ import type { Message } from 'ollama';
 
 import { ollama, saveSetting, session } from './config';
 import { getLogger } from './logging';
-import { cycleMode } from './approval';
+import {
+  cycleMode,
+  forgetRule,
+  loadRules,
+  remember,
+  type RuleKind
+} from './approval';
+import { pickModel } from './picker';
 import { modelContextLength, preflight } from './preflight';
 import { beginTurn, changes, countSince, rewind } from './checkpoints';
 import { ensureTokenizer } from './tokenizer';
@@ -54,6 +61,7 @@ export const Command = {
   Undo: 'undo',
   Changes: 'changes',
   Check: 'check',
+  Rules: 'rules',
   Help: 'help',
   Quit: 'quit'
 } as const;
@@ -644,6 +652,71 @@ export const createController = ({
     }
   };
 
+  // the "always" answers saved for this project, to look through and take back
+  // one at a time - or, with add, a rule written by hand, globs and all
+  const rules = async (value?: string) => {
+    const usage = () =>
+      log.error(
+        chalk.red(
+          'Expected /rules, or /rules add command|path <pattern>, e.g. /rules add command yarn test*'
+        )
+      );
+
+    if (value !== undefined) {
+      const [, action, kind, pattern] =
+        value.match(/^(\S+)\s+(\S+)\s+(.+)$/) ?? [];
+
+      if (action !== 'add' || (kind !== 'command' && kind !== 'path')) {
+        usage();
+
+        return;
+      }
+
+      remember(kind, pattern);
+
+      return;
+    }
+
+    const saved = loadRules();
+    const kinds: RuleKind[] = ['command', 'path'];
+    const choices = kinds.flatMap((kind) =>
+      saved[kind].map((pattern) => ({
+        name: `${chalk.gray(kind.padEnd(8))}${pattern}`,
+        // a kind never has a colon in it, so the first one splits them again
+        value: `${kind}:${pattern}`,
+        label: `the ${kind} rule ${pattern}`
+      }))
+    );
+
+    // a picker with nothing in it would only be something to close
+    if (!choices.length) {
+      log.info(systemColor('No approval rules are saved for this project'));
+
+      return;
+    }
+
+    try {
+      await pickModel({
+        message: 'Approval rules',
+        choices,
+        browse: true,
+        remove: (choice) => {
+          const split = choice.indexOf(':');
+
+          forgetRule(
+            choice.slice(0, split) as RuleKind,
+            choice.slice(split + 1)
+          );
+        }
+      });
+    } catch (error) {
+      // log but swallow an error (if the user cancelled the prompt)
+      if (error instanceof Error) {
+        log.error(error.message);
+      }
+    }
+  };
+
   // a slash command, without its slash, and anything typed after its name.
   // quitting is left to the caller, which owns the process and what has to be
   // cleaned up before it exits
@@ -691,6 +764,11 @@ export const createController = ({
         // a command of its own is split into words above, and has to reach
         // check mode exactly as it was typed
         await setCheck(input.trim().slice(name.length).trim() || undefined);
+        break;
+      case Command.Rules:
+        // a pattern is split into words above, and has to be saved exactly as
+        // it was typed
+        await rules(input.trim().slice(name.length).trim() || undefined);
         break;
       case Command.Help:
         console.log(systemColor('\n--- Available Commands ---'));

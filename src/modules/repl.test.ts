@@ -92,7 +92,7 @@ mock.module('./check', {
 });
 
 const { Command, createController, previewOf } = await import('./repl');
-const { approval } = await import('./approval');
+const { approval, loadRules, remember } = await import('./approval');
 const { ollama, session, tokenizer } = await import('./config');
 const { loadStore, saveStore } = await import('./models');
 const { yieldToUser, takeYield } = await import('./turn');
@@ -1158,6 +1158,104 @@ describe('commands', () => {
     await make().runCommand(Command.Changes);
 
     assert.match(printed(), /Nothing has been written this session/);
+  });
+});
+
+describe('/rules', () => {
+  type RulesRequest = {
+    choices: { name: string; value: string; label?: string }[];
+    browse?: boolean;
+    remove: (value: string) => void;
+  };
+
+  const request = () => pickModel.mock.calls[0].arguments[0] as RulesRequest;
+
+  test('says so instead of opening an empty list', async (t) => {
+    const info = t.mock.method(getLogger('run'), 'info', () => {});
+
+    await make().runCommand(Command.Rules);
+
+    assert.equal(pickModel.mock.callCount(), 0);
+    assert.match(
+      String(info.mock.calls[0]?.arguments[0]),
+      /No approval rules are saved for this project/
+    );
+  });
+
+  test('says so once the last rule has been forgotten', async (t) => {
+    const info = t.mock.method(getLogger('run'), 'info', () => {});
+    const controller = make();
+
+    remember('command', 'yarn test');
+    pickModel.mock.mockImplementationOnce(async (config) => {
+      (config as RulesRequest).remove('command:yarn test');
+
+      return undefined as never;
+    });
+    await controller.runCommand(Command.Rules);
+    await controller.runCommand(Command.Rules);
+
+    assert.equal(pickModel.mock.callCount(), 1);
+    assert.match(
+      String(info.mock.calls.at(-1)?.arguments[0]),
+      /No approval rules are saved for this project/
+    );
+  });
+
+  test('lists commands then paths to browse', async () => {
+    remember('path', 'src/index.ts');
+    remember('command', 'yarn lint');
+    pickModel.mock.mockImplementationOnce(async () => undefined as never);
+
+    await make().runCommand(Command.Rules);
+
+    const { browse, choices } = request();
+
+    assert.equal(browse, true);
+    assert.deepEqual(
+      choices.map(({ value }) => value),
+      ['command:yarn lint', 'path:src/index.ts']
+    );
+    assert.equal(choices[0].label, 'the command rule yarn lint');
+  });
+
+  test('forgets the rule removed from the list', async () => {
+    remember('command', 'yarn lint');
+    remember('command', 'git push');
+    pickModel.mock.mockImplementationOnce(async (config) => {
+      (config as RulesRequest).remove('command:git push');
+
+      return undefined as never;
+    });
+
+    await make().runCommand(Command.Rules);
+
+    assert.deepEqual(loadRules().command, ['yarn lint']);
+  });
+
+  test('adds a rule exactly as it was typed', async () => {
+    await make().runCommand('rules add command yarn  test *');
+    await make().runCommand('rules add path src/**');
+
+    assert.deepEqual(loadRules(), {
+      command: ['yarn  test *'],
+      path: ['src/**']
+    });
+  });
+
+  test('explains itself for anything it does not understand', async (t) => {
+    const error = t.mock.method(getLogger('run'), 'error', () => {});
+
+    await make().runCommand('rules add bogus x');
+    await make().runCommand('rules add command');
+    await make().runCommand('rules forget 1');
+
+    assert.equal(error.mock.callCount(), 3);
+    assert.match(
+      String(error.mock.calls[0].arguments[0]),
+      /\/rules add command\|path <pattern>/
+    );
+    assert.deepEqual(loadRules(), { command: [], path: [] });
   });
 });
 

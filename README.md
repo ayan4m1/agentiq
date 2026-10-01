@@ -53,6 +53,16 @@ mode asks first. Check mode starts off in every new session. The chosen command 
 session, so `/resume` brings it back. `/check <command>`, such as `/check yarn lint`, uses that command
 instead of asking the model. `/check off` turns it off, and `/check` alone shows what it is set to.
 
+Answering `a` (always) to an approval question saves that exact command or path as a rule, in
+`~/.agentiq/approvals/` with one file per project, and agentiq does not ask about it again - even in
+manual mode or under `agentiq exec`. Each time a rule approves something, a grey
+`✔ allowed by rule: <pattern>` line says which one. `/rules` opens the list of saved rules: use ↑↓ to
+move through them, `r` and then `y` to remove the highlighted one, and escape or enter to close it.
+`/rules add command <pattern>` or `/rules add path <pattern>` saves a rule by hand. A `*` in the
+pattern matches anything within one path segment and `**` matches across them, so
+`/rules add command yarn test*` covers every `yarn test` variant and `/rules add path src/**` covers
+everything under `src`.
+
 The model can hand an open-ended question about the codebase - "where is the approval mode enforced
 for shell commands?" - to the `explore` tool. It is answered in a separate conversation that can only
 use `find`, `list`, `read`, `fetch` and `read_plan`, and only the short report it writes comes back,

@@ -255,10 +255,29 @@ export const loadRules = (): Rules => {
   }
 };
 
-export const isRemembered = (kind: RuleKind, value: string) => {
+// the rule that allows this, so an approval nobody was asked for can say why
+export const findRule = (kind: RuleKind, value: string) => {
   const wanted = normalize(kind, value);
 
-  return loadRules()[kind].some((pattern) => matchesRule(pattern, wanted));
+  return loadRules()[kind].find((pattern) => matchesRule(pattern, wanted));
+};
+
+export const isRemembered = (kind: RuleKind, value: string) =>
+  findRule(kind, value) !== undefined;
+
+const saveRules = (rules: Rules) => {
+  const path = pathFor();
+
+  try {
+    mkdirSync(rulesDir, { recursive: true });
+    writeFileSync(path, `${JSON.stringify(rules, null, 2)}\n`);
+
+    return true;
+  } catch (error) {
+    log.warn(`Could not write ${path}: ${describeError(error)}`);
+
+    return false;
+  }
 };
 
 // written exactly as it was approved rather than widened into a pattern: a
@@ -274,15 +293,22 @@ export const remember = (kind: RuleKind, value: string) => {
 
   rules[kind].push(wanted);
 
-  const path = pathFor();
-
-  try {
-    mkdirSync(rulesDir, { recursive: true });
-    writeFileSync(path, `${JSON.stringify(rules, null, 2)}\n`);
+  if (saveRules(rules)) {
     log.info(`Will not ask about this ${kind} again: ${wanted}`);
-  } catch (error) {
-    log.warn(`Could not write ${path}: ${describeError(error)}`);
   }
+};
+
+// takes the pattern as it is stored rather than normalizing it, since it comes
+// from the listing /rules showed and not from something the model asked for
+export const forgetRule = (kind: RuleKind, pattern: string) => {
+  const rules = loadRules();
+
+  if (!rules[kind].includes(pattern)) {
+    return;
+  }
+
+  rules[kind] = rules[kind].filter((rule) => rule !== pattern);
+  saveRules(rules);
 };
 
 // approved means go ahead. auto answers itself, a remembered answer answers
@@ -299,8 +325,12 @@ export const requestApproval = async (
   // an answer given earlier about this exact command or path stands until the
   // rules file says otherwise, which is what keeps a long task from asking
   // about the same test command twenty times
-  if (subject && isRemembered(subject.kind, subject.value)) {
-    log.debug(`Remembered approval for ${subject.kind} ${subject.value}`);
+  const rule = subject && findRule(subject.kind, subject.value);
+
+  if (rule !== undefined) {
+    // said out loud, since manual mode going ahead without asking would
+    // otherwise look like a bug - and /rules is where to take it back
+    log.info(chalk.gray(`✔ allowed by rule: ${rule}`));
 
     return { approved: true };
   }

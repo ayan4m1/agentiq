@@ -2,7 +2,13 @@ import { test, describe, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
 
 import { ApprovalAnswer, ApprovalMode } from '../types';
 import { fakeInquirerCore, fakePrompts } from '../../test/fakes/inquirer';
@@ -27,6 +33,8 @@ const {
   cycleMode,
   describeDenial,
   describeMode,
+  findRule,
+  forgetRule,
   isRemembered,
   loadRules,
   matchesRule,
@@ -37,6 +45,7 @@ const {
   setMode
 } = await import('./approval');
 const { slugFor } = await import('../utils');
+const { getLogger } = await import('./logging');
 const { takeYield, terminal } = await import('./turn');
 
 // a mode change announces itself, which is only noise here
@@ -159,6 +168,20 @@ describe('requestApproval', () => {
 
     assert.deepEqual(result, { approved: true });
     assert.equal(answer.mock.callCount(), 0);
+  });
+
+  test('says which rule approved something without asking', async (t) => {
+    const info = t.mock.method(getLogger('approval'), 'info', () => {});
+
+    remember('command', 'yarn announced');
+    info.mock.resetCalls();
+
+    await requestApproval('OK?', { kind: 'command', value: 'yarn announced' });
+
+    assert.match(
+      String(info.mock.calls[0].arguments[0]),
+      /allowed by rule: yarn announced/
+    );
   });
 
   test('hands the keyboard back when told to stop', async () => {
@@ -375,6 +398,38 @@ describe('rules', () => {
       writeFileSync(rulesFor(projectA), JSON.stringify({ command: 'nope' }));
 
       assert.deepEqual(loadRules().command, []);
+    });
+  });
+
+  describe('forgetting a rule', () => {
+    test('removes only that pattern of that kind', () => {
+      remember('command', 'yarn test');
+      remember('command', 'yarn lint');
+      remember('path', 'yarn test');
+
+      forgetRule('command', 'yarn test');
+
+      assert.deepEqual(loadRules(), {
+        command: ['yarn lint'],
+        path: ['yarn test']
+      });
+      assert.equal(isRemembered('command', 'yarn test'), false);
+    });
+
+    test('takes back a glob as it was stored', () => {
+      remember('path', resolve(projectA, 'src', '**'));
+
+      assert.equal(findRule('path', 'src/modules/deep.ts'), 'src/**');
+
+      forgetRule('path', 'src/**');
+
+      assert.equal(findRule('path', 'src/modules/deep.ts'), undefined);
+    });
+
+    test('leaves no file behind for a rule that was never there', () => {
+      forgetRule('command', 'yarn test');
+
+      assert.equal(existsSync(rulesFor(projectA)), false);
     });
   });
 });
