@@ -1,11 +1,15 @@
 import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { ModuleMock } from '../../test/fakes/module';
+
 // the real exploration runs a whole conversation against the model, so it
 // answers whatever the test says to
 const explore = mock.fn<(question: string) => Promise<string>>();
 
-mock.module('../modules/explore', { exports: { explore } });
+mock.module('../modules/explore', {
+  exports: { explore } satisfies ModuleMock<typeof import('../modules/explore')>
+});
 
 const { definition, handler } = await import('./explore');
 

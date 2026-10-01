@@ -5,22 +5,17 @@ import { resolve } from 'node:path';
 import { mkdtempSync } from 'node:fs';
 
 import { ApprovalAnswer, ApprovalMode } from '../types';
+import { fakeInquirerCore, fakePrompts } from '../../test/fakes/inquirer';
 
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-background-'));
 
-// the approval prompt reads the terminal, so it answers whatever the test says
-const answer = mock.fn<(config: { message: string }) => Promise<string>>();
-const input = mock.fn<() => Promise<string>>();
-
-mock.module('@inquirer/core', {
-  exports: {
-    createPrompt: () => answer,
-    isEnterKey: () => false,
-    useKeypress: () => {},
-    useState: (value: unknown) => [value, () => {}]
-  }
+const { answer, exports: core } = fakeInquirerCore();
+const { input, exports: prompts } = fakePrompts({
+  input: mock.fn<() => Promise<string>>()
 });
-mock.module('@inquirer/prompts', { exports: { input } });
+
+mock.module('@inquirer/core', { exports: core });
+mock.module('@inquirer/prompts', { exports: prompts });
 
 const { handler } = await import('./start_job');
 const { approval } = await import('../modules/approval');

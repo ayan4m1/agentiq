@@ -5,33 +5,13 @@ import { resolve } from 'node:path';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { ChatRequest, Message } from 'ollama';
 
-// escape is watched for on a real terminal, which a test does not have - so
-// the watcher hands its callback over instead, for a test to press escape with
-let pressEscape: (() => void) | undefined;
-const stopWatching = mock.fn();
-const watchForInterrupt = mock.fn((onInterrupt: () => void) => {
-  pressEscape = onInterrupt;
+import { fakeInterrupt } from '../../test/fakes/interrupt';
+import { fakeOra } from '../../test/fakes/ora';
 
-  return stopWatching;
-});
+const interrupt = fakeInterrupt();
 
-mock.module('./interrupt', { exports: { watchForInterrupt } });
-
-// the spinner draws on a real terminal, which a test does not have
-let spinning = false;
-
-mock.module('ora', {
-  exports: {
-    default: () => ({
-      start: () => (spinning = true),
-      stop: () => (spinning = false),
-      get isSpinning() {
-        return spinning;
-      },
-      suffixText: ''
-    })
-  }
-});
+mock.module('./interrupt', { exports: interrupt.exports });
+mock.module('ora', { exports: fakeOra().exports });
 
 const { explore: config, ollama } = await import('./config');
 const { explore, describeCall } = await import('./explore');
@@ -76,8 +56,7 @@ beforeEach(() => {
   writeFileSync(resolve(root, 'notes.txt'), 'the answer is 42\n');
   chat.mock.resetCalls();
   abortClient.mock.resetCalls();
-  stopWatching.mock.resetCalls();
-  pressEscape = undefined;
+  interrupt.reset();
   takeYield();
 });
 
@@ -211,11 +190,11 @@ describe('explore', () => {
 
     // let the first request go out before pressing escape
     await new Promise((resolve) => setImmediate(resolve));
-    pressEscape?.();
+    interrupt.pressEscape();
 
     assert.match(await pending, /The user interrupted the exploration/);
     assert.equal(abortClient.mock.callCount(), 1);
-    assert.equal(stopWatching.mock.callCount(), 1);
+    assert.equal(interrupt.stopWatching.mock.callCount(), 1);
     assert.equal(takeYield(), true);
   });
 });

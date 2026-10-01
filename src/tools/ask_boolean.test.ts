@@ -1,10 +1,12 @@
 import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { fakePrompts } from '../../test/fakes/inquirer';
+
 // the real prompt reads the terminal, so it answers whatever the test says to
 const confirm = mock.fn<(config: { message: string }) => Promise<boolean>>();
 
-mock.module('@inquirer/prompts', { exports: { confirm } });
+mock.module('@inquirer/prompts', { exports: fakePrompts({ confirm }).exports });
 
 const { handler } = await import('./ask_boolean');
 const { terminal } = await import('../modules/turn');

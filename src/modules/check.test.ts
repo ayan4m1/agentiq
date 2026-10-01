@@ -5,6 +5,10 @@ import { resolve } from 'node:path';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import type { ChatRequest } from 'ollama';
 
+import { fakeInterrupt } from '../../test/fakes/interrupt';
+import { fakeOra } from '../../test/fakes/ora';
+import type { ModuleMock } from '../../test/fakes/module';
+
 // config reads the home directory as it is evaluated, so it has to point
 // somewhere disposable before anything imports it
 const root = mkdtempSync(resolve(tmpdir(), 'agentiq-check-'));
@@ -12,37 +16,25 @@ const original = process.cwd();
 
 process.env.AQ_HOME = resolve(root, 'home');
 
-// escape is watched for on a real terminal, which a test does not have - so
-// the watcher hands its callback over instead, for a test to press escape with
-let pressEscape: (() => void) | undefined;
-const stopWatching = mock.fn();
-const watchForInterrupt = mock.fn((onInterrupt: () => void) => {
-  pressEscape = onInterrupt;
+const interrupt = fakeInterrupt();
 
-  return stopWatching;
-});
-
-mock.module('./interrupt', { exports: { watchForInterrupt } });
-
-// the spinner draws on a real terminal, so a fake stands in for it
-const ora = mock.fn(() => ({
-  start: () => {},
-  stop: () => {},
-  isSpinning: false
-}));
-
-mock.module('ora', { exports: { default: ora } });
+mock.module('./interrupt', { exports: interrupt.exports });
+mock.module('ora', { exports: fakeOra().exports });
 
 // the approval mode is whatever the test says it is
 let planning = false;
 const refusePlanning = mock.fn(() => (planning ? 'refused' : undefined));
 
-mock.module('./approval', { exports: { refusePlanning } });
+mock.module('./approval', {
+  exports: { refusePlanning } satisfies ModuleMock<typeof import('./approval')>
+});
 
 // the session file is tested on its own - here it only has to be told
 const setSessionCheck = mock.fn<(command?: string) => void>();
 
-mock.module('./session', { exports: { setSessionCheck } });
+mock.module('./session', {
+  exports: { setSessionCheck } satisfies ModuleMock<typeof import('./session')>
+});
 
 // the command never really runs: each test says what it prints and how it
 // ends, and whether it ends at all before it is killed
@@ -73,7 +65,11 @@ const spawnCommand = mock.fn(
   }
 );
 
-mock.module('./jobs', { exports: { killTree, spawnCommand } });
+mock.module('./jobs', {
+  exports: { killTree, spawnCommand } satisfies ModuleMock<
+    typeof import('./jobs')
+  >
+});
 
 const { turn } = await import('./turn');
 const { client } = await import('./client');
@@ -134,8 +130,8 @@ describe('check', () => {
       spawnCommand,
       killTree,
       setSessionCheck,
-      watchForInterrupt,
-      stopWatching
+      interrupt.watchForInterrupt,
+      interrupt.stopWatching
     ]) {
       fn.mock.resetCalls();
     }
@@ -298,7 +294,7 @@ describe('check', () => {
         spawnCommand.mock.calls[0].arguments[0].command,
         'yarn test'
       );
-      assert.equal(stopWatching.mock.callCount(), 1);
+      assert.equal(interrupt.stopWatching.mock.callCount(), 1);
     });
 
     test('fails when the command exits non-zero', async () => {
@@ -328,7 +324,7 @@ describe('check', () => {
 
       // the command is started on the next tick
       await new Promise((resolve) => setImmediate(resolve));
-      pressEscape?.();
+      interrupt.pressEscape();
       await running;
 
       assert.equal(killTree.mock.callCount(), 1);

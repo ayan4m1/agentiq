@@ -5,14 +5,15 @@ import { resolve } from 'node:path';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 
 import { ApprovalMode } from '../types';
+import { fakePrompts } from '../../test/fakes/inquirer';
 
 // the real prompt reads the terminal, so it answers whatever the test says to
 const select =
-  mock.fn<(config: { message: string; default?: string }) => Promise<string>>();
+  mock.fn<
+    (config: { message: string; default?: unknown }) => Promise<string>
+  >();
 
-mock.module('@inquirer/prompts', {
-  exports: { select, input: mock.fn() }
-});
+mock.module('@inquirer/prompts', { exports: fakePrompts({ select }).exports });
 
 // the plan path is resolved from the working directory when the module loads,
 // so the tool has to be imported from inside a scratch project

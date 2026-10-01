@@ -5,6 +5,9 @@ import { resolve } from 'node:path';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { ListResponse } from 'ollama';
 
+import { fakePrompts } from '../../test/fakes/inquirer';
+import type { ModuleMock } from '../../test/fakes/module';
+
 // the store lives under the home directory, which is read as the config module
 // is evaluated - so it has to point somewhere disposable before the imports
 const home = mkdtempSync(resolve(tmpdir(), 'agentiq-models-'));
@@ -32,7 +35,7 @@ const answer = async () => {
 // select is handed what it was asked, so a test can assert on the choices it
 // offered as well as on what came back
 const select =
-  mock.fn<(config: { choices: unknown[] }) => Promise<string>>(answer);
+  mock.fn<(config: { choices: readonly unknown[] }) => Promise<string>>(answer);
 const input = mock.fn<(config: { message: string }) => Promise<string>>(answer);
 
 // the saved list is a prompt of our own, answered from the same queue. what it
@@ -45,8 +48,12 @@ type Picked = {
 const pickModel =
   mock.fn<(config: Picked) => Promise<string | undefined>>(answer);
 
-mock.module('@inquirer/prompts', { exports: { select, input } });
-mock.module('./picker', { exports: { pickModel } });
+mock.module('@inquirer/prompts', {
+  exports: fakePrompts({ select, input }).exports
+});
+mock.module('./picker', {
+  exports: { pickModel } satisfies ModuleMock<typeof import('./picker')>
+});
 
 // what the user types, in order. a prompt cancelled with ^C raises rather than
 // resolving, so an Error stands for walking away from one

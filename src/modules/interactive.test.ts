@@ -1,6 +1,8 @@
 import { test, describe, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { ModuleMock } from '../../test/fakes/module';
+
 // the repl is the prompt and a loop around it, so everything it talks to is
 // replaced by a fake, and the user at the prompt is played from a script. the
 // loop only ends through process.exit, which throws for the length of a test
@@ -30,8 +32,8 @@ type PromptOptions = {
 
 type ControllerOptions = {
   compactAt: () => number;
-  rememberPrompts: (prompts: string[]) => void;
-  rememberPrompt: (line: string) => void;
+  rememberPrompts?: (prompts: string[]) => void;
+  rememberPrompt?: (line: string) => void;
 };
 
 let controllerOptions: ControllerOptions | undefined;
@@ -140,26 +142,56 @@ const describeMode = mock.fn(() => 'manual');
 // empty while check mode is off, which is how every session starts
 const describeCheck = mock.fn(() => '');
 
-mock.module('inquirer', { exports: { default: { prompt, registerPrompt } } });
-mock.module('inquirer-command-prompt', {
-  exports: { default: CommandPromptBase }
+mock.module('inquirer', {
+  exports: { default: { prompt, registerPrompt } } satisfies ModuleMock<
+    typeof import('inquirer')
+  >
 });
-mock.module('./startup', { exports: { startAgent } });
+mock.module('inquirer-command-prompt', {
+  exports: { default: CommandPromptBase } satisfies ModuleMock<
+    typeof import('inquirer-command-prompt')
+  >
+});
+mock.module('./startup', {
+  exports: { startAgent } satisfies ModuleMock<typeof import('./startup')>
+});
 mock.module('./repl', {
   exports: {
     Command: { Help: 'help', Quit: 'quit' },
     createController,
     systemColor: (text: string) => text
-  }
+  } satisfies ModuleMock<typeof import('./repl')>
 });
 mock.module('./session', {
-  exports: { pruneSessions, sessionId, startSession }
+  exports: { pruneSessions, sessionId, startSession } satisfies ModuleMock<
+    typeof import('./session')
+  >
 });
-mock.module('./logging', { exports: { getLogger: () => ({ info }) } });
-mock.module('./approval', { exports: { cycleMode, describeMode } });
-mock.module('./check', { exports: { describeCheck } });
-mock.module('./config', { exports: { ollama: { contextLimit: 1000 } } });
-mock.module('./ollama', { exports: { compactThreshold: 0.5 } });
+mock.module('./logging', {
+  // winston's info has a handful of overloads, which no one fake can match -
+  // and only the last of them is what the check would compare against
+  exports: { getLogger: () => ({ info: info as never }) } satisfies ModuleMock<
+    typeof import('./logging')
+  >
+});
+mock.module('./approval', {
+  exports: { cycleMode, describeMode } satisfies ModuleMock<
+    typeof import('./approval')
+  >
+});
+mock.module('./check', {
+  exports: { describeCheck } satisfies ModuleMock<typeof import('./check')>
+});
+mock.module('./config', {
+  exports: { ollama: { contextLimit: 1000 } } satisfies ModuleMock<
+    typeof import('./config')
+  >
+});
+mock.module('./ollama', {
+  exports: { compactThreshold: 0.5 } satisfies ModuleMock<
+    typeof import('./ollama')
+  >
+});
 
 // completion is tested on its own - here it only has to be handed to the prompt
 const invalidate = mock.fn();
@@ -174,7 +206,7 @@ mock.module('./completion', {
     complete,
     createPathIndex: () => pathIndex,
     shortCompletions
-  }
+  } satisfies ModuleMock<typeof import('./completion')>
 });
 
 const { startRepl } = await import('./interactive');

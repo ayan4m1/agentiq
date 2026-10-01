@@ -1,6 +1,8 @@
 import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { ModuleMock } from '../../test/fakes/module';
+
 // the listing is git's business and tested with it - here it only has to be
 // counted, to show the index asks once and asks again when told to
 let listed: string[];
@@ -24,7 +26,7 @@ mock.module('./ignore', {
 
       return directories;
     }
-  }
+  } satisfies ModuleMock<typeof import('./ignore')>
 });
 
 const { complete, createPathIndex, shortCompletions } =

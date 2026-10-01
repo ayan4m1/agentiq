@@ -4,20 +4,24 @@ import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 
+import type { ModuleMock } from '../../test/fakes/module';
+
 // the cache lives under the state directory, which has to be somewhere a test
 // can fill and inspect - and it is read once, when the config first evaluates
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-tokenizer-'));
 
 // the real loader wants a real tokenizer.json, tens of megabytes of it. one
 // token per character is enough to tell its count apart from the estimate
-const fromPreTrained = mock.fn<
-  (files: unknown) => { encode: (value: string) => string[] }
->(() => ({
-  encode: (value: string) => [...value]
-}));
+const byCharacter = () => ({
+  encode: (value: string) => Array.from(value, (char) => char.codePointAt(0))
+});
+const fromPreTrained =
+  mock.fn<(files: unknown) => ReturnType<typeof byCharacter>>(byCharacter);
 
 mock.module('@lenml/tokenizers', {
-  exports: { TokenizerLoader: { fromPreTrained } }
+  exports: { TokenizerLoader: { fromPreTrained } } satisfies ModuleMock<
+    typeof import('@lenml/tokenizers')
+  >
 });
 
 const { estimateTokens, ensureTokenizer, localTokenizerDir, makeTokenizer } =
@@ -73,9 +77,7 @@ beforeEach(() => {
     async () => new Response('{}', { status: 200 })
   );
   fromPreTrained.mock.resetCalls();
-  fromPreTrained.mock.mockImplementation(() => ({
-    encode: (value: string) => [...value]
-  }));
+  fromPreTrained.mock.mockImplementation(byCharacter);
 });
 
 describe('estimateTokens', () => {

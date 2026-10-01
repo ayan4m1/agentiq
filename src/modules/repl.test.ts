@@ -12,6 +12,9 @@ import {
 import type { Message } from 'ollama';
 
 import { ApprovalMode, type ThoughtState } from '../types';
+import { fakePrompts } from '../../test/fakes/inquirer';
+import { fakePreflight } from '../../test/fakes/preflight';
+import type { ModuleMock } from '../../test/fakes/module';
 
 // sessions are written under the home directory, which is read as the config
 // module is evaluated - so it has to point somewhere disposable before any of
@@ -29,7 +32,7 @@ process.env.AQ_HISTORY_LIMIT = '3';
 
 // /resume picks from a list in the terminal, so it picks what the test says to
 const select =
-  mock.fn<(config: { choices: { value: string }[] }) => Promise<string>>();
+  mock.fn<(config: { choices: readonly unknown[] }) => Promise<string>>();
 
 // /undo asks before it throws anything away, and says yes unless told not to
 const confirm = mock.fn<(config: { message: string }) => Promise<boolean>>(
@@ -40,7 +43,7 @@ const confirm = mock.fn<(config: { message: string }) => Promise<boolean>>(
 const editor = mock.fn<(config: unknown) => Promise<string>>();
 
 mock.module('@inquirer/prompts', {
-  exports: { select, confirm, editor, input: mock.fn() }
+  exports: fakePrompts({ select, confirm, editor }).exports
 });
 
 // /model asks the server whether the model it was given is really there, and
@@ -56,19 +59,15 @@ const ensureTokenizer = mock.fn(async () => true);
 // /model picks from a prompt of its own
 const pickModel = mock.fn<(config: unknown) => Promise<string>>();
 
-mock.module('./picker', { exports: { pickModel } });
+mock.module('./picker', {
+  exports: { pickModel } satisfies ModuleMock<typeof import('./picker')>
+});
 
 mock.module('./preflight', {
-  // listModels is what modules/models.ts reaches for, and nothing here gets as
-  // far as the add flow that would call it
-  exports: {
+  exports: fakePreflight({
     preflight,
-    listModels: async () => [],
-    matchesModel: (installed: string, configured: string) =>
-      installed === configured,
-    supportsThinking: () => false,
     modelContextLength: () => contextLength
-  }
+  }).exports
 });
 mock.module('./tokenizer', {
   exports: {
@@ -76,7 +75,7 @@ mock.module('./tokenizer', {
     estimateTokens: (value: string) => value.length,
     localTokenizerDir: () => undefined,
     makeTokenizer: () => (value: string) => value.length
-  }
+  } satisfies ModuleMock<typeof import('./tokenizer')>
 });
 
 // check mode is tested on its own - here it only matters when the controller
@@ -87,7 +86,9 @@ const restoreCheck = mock.fn<(command?: string) => void>();
 const runCheck = mock.fn<() => Promise<void>>(async () => {});
 
 mock.module('./check', {
-  exports: { check, setCheck, restoreCheck, runCheck }
+  exports: { check, setCheck, restoreCheck, runCheck } satisfies ModuleMock<
+    typeof import('./check')
+  >
 });
 
 const { Command, createController, previewOf } = await import('./repl');
@@ -1032,7 +1033,9 @@ describe('commands', () => {
     await controller.runCommand(Command.Resume);
 
     assert.deepEqual(
-      select.mock.calls[0].arguments[0].choices.map((choice) => choice.value),
+      select.mock.calls[0].arguments[0].choices.map(
+        (choice) => (choice as { value: string }).value
+      ),
       [id]
     );
     assert.equal(controller.messages[0].content, 'chosen');

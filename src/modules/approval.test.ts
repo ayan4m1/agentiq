@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 
 import { ApprovalAnswer, ApprovalMode } from '../types';
+import { fakeInquirerCore, fakePrompts } from '../../test/fakes/inquirer';
 
 // remembered answers are written under the home directory, which is read as
 // the config module is evaluated - so it has to point somewhere disposable
@@ -13,20 +14,13 @@ const home = mkdtempSync(resolve(tmpdir(), 'agentiq-approval-'));
 
 process.env.AQ_HOME = home;
 
-// the approval prompt is built on @inquirer/core and reads the real terminal,
-// so it is replaced by one that answers whatever the test says to
-const answer = mock.fn<(config: { message: string }) => Promise<string>>();
-const input = mock.fn<() => Promise<string>>();
-
-mock.module('@inquirer/core', {
-  exports: {
-    createPrompt: () => answer,
-    isEnterKey: () => false,
-    useKeypress: () => {},
-    useState: (value: unknown) => [value, () => {}]
-  }
+const { answer, exports: core } = fakeInquirerCore();
+const { input, exports: prompts } = fakePrompts({
+  input: mock.fn<() => Promise<string>>()
 });
-mock.module('@inquirer/prompts', { exports: { input } });
+
+mock.module('@inquirer/core', { exports: core });
+mock.module('@inquirer/prompts', { exports: prompts });
 
 const {
   approval,

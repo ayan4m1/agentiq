@@ -1,13 +1,15 @@
 import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { fakePrompts } from '../../test/fakes/inquirer';
+
 // the real prompt reads the terminal, so it answers whatever the test says to
 const select =
   mock.fn<
     (config: { message: string; choices: string[] }) => Promise<string>
   >();
 
-mock.module('@inquirer/prompts', { exports: { select } });
+mock.module('@inquirer/prompts', { exports: fakePrompts({ select }).exports });
 
 const { handler } = await import('./ask_list');
 const { terminal } = await import('../modules/turn');

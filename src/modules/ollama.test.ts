@@ -6,6 +6,10 @@ import { mkdtempSync } from 'node:fs';
 import type { ChatRequest, Message } from 'ollama';
 
 import type { AgentMessage } from '../types';
+import { fakeInterrupt } from '../../test/fakes/interrupt';
+import { fakeOra } from '../../test/fakes/ora';
+import { fakePreflight } from '../../test/fakes/preflight';
+import type { ModuleMock } from '../../test/fakes/module';
 
 // an empty state directory means no cached tokenizer, so the thinker falls
 // back to estimating - which keeps this fast and keeps the numbers below
@@ -18,56 +22,17 @@ process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-thinker-'));
 let modelThinks = false;
 
 mock.module('./preflight', {
-  exports: { supportsThinking: () => modelThinks }
+  exports: fakePreflight({ supportsThinking: () => modelThinks }).exports
 });
 
 const { logging, ollama, session } = await import('./config');
 const { makeTool, makeParameter } = await import('../utils');
 
-// escape is watched for on a real terminal, which a test does not have - so
-// the watcher hands its callback over instead, for a test to press escape with
-let pressEscape: (() => void) | undefined;
-const stopWatching = mock.fn();
-const watchForInterrupt = mock.fn((onInterrupt: () => void) => {
-  pressEscape = onInterrupt;
+const interrupt = fakeInterrupt();
+const spinner = fakeOra();
 
-  return stopWatching;
-});
-
-mock.module('./interrupt', { exports: { watchForInterrupt } });
-
-// the spinner draws on a real terminal, which a test does not have - so a fake
-// stands in for it, recording how it was set up and when it ran
-let spinning = false;
-const startSpinner = mock.fn(() => {
-  spinning = true;
-});
-const stopSpinner = mock.fn(() => {
-  spinning = false;
-});
-type FakeSpinner = {
-  start: () => void;
-  stop: () => void;
-  isSpinning: boolean;
-  suffixText?: string;
-};
-let lastSpinner: FakeSpinner | undefined;
-const ora = mock.fn<
-  (options: { discardStdin?: boolean; suffixText?: string }) => FakeSpinner
->((options) => {
-  lastSpinner = {
-    start: startSpinner,
-    stop: stopSpinner,
-    get isSpinning() {
-      return spinning;
-    },
-    suffixText: options.suffixText
-  };
-
-  return lastSpinner;
-});
-
-mock.module('ora', { exports: { default: ora } });
+mock.module('./interrupt', { exports: interrupt.exports });
+mock.module('ora', { exports: spinner.exports });
 
 // the real prompt reads the working tree and the rules files. all that matters
 // here is that it names the model, and that it can be switched off entirely
@@ -77,7 +42,9 @@ let promptBlank = false;
 let skillsBlock: string | undefined;
 
 mock.module('./skills', {
-  exports: { describeSkills: () => skillsBlock }
+  exports: { describeSkills: () => skillsBlock } satisfies ModuleMock<
+    typeof import('./skills')
+  >
 });
 
 mock.module('./prompt', {
@@ -88,7 +55,7 @@ mock.module('./prompt', {
         : [`You are running as ${ollama.model}.`, skillsBlock]
             .filter(Boolean)
             .join('\n\n')
-  }
+  } satisfies ModuleMock<typeof import('./prompt')>
 });
 
 // stand-ins with predictable behavior, one for each way a tool call can end
@@ -109,7 +76,11 @@ const silent = {
   handler: mock.fn(async () => undefined)
 };
 
-mock.module('../tools', { exports: { tools: [echo, boom, silent] } });
+mock.module('../tools', {
+  exports: { tools: [echo, boom, silent] } satisfies ModuleMock<
+    typeof import('../tools')
+  >
+});
 
 const { makeThinker, replayable } = await import('./ollama');
 const { client } = await import('./client');
@@ -382,10 +353,9 @@ describe('taking a turn', () => {
   beforeEach(() => {
     chat.mock.resetCalls();
     abortClient.mock.resetCalls();
-    stopWatching.mock.resetCalls();
+    interrupt.reset();
     ollama.model = 'test-model';
     modelThinks = false;
-    pressEscape = undefined;
 
     for (const tool of [echo, boom, silent]) {
       tool.handler.mock.resetCalls();
@@ -483,7 +453,7 @@ describe('taking a turn', () => {
     // carries an empty one
     assert.equal(result.lastResponse?.message.content, 'It does nothing.');
     assert.equal(thinker.turnCount, 1);
-    assert.equal(stopWatching.mock.callCount(), 1);
+    assert.equal(interrupt.stopWatching.mock.callCount(), 1);
   });
 
   test('shows reasoning without keeping it', async () => {
@@ -709,7 +679,7 @@ describe('taking a turn', () => {
       /connection refused/
     );
     // escape must stop being watched even when the turn never started
-    assert.equal(stopWatching.mock.callCount(), 1);
+    assert.equal(interrupt.stopWatching.mock.callCount(), 1);
   });
 
   test('rolls the turn back when escape is pressed mid-stream', async () => {
@@ -722,7 +692,7 @@ describe('taking a turn', () => {
           content: 'Half an ans',
           tool_calls: [{ function: { name: 'boom', arguments: {} } }]
         });
-        pressEscape?.();
+        interrupt.pressEscape();
         // what the client's abort does to a stream that is being read
         throw new Error('The operation was aborted');
       })()
@@ -748,7 +718,7 @@ describe('taking a turn', () => {
     });
 
     chat.mock.mockImplementationOnce(() => {
-      queueMicrotask(() => pressEscape?.());
+      queueMicrotask(() => interrupt.pressEscape());
 
       return promise;
     });
@@ -765,7 +735,7 @@ describe('taking a turn', () => {
 
     assert.equal(result.interrupted, true);
     assert.equal(result.messages, lastState.messages);
-    assert.equal(stopWatching.mock.callCount(), 1);
+    assert.equal(interrupt.stopWatching.mock.callCount(), 1);
 
     // the response that finally turns up is closed rather than read
     const late = {
@@ -1076,10 +1046,7 @@ describe('the spinner', () => {
   const wasTTY = process.stdin.isTTY;
 
   beforeEach(() => {
-    ora.mock.resetCalls();
-    startSpinner.mock.resetCalls();
-    stopSpinner.mock.resetCalls();
-    spinning = false;
+    spinner.reset();
     // escape can only be pressed at a terminal, so that is when it is offered
     process.stdin.isTTY = true;
   });
@@ -1089,8 +1056,8 @@ describe('the spinner', () => {
   });
 
   const cleared = () => {
-    assert.equal(startSpinner.mock.callCount(), 1);
-    assert.equal(stopSpinner.mock.callCount(), 1);
+    assert.equal(spinner.start.mock.callCount(), 1);
+    assert.equal(spinner.stop.mock.callCount(), 1);
   };
 
   test('leaves stdin to the interrupt watcher', async () => {
@@ -1098,7 +1065,7 @@ describe('the spinner', () => {
 
     await makeThinker().think({ messages: ask() });
 
-    assert.equal(ora.mock.calls[0].arguments[0].discardStdin, false);
+    assert.equal(spinner.ora.mock.calls[0].arguments[0].discardStdin, false);
   });
 
   test('is taken back once the reply starts, and only once', async () => {
@@ -1142,7 +1109,7 @@ describe('the spinner', () => {
     await makeThinker().think({ messages: ask() });
 
     assert.equal(
-      ora.mock.calls[0].arguments[0].suffixText,
+      spinner.ora.mock.calls[0].arguments[0].suffixText,
       'esc to interrupt (0s)'
     );
   });
@@ -1162,13 +1129,13 @@ describe('the spinner', () => {
     const turn = makeThinker().think({ messages: ask() });
 
     t.mock.timers.tick(90_000);
-    assert.equal(lastSpinner?.suffixText, 'esc to interrupt (1m30s)');
+    assert.equal(spinner.lastSpinner?.suffixText, 'esc to interrupt (1m30s)');
 
     answer();
     await turn;
 
     t.mock.timers.tick(10_000);
-    assert.equal(lastSpinner?.suffixText, 'esc to interrupt (1m30s)');
+    assert.equal(spinner.lastSpinner?.suffixText, 'esc to interrupt (1m30s)');
   });
 
   // streams reasoning, then notes whether the spinner was still up before
@@ -1179,7 +1146,7 @@ describe('the spinner', () => {
     chat.mock.mockImplementationOnce(async () =>
       (async function* () {
         yield chunk({ thinking: 'hmm' });
-        during = spinning;
+        during = spinner.spinning;
         yield chunk({ content: 'ok' });
       })()
     );
@@ -1212,7 +1179,7 @@ describe('the spinner', () => {
 
     await makeThinker().think({ messages: ask() });
 
-    assert.equal(startSpinner.mock.callCount(), 0);
-    assert.equal(stopSpinner.mock.callCount(), 0);
+    assert.equal(spinner.start.mock.callCount(), 0);
+    assert.equal(spinner.stop.mock.callCount(), 0);
   });
 });

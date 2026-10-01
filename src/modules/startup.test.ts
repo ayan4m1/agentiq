@@ -1,6 +1,9 @@
 import { test, describe, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { fakePreflight } from '../../test/fakes/preflight';
+import type { ModuleMock } from '../../test/fakes/module';
+
 // every step of starting up talks to the server, the disk or the terminal, so
 // each is replaced by one that does whatever the test says to
 let entryResolves = true;
@@ -15,7 +18,11 @@ const killAllJobs = mock.fn();
 const discardCheckpoints = mock.fn();
 const info = mock.fn();
 
-mock.module('./logging', { exports: { getLogger: () => ({ info }) } });
+mock.module('./logging', {
+  exports: { getLogger: () => ({ info }) } satisfies ModuleMock<
+    typeof import('./logging')
+  >
+});
 mock.module('./config', {
   exports: {
     ollama: {
@@ -23,17 +30,37 @@ mock.module('./config', {
       model: 'test-model',
       minTurnDelay: 0
     }
-  }
+  } satisfies ModuleMock<typeof import('./config')>
 });
-mock.module('./skills', { exports: { loadSkills: () => [] } });
-mock.module('./models', { exports: { resolveStartupEntry } });
+mock.module('./skills', {
+  exports: { loadSkills: () => [] } satisfies ModuleMock<
+    typeof import('./skills')
+  >
+});
+mock.module('./models', {
+  exports: { resolveStartupEntry } satisfies ModuleMock<
+    typeof import('./models')
+  >
+});
 mock.module('./preflight', {
-  exports: { preflight, supportsThinking: () => true }
+  exports: fakePreflight({ preflight, supportsThinking: () => true }).exports
 });
-mock.module('./tokenizer', { exports: { ensureTokenizer } });
-mock.module('./ollama', { exports: { makeThinker } });
-mock.module('./jobs', { exports: { killAllJobs } });
-mock.module('./checkpoints', { exports: { discardCheckpoints } });
+mock.module('./tokenizer', {
+  exports: { ensureTokenizer } satisfies ModuleMock<
+    typeof import('./tokenizer')
+  >
+});
+mock.module('./ollama', {
+  exports: { makeThinker } satisfies ModuleMock<typeof import('./ollama')>
+});
+mock.module('./jobs', {
+  exports: { killAllJobs } satisfies ModuleMock<typeof import('./jobs')>
+});
+mock.module('./checkpoints', {
+  exports: { discardCheckpoints } satisfies ModuleMock<
+    typeof import('./checkpoints')
+  >
+});
 
 const { startAgent } = await import('./startup');
 
