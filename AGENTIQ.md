@@ -57,7 +57,7 @@ If it is appropriate to add a new tool, follow this process each time to get it 
    first and then `requestApproval()`, and return `describeDenial()` when the
    answer is no. Read-only tools do neither.
 5. Pass a subject to `requestApproval()` - `{ kind: 'command' | 'path', value }`
-   - so that "always" can be remembered in `src/modules/rules.ts`.
+   - so that "always" can be remembered by `src/modules/approval.ts`.
 6. If it writes to a file, call `record()` from `src/modules/checkpoints.ts`
    immediately before the write, so `/undo` can roll back the turn that made it.
 
