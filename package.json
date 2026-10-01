@@ -31,7 +31,7 @@
   "scripts": {
     "build": "rollup -c --configPlugin typescript",
     "dev": "rollup -c -w --configPlugin typescript",
-    "lint": "eslint ./src",
+    "lint": "eslint ./src ./test",
     "test": "node --experimental-test-coverage --experimental-test-module-mocks --import ./test/register.mjs --test \"src/**/*.test.ts\"",
     "prepare": "rollup -c --configPlugin typescript"
   },
