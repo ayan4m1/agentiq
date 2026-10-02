@@ -306,8 +306,20 @@ describe('rules', () => {
       assert.ok(!matchesRule('a.ts', 'axts'));
     });
 
-    test('survives a pattern that will not compile', () => {
-      assert.equal(matchesRule('[', 'anything'), false);
+    test('warns and refuses when a glob fails to compile', (t) => {
+      // every metacharacter is escaped, so no pattern typed by hand can reach
+      // the catch - the constructor has to be made to throw instead
+      t.mock.method(globalThis, 'RegExp', function () {
+        throw new SyntaxError('Invalid regular expression');
+      });
+      const warn = t.mock.method(getLogger('approval'), 'warn', () => {});
+
+      assert.equal(matchesRule('src/*.ts', 'src/index.ts'), false);
+      assert.equal(warn.mock.callCount(), 1);
+      assert.match(
+        String(warn.mock.calls[0].arguments[0]),
+        /not a valid pattern: src\/\*\.ts/
+      );
     });
   });
 
