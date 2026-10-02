@@ -411,6 +411,25 @@ describe('rules', () => {
 
       assert.deepEqual(loadRules().command, []);
     });
+
+    test('survives a rules file that cannot be written', (t) => {
+      // a directory where the file should be makes the write fail for real
+      mkdirSync(rulesFor(projectA), { recursive: true });
+      t.after(() => rmSync(rulesFor(projectA), { recursive: true }));
+
+      const logger = getLogger('approval');
+      const warn = t.mock.method(logger, 'warn', () => {});
+      const info = t.mock.method(logger, 'info', () => {});
+
+      assert.doesNotThrow(() => remember('command', 'yarn unwritable'));
+      assert.ok(
+        warn.mock.calls.some((call) =>
+          /Could not write/.test(String(call.arguments[0]))
+        )
+      );
+      // nothing was saved, so it must not claim it will stop asking
+      assert.equal(info.mock.callCount(), 0);
+    });
   });
 
   describe('forgetting a rule', () => {
