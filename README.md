@@ -8,7 +8,7 @@ Agentiq is an agentic coding assistant for use with Ollama.
 
 > npm install -g @ayan4m1/agentiq
 
-Install the package globally and then you will have `agentiq` available as a binary. Run it with no arguments to start an interactive session.
+Install the package globally and then you will have `agentiq` available as a binary. Run it with no arguments to start an interactive session in the current working directory.
 
 ## Configuration
 
@@ -96,6 +96,8 @@ explore:
   rounds: 8
 ```
 
+## Commands
+
 | Command                     | Description                                                                                                                                                                                    |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/context`                  | Shows how many tokens the system prompt, skills, tools and messages take up, against the context limit.                                                                                        |
@@ -116,9 +118,7 @@ explore:
 
 ## Choosing a model
 
-The model agentiq talks to, and the huggingface.co repository whose tokenizer matches it are chosen
-with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. Selecting "Add a new model..." lists what is installed on the Ollama server, asks which repo
-the tokenizer comes from, and saves the pair to `~/.agentiq/models.json`:
+The model agentiq talks to, and the tokenizer that matches it are chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. Selecting "Add a new model..." lists what is installed on the Ollama server, asks which repo the tokenizer comes from, and saves the pair to `~/.agentiq/models.json`:
 
 ```json
 {
@@ -127,9 +127,7 @@ the tokenizer comes from, and saves the pair to `~/.agentiq/models.json`:
 }
 ```
 
-The tokenizer can also be a local directory containing `tokenizer.json` and `tokenizer_config.json`,
-either relative to `~/.agentiq` (e.g. `./my-tokenizer`) or an absolute path. Nothing is downloaded
-for a local directory; it is used as it stands.
+The tokenizer can be a huggingface.co model (formatted like `user/repo`) or a local directory containing `tokenizer.json` and `tokenizer_config.json`, either as an absolute path or relative to `~/.agentiq` (e.g. `./my-tokenizer`).
 
 Switching mid-conversation keeps the history. The tokenizer is downloaded, the system prompt is
 rebuilt around the new model, and the context is counted again from scratch.
