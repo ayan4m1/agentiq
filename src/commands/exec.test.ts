@@ -95,6 +95,15 @@ describe('exec', () => {
     assert.match(stderr, /missing required argument 'prompt'/);
   });
 
+  test('refuses a blank prompt', async () => {
+    for (const prompt of ['', '   ']) {
+      const { status, stderr } = await run('empty', prompt);
+
+      assert.notEqual(status, 0);
+      assert.match(stderr, /the prompt cannot be blank/);
+    }
+  });
+
   test('refuses an approval mode it does not know', async () => {
     const { status, stderr } = await run('empty', 'hello', '--mode', 'yolo');
 

@@ -435,6 +435,16 @@ describe('startRepl', () => {
     assert.equal(controller.addUserMessage.mock.callCount(), 0);
   });
 
+  test('asks again on a blank prompt rather than sending it', async () => {
+    answers = ['', '   ', '/quit'];
+
+    await exitCodeOf();
+
+    assert.equal(controller.addUserMessage.mock.callCount(), 0);
+    assert.equal(controller.takeTurn.mock.callCount(), 0);
+    assert.equal(prompt.mock.callCount(), 3);
+  });
+
   test('runs a command without taking a turn on it', async () => {
     answers = ['/help', '/quit'];
 

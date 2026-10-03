@@ -27,6 +27,10 @@ program
 const [prompt] = program.args;
 const { mode } = program.opts<{ mode: ApprovalMode }>();
 
+if (!prompt.trim()) {
+  program.error('error: the prompt cannot be blank');
+}
+
 // both before startup, since a fresh install would otherwise ask which model
 // to use. assigned rather than set through setMode, whose banner advertises a
 // key that nothing is listening for

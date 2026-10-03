@@ -163,6 +163,12 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
         autocompletePrompt: systemColor('Completions:')
       });
 
+      // nothing typed, or only whitespace - there is nothing to send, so ask
+      // again rather than spending a turn on an empty message
+      if (!userMessage.trim()) {
+        continue;
+      }
+
       // a multi-line prompt recalled from the history, which only ever holds
       // its preview - the editor it opens in sends it on from there
       if (await controller.reopenPaste(userMessage)) {
