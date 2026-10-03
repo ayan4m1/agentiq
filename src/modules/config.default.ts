@@ -105,6 +105,24 @@ explore:
   # its report (AQ_EXPLORE_ROUNDS)
   rounds: 8
 
+mcp:
+  # whether tools from the MCP servers below are offered to the model (AQ_MCP)
+  enabled: true
+  # milliseconds each server gets to start and list its tools (AQ_MCP_TIMEOUT)
+  timeout: 30000
+  # each server is either a command run over stdio, or the url of one that
+  # speaks streamable HTTP. their tools are offered as mcp__<server>__<tool>
+  # servers:
+  #   everything:
+  #     command: npx
+  #     args: ['-y', '@modelcontextprotocol/server-everything']
+  #     env:
+  #       SOME_TOKEN: abc123
+  #   docs:
+  #     url: https://example.com/mcp
+  #     headers:
+  #       Authorization: Bearer abc123
+
 skills:
   # skills in ~/.agentiq/skills to leave out of the prompt - /skills edits this
   # disabled: []

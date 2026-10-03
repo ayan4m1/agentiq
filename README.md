@@ -109,6 +109,18 @@ explore:
   # (AQ_EXPLORE_ROUNDS)
   rounds: 8
 
+mcp:
+  # offer the model the tools of the MCP servers below (AQ_MCP)
+  enabled: true
+  # milliseconds each server gets to start and list its tools (AQ_MCP_TIMEOUT)
+  timeout: 30000
+  # servers:
+  #   everything:
+  #     command: npx
+  #     args: ['-y', '@modelcontextprotocol/server-everything']
+  #   docs:
+  #     url: https://example.com/mcp
+
 skills:
   # skills in ~/.agentiq/skills to leave out of the prompt - /skills edits this
   # disabled: []
@@ -163,8 +175,9 @@ The choices are:
 | `/undo`                     | Takes the conversation back to before the most recent prompt, restoring every file written since.                                                                                                                     |
 | `/changes`                  | Lists the files written this session.                                                                                                                                                                                 |
 | `/check [on\|off\|command]` | After each turn that writes files, runs a test/lint/type-check command (chosen by the model with `on`, or the one given) and shows `✔`/`✘` above the prompt. Alone, shows the current setting.                        |
-| `/rules`                    | Lists saved approval rules (↑↓ to move, `r` then `y` to remove). `/rules add command <pattern>` or `/rules add path <pattern>` saves one; `*` matches within a path segment, `**` across them.                        |
+| `/rules`                    | Lists saved approval rules (↑↓ to move, `r` then `y` to remove). `/rules add command\|path\|tool <pattern>` saves one; `*` matches within a path segment, `**` across them.                                           |
 | `/skills`                   | Lists installed skills to turn on or off (↑↓ to move, space to toggle, `a` for all/none, esc or ⏎ to close). Only enabled skills go into the system prompt; the choice is saved to `skills.disabled` in `config.yml`. |
+| `/mcp`                      | Lists the configured MCP servers, whether each connected, and how many tools it offers. See [MCP servers](#mcp-servers).                                                                                              |
 | `/help`                     | Lists the available commands.                                                                                                                                                                                         |
 | `/quit`                     | Exits agentiq.                                                                                                                                                                                                        |
 
@@ -215,6 +228,35 @@ Every installed skill starts out enabled. `/skills` turns individual skills off 
 them: a disabled skill stays in `~/.agentiq/skills`, but its name and description are left out of
 the system prompt, so it adds nothing to the `SKILLS` line. The change applies from the next turn
 and is saved under `skills.disabled` in `config.yml`, so later runs start the same way.
+
+## MCP servers
+
+agentiq can use the tools of any [Model Context Protocol](https://modelcontextprotocol.io) server.
+List each one under `mcp.servers` in `config.yml`, either as a command to run over stdio or as the
+url of a server speaking streamable HTTP:
+
+```yaml
+mcp:
+  servers:
+    github:
+      command: npx
+      args: ['-y', '@modelcontextprotocol/server-github']
+      env:
+        GITHUB_PERSONAL_ACCESS_TOKEN: ghp_...
+    docs:
+      url: https://example.com/mcp
+      headers:
+        Authorization: Bearer abc123
+```
+
+Servers are started once, at startup, all at the same time. A server that fails to start, or does
+not list its tools within `mcp.timeout`, is reported and left out, and `/mcp` shows what became of
+each. Their tools are offered to the model as `mcp__<server>__<tool>`, and `/context` shows what
+they cost on its `MCP` line.
+
+Calling an MCP tool always needs approval, like running a command does. Answering "always" saves a
+`tool` rule, and `/rules add tool mcp__github__*` allows every tool of one server at once. In plan
+mode, only tools that their server marks as read-only can be called.
 
 ## Non-interactive use
 

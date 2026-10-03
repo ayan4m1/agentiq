@@ -74,7 +74,7 @@ export type ApprovalAnswer =
 // what is being asked about, in a form a remembered answer can be matched
 // against next time. absent for anything not worth remembering
 export type ApprovalSubject = {
-  kind: 'command' | 'path';
+  kind: 'command' | 'path' | 'tool';
   value: string;
 };
 
@@ -165,6 +165,24 @@ export type SkillsConfig = {
   // the names of installed skills to leave out of the prompt - kept rather than
   // the enabled ones, so a newly installed skill starts out on
   disabled: string[];
+};
+
+// one entry under mcp.servers - a command to spawn and talk to over stdio, or
+// the url of a server speaking streamable HTTP
+export type McpServerConfig = {
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+};
+
+export type McpConfig = {
+  enabled: boolean;
+  servers: Record<string, McpServerConfig>;
+  // milliseconds a server gets to connect and list its tools at startup
+  timeout: number;
 };
 
 export type ExploreConfig = {
@@ -357,6 +375,8 @@ export type Skill = {
 
 export type TokenStats = {
   tools: number;
+  // the share of tools that came from MCP servers - already counted in tools
+  mcp: number;
   total: number;
   system: number;
   skills: number;

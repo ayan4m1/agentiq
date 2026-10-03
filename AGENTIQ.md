@@ -21,6 +21,11 @@ general instructions about how to be an agent.
 - `src/modules/ollama.ts` - `makeThinker()`, which owns the streaming chat call,
   tool dispatch, and token accounting. `compaction.ts` holds the logic for
   choosing what to elide; `client.ts` is the shared Ollama client.
+- `src/modules/mcp.ts` - connects to the MCP servers in `config.yml` at
+  startup and wraps each of their tools as a `ToolCall` named
+  `mcp__<server>__<tool>`, which `registerTools()` in `src/tools/index.ts`
+  adds to the registry before the thinker is made. Their arguments skip
+  `validateArgs()`'s filtering, since they never went through `makeParameter()`.
 - `src/modules/tools.ts` - argument validation and recovery of tool calls the
   model wrote as text instead of emitting properly.
 - `src/modules/models.ts` - the model/tokenizer pairs in `~/.agentiq/models.yml`,

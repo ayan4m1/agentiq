@@ -560,10 +560,21 @@ describe('validateArgs', () => {
     });
   });
 
-  test('accepts any arguments for a tool that declared none', () => {
+  test('passes the arguments of an undeclared tool through whole', () => {
     const result = validateArgs('never_registered', { anything: true });
 
     assert.equal(result.ok, true);
-    assert.deepEqual(result.args, {});
+    assert.deepEqual(result.args, { anything: true });
+  });
+
+  test('parses the arguments of an undeclared tool given as a string', () => {
+    const result = validateArgs('never_registered', '{"query":"x","n":2}');
+
+    assert.deepEqual(result.args, { query: 'x', n: 2 });
+  });
+
+  test('hands an undeclared tool nothing when its arguments are no object', () => {
+    assert.deepEqual(validateArgs('never_registered', [1, 2]).args, {});
+    assert.deepEqual(validateArgs('never_registered', 'nonsense').args, {});
   });
 });

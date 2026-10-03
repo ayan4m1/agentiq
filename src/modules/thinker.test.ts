@@ -80,10 +80,11 @@ const silent = {
   handler: mock.fn(async () => undefined)
 };
 
+// a test can add to this before making a thinker, so long as it takes it away
+const tools = [echo, boom, silent];
+
 mock.module('../tools', {
-  exports: { tools: [echo, boom, silent] } satisfies ModuleMock<
-    typeof import('../tools')
-  >
+  exports: { tools } satisfies ModuleMock<typeof import('../tools')>
 });
 
 const { makeThinker, replayable } = await import('./thinker');
@@ -1108,6 +1109,43 @@ describe('counting the skills on offer', () => {
     assert.equal(tokens.skills, estimateTokens(skillsBlock));
     // carved out of the prompt they are sent in, not counted on top of it
     assert.ok(Math.abs(tokens.system - bare) <= 1);
+    assert.equal(
+      tokens.total,
+      tokens.system + tokens.skills + tokens.tools + tokens.messages
+    );
+  });
+});
+
+describe('counting the tools from mcp servers', () => {
+  const remote = {
+    definition: makeTool('mcp__docs__search', 'Searches the docs', [
+      makeParameter('string', 'query', 'What to look for')
+    ]),
+    handler: mock.fn(async () => undefined)
+  };
+
+  afterEach(() => {
+    const index = tools.indexOf(remote);
+
+    if (index !== -1) {
+      tools.splice(index, 1);
+    }
+  });
+
+  test('costs nothing when no server has offered a tool', () => {
+    assert.equal(makeThinker().tokens.mcp, 0);
+  });
+
+  test('counts them within the tools rather than on top of them', () => {
+    const bare = makeThinker().tokens;
+
+    tools.push(remote);
+
+    const { tokens } = makeThinker();
+    const cost = estimateTokens(JSON.stringify(remote.definition));
+
+    assert.equal(tokens.mcp, cost);
+    assert.equal(tokens.tools, bare.tools + cost);
     assert.equal(
       tokens.total,
       tokens.system + tokens.skills + tokens.tools + tokens.messages

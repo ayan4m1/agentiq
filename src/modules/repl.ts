@@ -12,6 +12,7 @@ import {
   type RuleKind
 } from './approval';
 import { pickModel, pickSkills } from './picker';
+import { listServers } from './mcp';
 import { isEnabled, listSkills, setEnabled, skillsDir } from './skills';
 import { modelContextLength, preflight } from './preflight';
 import { beginTurn, changes, countSince, rewind } from './checkpoints';
@@ -69,6 +70,7 @@ export const Command = {
   Check: 'check',
   Rules: 'rules',
   Skills: 'skills',
+  Mcp: 'mcp',
   Help: 'help',
   Quit: 'quit'
 } as const;
@@ -327,7 +329,8 @@ export const createController = ({
   };
 
   const showContext = () => {
-    const { measured, messages, skills, system, tools, total } = thinker.tokens;
+    const { mcp, measured, messages, skills, system, tools, total } =
+      thinker.tokens;
     const share = Math.round((total / provider.contextLimit) * 100);
     const estimated = chalk.gray('(estimated)');
 
@@ -340,7 +343,10 @@ export const createController = ({
     console.log(
       `${systemColor('{SKILLS   }')} - ${skills} tokens ${estimated}`
     );
-    console.log(`${systemColor('{TOOLS    }')} - ${tools} tokens ${estimated}`);
+    console.log(
+      `${systemColor('{TOOLS    }')} - ${tools - mcp} tokens ${estimated}`
+    );
+    console.log(`${systemColor('{MCP      }')} - ${mcp} tokens ${estimated}`);
     console.log(
       `${systemColor('{MESSAGES }')} - ${messages} tokens ${estimated}`
     );
@@ -681,7 +687,7 @@ export const createController = ({
     const usage = () =>
       log.error(
         chalk.red(
-          'Expected /rules, or /rules add command|path <pattern>, e.g. /rules add command yarn test*'
+          'Expected /rules, or /rules add command|path|tool <pattern>, e.g. /rules add command yarn test*'
         )
       );
 
@@ -689,7 +695,10 @@ export const createController = ({
       const [, action, kind, pattern] =
         value.match(/^(\S+)\s+(\S+)\s+(.+)$/) ?? [];
 
-      if (action !== 'add' || (kind !== 'command' && kind !== 'path')) {
+      if (
+        action !== 'add' ||
+        (kind !== 'command' && kind !== 'path' && kind !== 'tool')
+      ) {
         usage();
 
         return;
@@ -701,7 +710,7 @@ export const createController = ({
     }
 
     const saved = loadRules();
-    const kinds: RuleKind[] = ['command', 'path'];
+    const kinds: RuleKind[] = ['command', 'path', 'tool'];
     const choices = kinds.flatMap((kind) =>
       saved[kind].map((pattern) => ({
         name: `${chalk.gray(kind.padEnd(8))}${pattern}`,
@@ -785,6 +794,26 @@ export const createController = ({
     log.info(chalk.green(`Skills now use ${thinker.tokens.skills} tokens`));
   };
 
+  // the configured MCP servers, and what became of each at startup - a server
+  // that failed is otherwise only mentioned once, scrolled well out of view
+  const showServers = () => {
+    const servers = listServers();
+
+    if (!servers.length) {
+      log.info(systemColor('No MCP servers are configured in config.yml'));
+
+      return;
+    }
+
+    for (const { name, transport, tools, error } of servers) {
+      console.log(
+        `${systemColor('*')} ${name} ${chalk.gray(`(${transport})`)} - ${
+          error ? chalk.red(`failed: ${error}`) : `${tools} tools`
+        }`
+      );
+    }
+  };
+
   // a slash command, without its slash, and anything typed after its name.
   // quitting is left to the caller, which owns the process and what has to be
   // cleaned up before it exits
@@ -840,6 +869,9 @@ export const createController = ({
         break;
       case Command.Skills:
         await skills();
+        break;
+      case Command.Mcp:
+        showServers();
         break;
       case Command.Help:
         console.log(systemColor('\n--- Available Commands ---'));

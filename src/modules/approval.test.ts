@@ -401,7 +401,7 @@ describe('rules', () => {
       mkdirSync(resolve(home, 'approvals'), { recursive: true });
       writeFileSync(rulesFor(projectA), 'not json at all');
 
-      assert.deepEqual(loadRules(), { command: [], path: [] });
+      assert.deepEqual(loadRules(), { command: [], path: [], tool: [] });
       assert.equal(isRemembered('command', 'anything'), false);
     });
 
@@ -442,7 +442,8 @@ describe('rules', () => {
 
       assert.deepEqual(loadRules(), {
         command: ['yarn lint'],
-        path: ['yarn test']
+        path: ['yarn test'],
+        tool: []
       });
       assert.equal(isRemembered('command', 'yarn test'), false);
     });

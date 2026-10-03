@@ -6,7 +6,9 @@ import { makeThinker } from './thinker';
 import { getLogger } from './logging';
 import { preflight } from './preflight';
 import { loadSkills } from './skills';
+import { closeServers, connectServers } from './mcp';
 import { chatProvider } from '../providers';
+import { registerTools } from '../tools';
 import { ensureTokenizer, usesHfTokenizer } from './tokenizer';
 import { resolveStartupEntry } from './models';
 import { discardCheckpoints } from './checkpoints';
@@ -51,6 +53,10 @@ export const startAgent = async () => {
   // rather than in the middle of it
   loadSkills();
 
+  // the thinker counts and offers the tools it is created with, so whatever
+  // the MCP servers have has to be in the list before it is
+  registerTools(await connectServers());
+
   const thinker = makeThinker();
 
   // the system prompt and tools are a sizeable share of a small window, and
@@ -70,6 +76,7 @@ export const startAgent = async () => {
   // same: they only exist for the scope of this session.
   const cleanUp = () => {
     killAllJobs();
+    closeServers();
     discardCheckpoints();
   };
 

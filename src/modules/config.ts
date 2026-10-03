@@ -15,6 +15,8 @@ import {
   LogLevel,
   type OllamaConfig,
   type ExploreConfig,
+  type McpConfig,
+  type McpServerConfig,
   type RoadmapConfig,
   type SessionConfig,
   type SkillsConfig,
@@ -366,4 +368,63 @@ export const toSkillNames = (value: unknown, name: string) => {
 
 export const skills: SkillsConfig = {
   disabled: toSkillNames(lookup(file, 'skills', 'disabled'), 'skills.disabled')
+};
+
+const isStrings = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+
+const isStringMap = (value: unknown): value is Record<string, string> =>
+  isRecord(value) &&
+  Object.values(value).every((entry) => typeof entry === 'string');
+
+// a mapping, so like skills.disabled it is read from the file as it is. a
+// server that is not described properly is dropped with a warning naming it,
+// rather than costing every other server - or the run - over one typo
+export const toMcpServers = (value: unknown, name: string) => {
+  const servers: Record<string, McpServerConfig> = {};
+
+  if (value === null || value === undefined) {
+    return servers;
+  }
+
+  if (!isRecord(value)) {
+    console.warn(`Ignoring ${name} - expected a mapping of server names`);
+
+    return servers;
+  }
+
+  for (const [server, entry] of Object.entries(value)) {
+    const problem = !isRecord(entry)
+      ? 'expected a mapping'
+      : (typeof entry.command === 'string') === (typeof entry.url === 'string')
+        ? 'expected exactly one of command or url'
+        : entry.args !== undefined && !isStrings(entry.args)
+          ? 'expected args to be a list of strings'
+          : entry.env !== undefined && !isStringMap(entry.env)
+            ? 'expected env to be a mapping of strings'
+            : entry.headers !== undefined && !isStringMap(entry.headers)
+              ? 'expected headers to be a mapping of strings'
+              : entry.cwd !== undefined && typeof entry.cwd !== 'string'
+                ? 'expected cwd to be a string'
+                : undefined;
+
+    if (problem) {
+      console.warn(`Ignoring ${name}.${server} - ${problem}`);
+      continue;
+    }
+
+    servers[server] = entry as McpServerConfig;
+  }
+
+  return servers;
+};
+
+export const mcp: McpConfig = {
+  enabled: toBoolean(
+    setting('AQ_MCP', 'mcp', 'enabled'),
+    'mcp.enabled (AQ_MCP)',
+    true
+  ),
+  servers: toMcpServers(lookup(file, 'mcp', 'servers'), 'mcp.servers'),
+  timeout: integer('AQ_MCP_TIMEOUT', 'mcp', 'timeout')
 };

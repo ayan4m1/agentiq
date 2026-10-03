@@ -51,3 +51,11 @@ export const tools: ToolCall[] = [
   ...(exploreConfig.enabled ? [explore] : []),
   ...(roadmapConfig.enabled ? roadmapTools : [])
 ];
+
+// tools that only exist once agentiq is running - those of the MCP servers it
+// connected to. added to the same list rather than kept apart, so that dispatch
+// and token counting find them without knowing where they came from. it has
+// to happen before makeThinker(), which reads the list once
+export const registerTools = (extra: ToolCall[]) => {
+  tools.push(...extra);
+};

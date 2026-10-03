@@ -482,15 +482,20 @@ const explain = (name: string, problems: string[]) =>
 // anything else comes back as a message the model can act on
 export const validateArgs = (name: string, raw: unknown): Validation => {
   const params = getParameters(name);
+  const source = reparse(raw ?? {});
+  const isObject =
+    !!source && typeof source === 'object' && !Array.isArray(source);
 
-  // a tool that declared nothing has nothing to check against
+  // a tool that never went through makeTool - one from an MCP server - brings
+  // its own JSON schema and its server checks the arguments against it, so
+  // they are handed over whole rather than filtered down to nothing
   if (!params) {
-    return { ok: true, args: {} };
+    return isObject
+      ? { ok: true, args: source as Record<string, unknown> }
+      : { ok: true, args: {} };
   }
 
-  const source = reparse(raw ?? {});
-
-  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+  if (!isObject) {
     return {
       ok: false,
       message: explain(name, [

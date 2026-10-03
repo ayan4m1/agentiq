@@ -180,11 +180,11 @@ export const refusePlanning = (subject: string) => {
 // project says nothing about another
 const rulesDir = resolve(home, 'approvals');
 
-export type RuleKind = 'command' | 'path';
+export type RuleKind = 'command' | 'path' | 'tool';
 
 type Rules = Record<RuleKind, string[]>;
 
-const empty = (): Rules => ({ command: [], path: [] });
+const empty = (): Rules => ({ command: [], path: [], tool: [] });
 
 const pathFor = () => resolve(rulesDir, `${slugFor(process.cwd())}.json`);
 
@@ -245,7 +245,9 @@ export const loadRules = (): Rules => {
 
     return {
       command: Array.isArray(parsed?.command) ? parsed.command : [],
-      path: Array.isArray(parsed?.path) ? parsed.path : []
+      path: Array.isArray(parsed?.path) ? parsed.path : [],
+      // absent from a file written before MCP tools could be approved
+      tool: Array.isArray(parsed?.tool) ? parsed.tool : []
     };
   } catch (error) {
     // a hand-edited file with a typo in it should cost the rules, not the run

@@ -25,6 +25,18 @@ const makeThinker = mock.fn(() => thinker);
 const killAllJobs = mock.fn();
 const discardCheckpoints = mock.fn();
 const info = mock.fn();
+const mcpTools = [{ definition: { type: 'function', function: {} } }];
+const connectServers = mock.fn(async () => mcpTools);
+const closeServers = mock.fn();
+// whether the tools were registered by the time the thinker was made
+let registeredBeforeThinker = false;
+const registerTools = mock.fn();
+
+makeThinker.mock.mockImplementation(() => {
+  registeredBeforeThinker = registerTools.mock.callCount() > 0;
+
+  return thinker;
+});
 
 mock.module('./logging', {
   exports: { getLogger: () => ({ info }) } satisfies ModuleMock<
@@ -74,6 +86,15 @@ mock.module('./checkpoints', {
   >
 });
 
+mock.module('./mcp', {
+  exports: { connectServers, closeServers } as ModuleMock<
+    typeof import('./mcp')
+  >
+});
+mock.module('../tools', {
+  exports: { registerTools } as ModuleMock<typeof import('../tools')>
+});
+
 const { startAgent } = await import('./startup');
 
 // startAgent hooks the process itself, and those hooks must not outlive the
@@ -99,7 +120,10 @@ beforeEach(() => {
     count,
     killAllJobs,
     discardCheckpoints,
-    info
+    info,
+    connectServers,
+    closeServers,
+    registerTools
   ]) {
     fn.mock.resetCalls();
   }
@@ -154,6 +178,16 @@ describe('startAgent', () => {
     assert.equal(ensureTokenizer.mock.callCount(), 1);
   });
 
+  test('registers the MCP tools before making the thinker', async () => {
+    registeredBeforeThinker = false;
+
+    await startAgent();
+
+    assert.equal(connectServers.mock.callCount(), 1);
+    assert.deepEqual(registerTools.mock.calls[0].arguments, [mcpTools]);
+    assert.equal(registeredBeforeThinker, true);
+  });
+
   test('counts the empty conversation before the first turn', async () => {
     await startAgent();
 
@@ -182,12 +216,13 @@ describe('startAgent', () => {
     assert.deepEqual(result, { messages: [] });
   });
 
-  test('cleans up jobs and checkpoints', async () => {
+  test('cleans up jobs, MCP servers and checkpoints', async () => {
     const agent = await startAgent();
 
     agent!.cleanUp();
 
     assert.equal(killAllJobs.mock.callCount(), 1);
+    assert.equal(closeServers.mock.callCount(), 1);
     assert.equal(discardCheckpoints.mock.callCount(), 1);
   });
 

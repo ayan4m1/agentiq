@@ -13,6 +13,7 @@ import { buildSystemPrompt } from './prompt';
 import { describeSkills } from './skills';
 import { watchForInterrupt } from './interrupt';
 import { showElapsed } from './elapsed';
+import { isMcpTool } from './mcp';
 import type {
   AgentMessage,
   ChatChunk,
@@ -69,6 +70,7 @@ export const makeThinker = () => {
     system: 0,
     skills: 0,
     tools: 0,
+    mcp: 0,
     total: 0,
     // until the provider has answered once, every number here is a tokenizer
     // estimate
@@ -151,6 +153,7 @@ export const makeThinker = () => {
     tokens.system = 0;
     tokens.skills = 0;
     tokens.tools = 0;
+    tokens.mcp = 0;
 
     if (systemPrompt) {
       const skills = describeSkills();
@@ -180,6 +183,10 @@ export const makeThinker = () => {
       );
 
       tokens.tools += toolCost;
+
+      if (isMcpTool(tool.definition.function.name)) {
+        tokens.mcp += toolCost;
+      }
     }
 
     tokens.total = fixedCost() + tokens.messages;

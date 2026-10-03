@@ -135,6 +135,7 @@ const makeThinker = () => ({
     system: 10,
     skills: 5,
     tools: 20,
+    mcp: 6,
     messages: 0,
     total: 35,
     measured: false
@@ -926,7 +927,9 @@ describe('commands', () => {
 
     assert.match(printed(), /\{SYSTEM {3}\} - 10 tokens/);
     assert.match(printed(), /\{SKILLS {3}\} - 5 tokens/);
-    assert.match(printed(), /\{TOOLS {4}\} - 20 tokens/);
+    // the MCP tools are taken out of the built-in line rather than counted twice
+    assert.match(printed(), /\{TOOLS {4}\} - 14 tokens/);
+    assert.match(printed(), /\{MCP {6}\} - 6 tokens/);
     assert.match(printed(), /\{MESSAGES \} - 0 tokens/);
     assert.match(printed(), /\{TOTAL {4}\} - 35 tokens/);
   });
@@ -1225,10 +1228,12 @@ describe('/rules', () => {
   test('adds a rule exactly as it was typed', async () => {
     await make().runCommand('rules add command yarn  test *');
     await make().runCommand('rules add path src/**');
+    await make().runCommand('rules add tool mcp__github__*');
 
     assert.deepEqual(loadRules(), {
       command: ['yarn  test *'],
-      path: ['src/**']
+      path: ['src/**'],
+      tool: ['mcp__github__*']
     });
   });
 
@@ -1242,9 +1247,9 @@ describe('/rules', () => {
     assert.equal(error.mock.callCount(), 3);
     assert.match(
       String(error.mock.calls[0].arguments[0]),
-      /\/rules add command\|path <pattern>/
+      /\/rules add command\|path\|tool <pattern>/
     );
-    assert.deepEqual(loadRules(), { command: [], path: [] });
+    assert.deepEqual(loadRules(), { command: [], path: [], tool: [] });
   });
 });
 
