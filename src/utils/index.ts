@@ -1,42 +1,35 @@
-import type { Message, Tool } from 'ollama';
 import chalk from 'chalk';
 import { filesize } from 'filesize';
 import { structuredPatch } from 'diff';
 
-import type { ToolParameter } from '../types';
-import { client } from '../modules/client';
-import { ollama } from '../modules/config';
+import type { ChatMessage, ToolDefinition, ToolParameter } from '../types';
+import { chatProvider } from '../providers';
+import { provider } from '../modules/config';
 
 // a single call with no tools and no streaming - for asking the model something
 // on the side, where the reply is used and never kept in the history
-export const askModel = async (messages: Message[]) => {
-  const response = await client.chat({
-    model: ollama.model,
-    messages,
-    keep_alive: ollama.keepAlive,
-    // without this ollama falls back to the model default and silently
-    // truncates the prompt
-    options: {
-      num_ctx: ollama.contextLimit
-    }
+export const askModel = async (messages: ChatMessage[]) => {
+  const reply = await chatProvider.complete({
+    model: provider.model,
+    messages
   });
 
-  return response.message.content;
+  return reply.content;
 };
 
-// the schema handed to ollama describes a parameter well enough for the model
+// the schema handed to the model describes a parameter well enough for the model
 // but not well enough to check an answer against, so keep the list that built
 // it - the tool definitions stay the one place a parameter is declared
 const declared = new Map<string, ToolParameter[]>();
 
 export const getParameters = (name: string) => declared.get(name);
 
-// create an Ollama-compatible tool definition
+// create a tool definition
 export const makeTool = (
   name: string,
   description: string,
   parameters: ToolParameter[] = []
-): Tool => {
+): ToolDefinition => {
   declared.set(name, parameters);
 
   return {
@@ -64,7 +57,7 @@ export const makeTool = (
   };
 };
 
-// create an Ollama-compatible tool parameter definition
+// create a tool parameter definition
 export const makeParameter = (
   type: string,
   name: string,
@@ -140,7 +133,7 @@ export const charsPerToken = 3.33;
 // large files and HTML pages trivially exceed the context window, so tools cap
 // their output at a fraction of it
 export const getContentBudget = (fraction = 0.3) =>
-  Math.floor(ollama.contextLimit * fraction * charsPerToken);
+  Math.floor(provider.contextLimit * fraction * charsPerToken);
 
 // what a command may hand back, whether it ran in the foreground or is still
 // running in the background - one number so the two cannot drift apart

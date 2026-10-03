@@ -1,16 +1,15 @@
 import ora from 'ora';
 import chalk from 'chalk';
-import type { Message, ToolCall as ModelCall } from 'ollama';
 
-import { client } from './client';
-import { explore as config, ollama } from './config';
+import { chatProvider } from '../providers';
+import { explore as config, ollama, provider } from './config';
 import { getLogger } from './logging';
 import { recoverToolCalls, validateArgs } from './tools';
 import { watchForInterrupt } from './interrupt';
 import { showElapsed } from './elapsed';
 import { resolveThink } from './preflight';
 import { yieldToUser } from './turn';
-import type { ToolCall } from '../types';
+import type { ChatMessage, ModelToolCall, ToolCall } from '../types';
 import * as find from '../tools/find';
 import * as list from '../tools/list';
 import * as read from '../tools/read';
@@ -59,7 +58,7 @@ const interruptHint = (elapsed: string) => `esc to interrupt (${elapsed})`;
 
 // the tokenizer belongs to the main conversation, and this one is thrown away
 // when it ends - so the same rough ratio the tool budgets use is close enough
-const estimate = (messages: Message[]) =>
+const estimate = (messages: ChatMessage[]) =>
   Math.ceil(
     messages.reduce(
       (total, message) =>
@@ -98,7 +97,9 @@ const quietly = async <T>(name: string, work: () => T | Promise<T>) => {
   }
 };
 
-const runCall = async ({ function: { name, arguments: args } }: ModelCall) => {
+const runCall = async ({
+  function: { name, arguments: args }
+}: ModelToolCall) => {
   const tool = readOnlyTools.find(
     (candidate) => candidate.definition.function.name === name
   );
@@ -133,7 +134,7 @@ const finish = (content?: string) => {
 // answers a question in a conversation of its own, so that everything read on
 // the way stays out of the main one - only the report comes back
 export const explore = async (question: string) => {
-  const messages: Message[] = [
+  const messages: ChatMessage[] = [
     {
       role: 'system',
       content: `${explorerPrompt}\n\nThe working directory is ${process.cwd()}.`
@@ -141,7 +142,7 @@ export const explore = async (question: string) => {
     { role: 'user', content: question }
   ];
   const rounds = config.rounds > 0 ? config.rounds : 1;
-  const budget = Math.floor(ollama.contextLimit * budgetShare);
+  const budget = Math.floor(provider.contextLimit * budgetShare);
   const spinner = ora({
     stream: process.stdout,
     // watchForInterrupt owns stdin in raw mode, as it does during a turn
@@ -159,7 +160,7 @@ export const explore = async (question: string) => {
   });
   const stopWatching = watchForInterrupt(() => {
     interrupted = true;
-    client.abort();
+    chatProvider.abort();
     interrupt();
   });
 
@@ -179,24 +180,18 @@ export const explore = async (question: string) => {
   // raced against escape like a turn of the main conversation, since abort()
   // does not reach a request whose response has not started yet
   const ask = async (offerTools: boolean) => {
-    const request = client.chat({
-      model: ollama.model,
+    const request = chatProvider.complete({
+      model: provider.model,
       messages,
       tools: offerTools ? definitions : undefined,
-      think: resolveThink(),
-      keep_alive: ollama.keepAlive,
-      options: {
-        num_ctx: ollama.contextLimit
-      }
+      think: resolveThink()
     });
 
     // an interrupted request rejects once it is aborted, with nobody waiting
     request.catch(() => {});
 
     try {
-      const response = await Promise.race([request, interruption]);
-
-      return response?.message;
+      return await Promise.race([request, interruption]);
     } catch (error) {
       if (interrupted) {
         return;
@@ -238,8 +233,14 @@ export const explore = async (question: string) => {
       }
 
       // the text beside a call is narration rather than findings, and the
-      // main conversation drops it for the same reason (see replayable())
-      messages.push({ role: 'assistant', content: '', tool_calls: calls });
+      // main conversation drops it for the same reason (see replayable()). a
+      // provider that needs its reply back verbatim still has it in native
+      messages.push({
+        role: 'assistant',
+        content: '',
+        tool_calls: calls,
+        ...(reply.native ? { native: reply.native } : {})
+      });
 
       for (const call of calls) {
         print(describeCall(call.function.name, call.function.arguments));
@@ -247,6 +248,7 @@ export const explore = async (question: string) => {
         messages.push({
           role: 'tool',
           tool_name: call.function.name,
+          ...(call.id ? { tool_call_id: call.id } : {}),
           content: await runCall(call)
         });
 

@@ -2,7 +2,7 @@
 
 [![codecov](https://codecov.io/gh/ayan4m1/agentiq/graph/badge.svg?token=ZMpY0vGAjm)](https://codecov.io/gh/ayan4m1/agentiq)
 
-Agentiq is an agentic coding assistant for use with Ollama.
+Agentiq is an agentic coding assistant for use with Ollama (now supports Anthropic API as well).
 
 ## Installation
 
@@ -40,23 +40,28 @@ shell:
   # milliseconds before a command is killed (AQ_SHELL_TIMEOUT)
   timeout: 120000
 
+provider:
+  # which provider serves the model - ollama or anthropic. see Providers below
+  # (AQ_PROVIDER)
+  name: ollama
+  # context size in tokens; also changed by /context-limit (AQ_CONTEXT_LIMIT)
+  contextLimit: 131072
+  # milliseconds to wait between turns - raise it only for a metered remote
+  # endpoint (AQ_MIN_TURN_DELAY)
+  minTurnDelay: 0
+  # how hard a reasoning model thinks - true, false, or high/medium/low. unset
+  # lets a thinking-capable model keep its reasoning out of the transcript
+  # (AQ_THINK)
+  # think: true
+
 ollama:
   # ollama server - unset uses http://127.0.0.1:11434 (AQ_OLLAMA_HOST)
   # host: http://127.0.0.1:11434/
   # only needed behind a proxy that asks for one (AQ_OLLAMA_BEARER_TOKEN)
   # bearerToken: your-token
-  # context size in tokens; also changed by /context-limit (AQ_OLLAMA_CONTEXT_LIMIT)
-  contextLimit: 131072
   # how long ollama keeps the model loaded; -1 never unloads it, 0 unloads it
   # immediately (AQ_OLLAMA_KEEP_ALIVE)
   keepAlive: 30m
-  # milliseconds to wait between turns - raise it only for a metered remote
-  # endpoint (AQ_OLLAMA_MIN_TURN_DELAY)
-  minTurnDelay: 0
-  # how hard a reasoning model thinks - true, false, or high/medium/low. unset
-  # lets a thinking-capable model keep its reasoning out of the transcript
-  # (AQ_OLLAMA_THINK)
-  # think: true
   # send the text a model writes before a tool call back on later turns. off
   # because some renderers (e.g. ollama's gemma one) then stop replying
   # (AQ_OLLAMA_REPLAY_PREAMBLE)
@@ -64,6 +69,11 @@ ollama:
   # recover tool calls a model writes into its reply as text - XML, <tool_call>
   # tags, or JSON (AQ_OLLAMA_RECOVER_TOOL_CALLS)
   recoverToolCalls: true
+
+anthropic:
+  # the key used when provider.name is anthropic - empty falls back to the
+  # ANTHROPIC_API_KEY environment variable (AQ_ANTHROPIC_API_KEY)
+  apiKey: ''
 
 session:
   # saved sessions to keep in ~/.agentiq/sessions; 0 keeps them all
@@ -96,14 +106,38 @@ explore:
   rounds: 8
 ```
 
+## Providers
+
+`provider.name` (or `AQ_PROVIDER` for a single run) picks what serves the model. It is read once at
+startup, and decides:
+
+- which server agentiq checks before the first prompt - an unreachable server, or a configured
+  model it does not have, stops startup with the list of models it does have
+- which models `/model` offers, and which half of `~/.agentiq/models.yml` is used - each provider
+  keeps its own saved models and remembers the one it last used, so switching providers does not
+  lose either list (see [Choosing a model](#choosing-a-model))
+- where every turn, `/compact`, `/recap` and the explore tool send their requests
+
+The choices are:
+
+- `ollama` (the default) - talks to an Ollama server at `ollama.host`. Each model needs a matching
+  tokenizer, and the other `ollama.*` settings apply.
+- `anthropic` - talks to the Anthropic API. No tokenizer is needed, since the API counts tokens
+  itself, and the `ollama.*` settings are ignored.
+
+> [!NOTE]
+> The `anthropic` provider needs an API key. Set `anthropic.apiKey` in `config.yml` (or
+> `AQ_ANTHROPIC_API_KEY`); left empty, agentiq falls back to the `ANTHROPIC_API_KEY` environment
+> variable. Without a key, startup fails because the model list cannot be fetched.
+
 ## Commands
 
 | Command                     | Description                                                                                                                                                                                    |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/context`                  | Shows how many tokens the system prompt, skills, tools and messages take up, against the context limit.                                                                                        |
-| `/context-limit [tokens]`   | Shows the current context limit or changes it if able, saving the new value to `config.yml`. `AQ_OLLAMA_CONTEXT_LIMIT` still wins when set.                                                    |
+| `/context-limit [tokens]`   | Shows the current context limit or changes it if able, saving the new value to `config.yml`. `AQ_CONTEXT_LIMIT` still wins when set.                                                           |
 | `/mode`                     | Cycles the approval mode between manual, auto and plan (same as shift+tab).                                                                                                                    |
-| `/model`                    | Picks an Ollama model and the tokenizer that matches it. See [Choosing a model](#choosing-a-model).                                                                                            |
+| `/model`                    | Picks a model to use for the current session. See [Choosing a model](#choosing-a-model).                                                                                                       |
 | `/compact`                  | Summarizes the conversation to free up context.                                                                                                                                                |
 | `/recap [turns]`            | Prints a short recap of the last `session.recapTurns` turns, or of `turns` turns. The recap is never added to the conversation.                                                                |
 | `/paste`                    | Opens `$VISUAL` or `$EDITOR` (notepad or vim when neither is set) for a multi-line prompt, and sends it when the editor closes.                                                                |
@@ -118,14 +152,21 @@ explore:
 
 ## Choosing a model
 
-The model agentiq talks to, and the tokenizer that matches it are chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. Selecting "Add a new model..." lists what is installed on the Ollama server, asks which repo the tokenizer comes from, and saves the pair to `~/.agentiq/models.json`:
+The model agentiq talks to, and the tokenizer that matches it are chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. Selecting "Add a new model..." lists what is installed on the Ollama server, asks which repo the tokenizer comes from, and saves the pair to `~/.agentiq/models.yml`. Models are kept per provider, so each one remembers its own list and the model it last used:
 
-```json
-{
-  "active": "gemma4:e4b",
-  "models": [{ "model": "gemma4:e4b", "tokenizer": "google/gemma-4-E4B" }]
-}
+```yaml
+active:
+  ollama: gemma4:e4b
+  anthropic: claude-opus-5-5
+models:
+  ollama:
+    - model: gemma4:e4b
+      tokenizer: google/gemma-4-E4B
+  anthropic:
+    - model: claude-opus-5-5
 ```
+
+Anthropic models have no tokenizer entry, since the API counts tokens itself.
 
 The tokenizer can be a huggingface.co model (formatted like `user/repo`) or a local directory containing `tokenizer.json` and `tokenizer_config.json`, either as an absolute path or relative to `~/.agentiq` (e.g. `./my-tokenizer`).
 

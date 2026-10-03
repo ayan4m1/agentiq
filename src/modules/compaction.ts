@@ -1,4 +1,4 @@
-import type { Message, ToolCall } from 'ollama';
+import type { ChatMessage, ModelToolCall } from '../types';
 
 // what a replaced tool result starts with, so a second pass can tell one it
 // already wrote from one it has yet to touch
@@ -8,15 +8,15 @@ export const elidedPrefix = '[elided';
 // costs what it just reclaimed
 const identifierLength = 60;
 
-export const isElided = (message: Message) =>
+export const isElided = (message: ChatMessage) =>
   Boolean(message.content?.startsWith(elidedPrefix));
 
 // tool results arrive in the order their calls were made, immediately after
 // the assistant message that made them, so the two can be paired by position
 // alone - nothing in the transcript carries an id to match on
-export const pairCalls = (messages: Message[]) => {
-  const pairs = new Map<number, ToolCall>();
-  let pending: ToolCall[] = [];
+export const pairCalls = (messages: ChatMessage[]) => {
+  const pairs = new Map<number, ModelToolCall>();
+  let pending: ModelToolCall[] = [];
   let next = 0;
 
   messages.forEach((message, index) => {
@@ -40,7 +40,7 @@ export const pairCalls = (messages: Message[]) => {
 // the first argument is the one that says which call this was - a path for
 // read, a pattern for find, a command for shell. it is a heuristic, but a
 // wrong guess only makes the marker less useful, never incorrect
-const identify = (call?: ToolCall) => {
+const identify = (call?: ModelToolCall) => {
   const args = call?.function?.arguments;
   const first = args ? Object.values(args)[0] : undefined;
 
@@ -58,7 +58,7 @@ const identify = (call?: ToolCall) => {
 export const describeElision = (
   content: string,
   toolName?: string,
-  call?: ToolCall
+  call?: ModelToolCall
 ) =>
   `${elidedPrefix}: ${content.length} characters of output from ${
     toolName ?? 'a tool'
@@ -68,7 +68,7 @@ export const describeElision = (
 // made before it already has its result before it. cutting anywhere else
 // orphans a tool result from the call that produced it, and the next request
 // is then an incomplete conversation
-export const safeBoundaries = (messages: Message[]) => {
+export const safeBoundaries = (messages: ChatMessage[]) => {
   const boundaries: number[] = [];
   let outstanding = 0;
 
@@ -93,7 +93,7 @@ export const safeBoundaries = (messages: Message[]) => {
 // useful place to cut when there is one. a single long turn has no user
 // message to fall back on - that is the case that used to free nothing at all
 // - so it cuts as late as the pairing allows instead
-export const findSplit = (messages: Message[]) => {
+export const findSplit = (messages: ChatMessage[]) => {
   const boundaries = safeBoundaries(messages);
   const lastUser = messages.findLastIndex((message) => message.role === 'user');
 

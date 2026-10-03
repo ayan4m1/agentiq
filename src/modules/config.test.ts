@@ -88,7 +88,7 @@ describe('toThink', () => {
     assert.equal(toThink('HIGH'), 'high');
   });
 
-  test('ignores a value ollama would reject', () => {
+  test('ignores a value a provider would reject', () => {
     // sending one costs every turn of the session, not just the setting
     assert.equal(
       quietly(() => toThink('maximum')),
@@ -146,7 +146,9 @@ describe('loadConfigFile', () => {
     assert.equal(seeded.logging.logThoughts, false);
     assert.equal(seeded.approval.mode, 'manual');
     assert.equal(seeded.shell.timeout, 120000);
-    assert.equal(seeded.ollama.contextLimit, 131072);
+    assert.equal(seeded.provider.name, 'ollama');
+    assert.equal(seeded.provider.contextLimit, 131072);
+    assert.equal(seeded.provider.minTurnDelay, 0);
     assert.equal(seeded.ollama.recoverToolCalls, true);
     assert.equal(seeded.session.limit, 50);
     assert.equal(seeded.roadmap.enabled, false);
@@ -212,7 +214,7 @@ describe('saveSetting', () => {
   test('changes the one value and keeps the comments', () => {
     const dir = seed('defaults', defaultConfig);
 
-    saveSetting('ollama', 'contextLimit', 32768, dir);
+    saveSetting('provider', 'contextLimit', 32768, dir);
 
     assert.equal(
       read(dir),
@@ -223,27 +225,27 @@ describe('saveSetting', () => {
   test('adds a setting the file leaves out', () => {
     const dir = seed('missing', 'session:\n  limit: 7\n');
 
-    saveSetting('ollama', 'contextLimit', 32768, dir);
+    saveSetting('provider', 'contextLimit', 32768, dir);
 
     assert.deepEqual(parse(read(dir)), {
       session: { limit: 7 },
-      ollama: { contextLimit: 32768 }
+      provider: { contextLimit: 32768 }
     });
   });
 
   test('fills a section that holds nothing but comments', () => {
-    const dir = seed('comments', 'ollama:\n  # nothing yet\n');
+    const dir = seed('comments', 'provider:\n  # nothing yet\n');
 
-    saveSetting('ollama', 'contextLimit', 32768, dir);
+    saveSetting('provider', 'contextLimit', 32768, dir);
 
-    assert.deepEqual(parse(read(dir)), { ollama: { contextLimit: 32768 } });
+    assert.deepEqual(parse(read(dir)), { provider: { contextLimit: 32768 } });
   });
 
   test('refuses to overwrite a file that is not valid yaml', () => {
     const written = 'session: [unclosed\n';
     const dir = seed('broken', written);
 
-    assert.throws(() => saveSetting('ollama', 'contextLimit', 32768, dir));
+    assert.throws(() => saveSetting('provider', 'contextLimit', 32768, dir));
     assert.equal(read(dir), written);
   });
 });
@@ -273,11 +275,11 @@ describe('settings', () => {
   test('reads values from config.yml', async () => {
     const config = await load(
       'file',
-      'session:\n  limit: 7\nollama:\n  think: high\nroadmap:\n  enabled: true\n'
+      'session:\n  limit: 7\nprovider:\n  think: high\nroadmap:\n  enabled: true\n'
     );
 
     assert.equal(config.session.limit, 7);
-    assert.equal(config.ollama.think, 'high');
+    assert.equal(config.provider.think, 'high');
     assert.equal(config.roadmap.enabled, true);
   });
 
@@ -288,7 +290,9 @@ describe('settings', () => {
     assert.equal(config.shell.timeout, 120000);
     assert.equal(config.ollama.keepAlive, '30m');
     assert.equal(config.ollama.recoverToolCalls, true);
-    assert.equal(config.ollama.think, undefined);
+    assert.equal(config.provider.name, 'ollama');
+    assert.equal(config.provider.contextLimit, 131072);
+    assert.equal(config.provider.think, undefined);
     assert.equal(config.logging.logThoughts, false);
   });
 
@@ -301,6 +305,68 @@ describe('settings', () => {
 
     assert.equal(config.session.limit, 3);
     assert.equal(config.roadmap.enabled, false);
+  });
+
+  // contextLimit, minTurnDelay and think were ollama settings before they
+  // applied to every provider, and a config.yml or an env var written then
+  // has to go on working. each case clears the new env names, so a value set
+  // in the environment running the tests cannot decide the outcome
+  describe('settings that moved from ollama to provider', () => {
+    const unset = { AQ_CONTEXT_LIMIT: '', AQ_THINK: '', AQ_MIN_TURN_DELAY: '' };
+
+    test('still reads them from the ollama section of config.yml', async () => {
+      const config = await load(
+        'legacy-file',
+        'ollama:\n  contextLimit: 4096\n  minTurnDelay: 250\n  think: low\n',
+        unset
+      );
+
+      assert.equal(config.provider.contextLimit, 4096);
+      assert.equal(config.provider.minTurnDelay, 250);
+      assert.equal(config.provider.think, 'low');
+    });
+
+    test('prefers the provider section when both are there', async () => {
+      const config = await load(
+        'both-files',
+        'provider:\n  contextLimit: 8192\nollama:\n  contextLimit: 4096\n',
+        unset
+      );
+
+      assert.equal(config.provider.contextLimit, 8192);
+    });
+
+    test('still honours the old AQ_OLLAMA_* env vars', async () => {
+      const config = await load('legacy-env', 'session:\n  limit: 7\n', {
+        ...unset,
+        AQ_OLLAMA_CONTEXT_LIMIT: '2048',
+        AQ_OLLAMA_MIN_TURN_DELAY: '500',
+        AQ_OLLAMA_THINK: 'medium'
+      });
+
+      assert.equal(config.provider.contextLimit, 2048);
+      assert.equal(config.provider.minTurnDelay, 500);
+      assert.equal(config.provider.think, 'medium');
+    });
+
+    test('lets the new env var win over the old one', async () => {
+      const config = await load('both-env', 'session:\n  limit: 7\n', {
+        AQ_CONTEXT_LIMIT: '16384',
+        AQ_OLLAMA_CONTEXT_LIMIT: '2048'
+      });
+
+      assert.equal(config.provider.contextLimit, 16384);
+    });
+
+    test('lets an old env var win over the new file section', async () => {
+      const config = await load(
+        'legacy-env-over-file',
+        'provider:\n  contextLimit: 8192\n',
+        { ...unset, AQ_OLLAMA_CONTEXT_LIMIT: '2048' }
+      );
+
+      assert.equal(config.provider.contextLimit, 2048);
+    });
   });
 
   test('reads config.yml from AQ_HOME', async () => {

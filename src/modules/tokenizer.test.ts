@@ -24,9 +24,15 @@ mock.module('@lenml/tokenizers', {
   >
 });
 
-const { estimateTokens, ensureTokenizer, localTokenizerDir, makeTokenizer } =
-  await import('./tokenizer');
-const { home, tokenizer: config } = await import('./config');
+const {
+  estimateTokens,
+  ensureTokenizer,
+  localTokenizerDir,
+  makeTokenizer,
+  usesHfTokenizer
+} = await import('./tokenizer');
+const { home, provider, tokenizer: config } = await import('./config');
+const { Provider } = await import('../types');
 const { charsPerToken } = await import('../utils');
 
 const fileNames = ['tokenizer.json', 'tokenizer_config.json'];
@@ -78,6 +84,30 @@ beforeEach(() => {
   );
   fromPreTrained.mock.resetCalls();
   fromPreTrained.mock.mockImplementation(byCharacter);
+});
+
+describe('usesHfTokenizer', () => {
+  test('pairs an ollama model with a tokenizer', () => {
+    assert.equal(usesHfTokenizer(Provider.Ollama), true);
+  });
+
+  test('leaves counting to the API for an anthropic model', () => {
+    assert.equal(usesHfTokenizer(Provider.Anthropic), false);
+  });
+
+  test('asks about the configured provider unless told which', (t) => {
+    const configured = provider.name;
+
+    t.after(() => {
+      provider.name = configured;
+    });
+
+    provider.name = Provider.Anthropic;
+    assert.equal(usesHfTokenizer(), false);
+
+    provider.name = Provider.Ollama;
+    assert.equal(usesHfTokenizer(), true);
+  });
 });
 
 describe('estimateTokens', () => {
@@ -163,7 +193,9 @@ describe('ensureTokenizer', () => {
       'a/b/c',
       'no-slash',
       'a\\b/c',
-      '/abs'
+      '/abs',
+      // looks like a local directory, but there is no such directory
+      './does-not-exist'
     ]) {
       config.repo = repo;
 
@@ -287,14 +319,6 @@ describe('ensureTokenizer', () => {
     assert.equal(existsSync(resolve(dir, 'tokenizer_config.json')), false);
   });
 
-  test('reports failure for a local directory that does not exist', async () => {
-    config.repo = './does-not-exist';
-
-    assert.equal(await ensureTokenizer(), false);
-    assert.equal(fetched.mock.callCount(), 0);
-    assert.equal(existsSync(resolve(home, 'does-not-exist')), false);
-  });
-
   test('leaves nothing behind when a download drops partway through', async () => {
     const repo = freshRepo();
     const target = resolve(cacheDir(repo), 'tokenizer.json');
@@ -328,9 +352,13 @@ describe('makeTokenizer', () => {
   });
 
   test('estimates when the repo name is refused', () => {
-    config.repo = '../evil';
+    for (const repo of ['../evil', './does-not-exist']) {
+      config.repo = repo;
 
-    assert.equal(makeTokenizer(), estimateTokens);
+      assert.equal(makeTokenizer(), estimateTokens, repo);
+    }
+
+    assert.equal(fromPreTrained.mock.callCount(), 0);
   });
 
   test('counts with the cached tokenizer when there is one', () => {
@@ -371,13 +399,6 @@ describe('makeTokenizer', () => {
         tokenizerJSON: { model: 'json' }
       });
     }
-  });
-
-  test('estimates when a local directory does not exist', () => {
-    config.repo = './does-not-exist';
-
-    assert.equal(makeTokenizer(), estimateTokens);
-    assert.equal(fromPreTrained.mock.callCount(), 0);
   });
 
   test('estimates when the cache is missing a file', () => {

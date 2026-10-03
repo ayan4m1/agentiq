@@ -111,7 +111,7 @@ const controller = {
   get needsUserInput() {
     return needsInput.length ? needsInput.shift() : true;
   },
-  restore: mock.fn<(id?: string) => boolean>(() => {
+  restore: mock.fn<(id?: string) => Promise<boolean>>(async () => {
     if (rememberedPrompts) {
       controllerOptions?.rememberPrompts(rememberedPrompts);
     }
@@ -183,13 +183,18 @@ mock.module('./check', {
   exports: { describeCheck } satisfies ModuleMock<typeof import('./check')>
 });
 mock.module('./config', {
-  exports: { ollama: { contextLimit: 1000 } } satisfies ModuleMock<
-    typeof import('./config')
-  >
+  exports: {
+    // the providers module builds one of these as it loads, and reads each
+    // one's section while doing it
+    anthropic: {},
+    logging: {},
+    ollama: {},
+    provider: { contextLimit: 1000 }
+  } satisfies ModuleMock<typeof import('./config')>
 });
-mock.module('./ollama', {
+mock.module('./thinker', {
   exports: { compactThreshold: 0.5 } satisfies ModuleMock<
-    typeof import('./ollama')
+    typeof import('./thinker')
   >
 });
 

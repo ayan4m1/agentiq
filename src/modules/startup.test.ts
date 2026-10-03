@@ -12,7 +12,15 @@ let preflightPasses = true;
 const resolveStartupEntry = mock.fn(async () => entryResolves);
 const preflight = mock.fn(async () => preflightPasses);
 const ensureTokenizer = mock.fn(async () => true);
-const thinker = { tokens: {} };
+let hfTokenizer = true;
+const usesHfTokenizer = () => hfTokenizer;
+const providerConfig = {
+  name: 'ollama',
+  model: 'test-model',
+  minTurnDelay: 0
+};
+const count = mock.fn(async () => {});
+const thinker = { tokens: {}, count };
 const makeThinker = mock.fn(() => thinker);
 const killAllJobs = mock.fn();
 const discardCheckpoints = mock.fn();
@@ -26,11 +34,10 @@ mock.module('./logging', {
 mock.module('./config', {
   exports: {
     ollama: {
-      host: 'http://example:11434',
-      model: 'test-model',
-      minTurnDelay: 0
-    }
-  } satisfies ModuleMock<typeof import('./config')>
+      host: 'http://example:11434'
+    },
+    provider: providerConfig
+  } as ModuleMock<typeof import('./config')>
 });
 mock.module('./skills', {
   exports: { loadSkills: () => [] } satisfies ModuleMock<
@@ -43,15 +50,20 @@ mock.module('./models', {
   >
 });
 mock.module('./preflight', {
-  exports: fakePreflight({ preflight, supportsThinking: () => true }).exports
+  exports: fakePreflight({ preflight }).exports
 });
 mock.module('./tokenizer', {
-  exports: { ensureTokenizer } satisfies ModuleMock<
+  exports: { ensureTokenizer, usesHfTokenizer } satisfies ModuleMock<
     typeof import('./tokenizer')
   >
 });
-mock.module('./ollama', {
-  exports: { makeThinker } satisfies ModuleMock<typeof import('./ollama')>
+mock.module('../providers', {
+  exports: {
+    chatProvider: { label: 'Anthropic API' }
+  } as ModuleMock<typeof import('../providers')>
+});
+mock.module('./thinker', {
+  exports: { makeThinker } satisfies ModuleMock<typeof import('./thinker')>
 });
 mock.module('./jobs', {
   exports: { killAllJobs } satisfies ModuleMock<typeof import('./jobs')>
@@ -74,6 +86,8 @@ let sigintListeners: Listener[];
 beforeEach(() => {
   entryResolves = true;
   preflightPasses = true;
+  hfTokenizer = true;
+  providerConfig.name = 'ollama';
   exitListeners = process.listeners('exit') as Listener[];
   sigintListeners = process.listeners('SIGINT') as Listener[];
 
@@ -82,6 +96,7 @@ beforeEach(() => {
     preflight,
     ensureTokenizer,
     makeThinker,
+    count,
     killAllJobs,
     discardCheckpoints,
     info
@@ -137,6 +152,27 @@ describe('startAgent', () => {
 
     assert.equal(agent?.thinker, thinker);
     assert.equal(ensureTokenizer.mock.callCount(), 1);
+  });
+
+  test('counts the empty conversation before the first turn', async () => {
+    await startAgent();
+
+    assert.equal(count.mock.callCount(), 1);
+    assert.deepEqual(count.mock.calls[0].arguments, [[]]);
+  });
+
+  test('fetches no tokenizer for a provider that counts for itself', async () => {
+    hfTokenizer = false;
+    providerConfig.name = 'anthropic';
+
+    await startAgent();
+
+    assert.equal(ensureTokenizer.mock.callCount(), 0);
+    assert.equal(makeThinker.mock.callCount(), 1);
+    assert.equal(
+      info.mock.calls[0].arguments[0],
+      'Connected to Anthropic API using model test-model'
+    );
   });
 
   test('schedules work and hands back its result', async () => {

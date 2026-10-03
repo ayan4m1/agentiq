@@ -14,7 +14,8 @@ import {
 } from 'node:fs';
 
 import { getLogger } from './logging';
-import { home, tokenizer as config } from './config';
+import { home, provider, tokenizer as config } from './config';
+import { Provider } from '../types';
 import { charsPerToken, describeError } from '../utils';
 
 const log = getLogger('tokenizer');
@@ -25,11 +26,17 @@ const fileNames = ['tokenizer.json', 'tokenizer_config.json'];
 // let through as a `..` segment
 const repoPattern = /^(?!\.+\/)[\w.-]+\/(?!\.+$)[\w.-]+$/;
 
-// a rough count for when no real tokenizer is available. ollama reports the
-// true size of every prompt it renders, so this only has to be close enough to
-// get as far as the first response
+// a rough count for when no real tokenizer is available. the provider reports
+// the true size of every prompt it is sent, so this only has to be close enough
+// to get as far as the first response
 export const estimateTokens = (value: string) =>
   Math.ceil(value.length / charsPerToken);
+
+// claude's tokenizer is not published anywhere it could be downloaded from, so
+// an anthropic model is never paired with one - the API counts for it instead.
+// asked about the configured provider unless told which
+export const usesHfTokenizer = (name: Provider = provider.name) =>
+  name !== Provider.Anthropic;
 
 // a directory the user already has on disk, used as it stands rather than
 // downloaded into. relative paths hang off the state directory like everything

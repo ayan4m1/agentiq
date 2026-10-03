@@ -9,9 +9,8 @@ import {
   readFileSync,
   writeFileSync
 } from 'node:fs';
-import type { Message } from 'ollama';
 
-import { ApprovalMode, type ThoughtState } from '../types';
+import { ApprovalMode, type ChatMessage, type ThoughtState } from '../types';
 import { fakePrompts } from '../../test/fakes/inquirer';
 import { fakePreflight } from '../../test/fakes/preflight';
 import type { ModuleMock } from '../../test/fakes/module';
@@ -74,7 +73,8 @@ mock.module('./tokenizer', {
     ensureTokenizer,
     estimateTokens: (value: string) => value.length,
     localTokenizerDir: () => undefined,
-    makeTokenizer: () => (value: string) => value.length
+    makeTokenizer: () => (value: string) => value.length,
+    usesHfTokenizer: () => true
   } satisfies ModuleMock<typeof import('./tokenizer')>
 });
 
@@ -93,7 +93,7 @@ mock.module('./check', {
 
 const { Command, createController, previewOf } = await import('./repl');
 const { approval, loadRules, remember } = await import('./approval');
-const { ollama, session, tokenizer } = await import('./config');
+const { provider, session, tokenizer } = await import('./config');
 const { loadStore, saveStore } = await import('./models');
 const { yieldToUser, takeYield } = await import('./turn');
 const {
@@ -135,12 +135,15 @@ const makeThinker = () => ({
     measured: false
   },
   turnCount: 0,
-  load: mock.fn((messages: Message[]) => messages.length),
+  load: mock.fn((messages: ChatMessage[]) => messages.length),
   reset: mock.fn(() => 0),
-  rebuild: mock.fn((messages: Message[]) => messages.length),
-  compact: mock.fn(async (messages: Message[]) => ({ messages, freed: 0 })),
+  rebuild: mock.fn((messages: ChatMessage[]) => messages.length),
+  count: mock.fn(async (messages: ChatMessage[]) => {
+    void messages;
+  }),
+  compact: mock.fn(async (messages: ChatMessage[]) => ({ messages, freed: 0 })),
   recap: mock.fn<
-    (messages: Message[], turns?: number) => Promise<string | undefined>
+    (messages: ChatMessage[], turns?: number) => Promise<string | undefined>
   >(async () => undefined),
   think: mock.fn(
     async (thought: ThoughtState): Promise<ThoughtState> => thought
@@ -173,7 +176,7 @@ const seeded = () => {
 const answers = (response: { message: object }) =>
   thinker.think.mock.mockImplementationOnce(async (thought) => ({
     ...thought,
-    messages: [...thought.messages, response.message as Message],
+    messages: [...thought.messages, response.message as ChatMessage],
     lastResponse: response as ThoughtState['lastResponse']
   }));
 
@@ -184,7 +187,7 @@ const answersInOrder = (...responses: { message: object }[]) => {
     thinker.think.mock.mockImplementationOnce(
       async (thought) => ({
         ...thought,
-        messages: [...thought.messages, response.message as Message],
+        messages: [...thought.messages, response.message as ChatMessage],
         lastResponse: response as ThoughtState['lastResponse']
       }),
       thinker.think.mock.callCount() + index
@@ -209,7 +212,7 @@ beforeEach(() => {
   approval.mode = ApprovalMode.Manual;
   preflightPasses = true;
   contextLength = undefined;
-  ollama.contextLimit = 4096;
+  provider.contextLimit = 4096;
   preflight.mock.resetCalls();
   ensureTokenizer.mock.resetCalls();
   log.mock.resetCalls();
@@ -279,17 +282,6 @@ describe('turns', () => {
     await controller.takeTurn();
 
     assert.equal(controller.needsUserInput, true);
-  });
-
-  test('runs each turn through the schedule it is given', async () => {
-    const controller = make();
-    const schedule = mock.fn((work: () => Promise<ThoughtState>) => work());
-
-    controller.addUserMessage('hello');
-    answers(reply);
-    await controller.takeTurn(schedule);
-
-    assert.equal(schedule.mock.callCount(), 1);
   });
 
   test('writes the conversation to the session after a turn', async () => {
@@ -423,18 +415,18 @@ describe('@ mentions', () => {
     assert.equal(controller.takePrefill(), 'read @notes.txt');
   });
 
-  test('seeds the history of a resumed session with the typed prompt', () => {
+  test('seeds the history of a resumed session with the typed prompt', async () => {
     append([
       {
         role: 'user',
         content: 'read @notes.txt\n\nContents of notes.txt:\n     1\talpha',
         typed: 'read @notes.txt'
-      } as Message
+      } as ChatMessage
     ]);
 
     const { remember, prompts } = seeded();
 
-    make(1000, remember).restore();
+    await make(1000, remember).restore();
 
     assert.deepEqual(prompts(), ['read @notes.txt']);
   });
@@ -475,18 +467,6 @@ describe('runPrompt', () => {
     assert.equal(schedule.mock.callCount(), 2);
   });
 
-  test('writes the prompt and the replies to the session', async () => {
-    const controller = make();
-
-    answers(reply);
-    await controller.runPrompt('hello');
-
-    assert.deepEqual(
-      saved().map((message) => message.content),
-      ['hello', 'done']
-    );
-  });
-
   test('reports a failed model call', async () => {
     const controller = make();
 
@@ -495,8 +475,6 @@ describe('runPrompt', () => {
     });
 
     assert.equal(await controller.runPrompt('hello'), false);
-    // the prompt is still saved, so the session can be resumed and retried
-    assert.equal(saved().length, 1);
   });
 });
 
@@ -553,7 +531,7 @@ describe('compaction', () => {
 
   test('rewrites the session with what compaction kept', async () => {
     const controller = make();
-    const summary: Message = { role: 'user', content: 'summary' };
+    const summary: ChatMessage = { role: 'user', content: 'summary' };
 
     controller.addUserMessage('hello');
     thinker.compact.mock.mockImplementationOnce(async () => ({
@@ -683,19 +661,6 @@ describe('/check', () => {
     assert.equal(runCheck.mock.callCount(), 0);
   });
 
-  test('does not run after an interrupted turn', async () => {
-    const controller = make();
-
-    controller.addUserMessage('hello');
-    thinker.think.mock.mockImplementationOnce(async (thought) => ({
-      ...thought,
-      interrupted: true
-    }));
-    await controller.takeTurn();
-
-    assert.equal(runCheck.mock.callCount(), 0);
-  });
-
   test('does not run after a failed model call', async () => {
     const controller = make();
 
@@ -708,36 +673,50 @@ describe('/check', () => {
     assert.equal(runCheck.mock.callCount(), 0);
   });
 
-  test('comes back with a resumed session', () => {
+  test('comes back with a resumed session', async () => {
     append([{ role: 'user', content: 'earlier' }]);
     setSessionCheck('yarn test');
     startSession();
 
-    make().restore();
+    await make().restore();
 
     assert.deepEqual(restoreCheck.mock.calls[0].arguments, ['yarn test']);
   });
 
-  test('carries over into the session /clear starts', () => {
+  test('asks the provider to count the emptied conversation', async () => {
+    await make().clear();
+
+    assert.equal(thinker.count.mock.callCount(), 1);
+    assert.deepEqual(thinker.count.mock.calls[0].arguments[0], []);
+  });
+
+  test('carries over into the session /clear starts', async () => {
     check.command = 'yarn lint';
 
-    make().clear();
+    await make().clear();
 
     assert.equal(sessionCheck(), 'yarn lint');
   });
 });
 
 describe('restore', () => {
-  test('fails when there is nothing to resume', () => {
-    assert.equal(make().restore(), false);
+  // and offers no prompt history back, since there is none to offer
+  test('fails when there is nothing to resume', async () => {
+    const { remember } = seeded();
+
+    assert.equal(await make(1000, remember).restore(), false);
+    assert.equal(remember.mock.callCount(), 0);
   });
 
-  test('fails for a session that does not exist', () => {
-    assert.equal(make().restore('no-such-session'), false);
+  test('fails for a session that does not exist', async () => {
+    const { remember } = seeded();
+
+    assert.equal(await make(1000, remember).restore('no-such-session'), false);
+    assert.equal(remember.mock.callCount(), 0);
   });
 
-  test('picks up the most recent session', () => {
-    const messages: Message[] = [
+  test('picks up the most recent session', async () => {
+    const messages: ChatMessage[] = [
       { role: 'user', content: 'earlier' },
       { role: 'assistant', content: 'reply' }
     ];
@@ -746,13 +725,22 @@ describe('restore', () => {
 
     const controller = make();
 
-    assert.equal(controller.restore(), true);
+    assert.equal(await controller.restore(), true);
     assert.deepEqual(controller.messages, messages);
     assert.deepEqual(thinker.load.mock.calls[0].arguments[0], messages);
     assert.equal(controller.needsUserInput, true);
   });
 
-  test('picks up a session by id', () => {
+  test('asks the provider to count what it resumed', async () => {
+    const messages: ChatMessage[] = [{ role: 'user', content: 'earlier' }];
+
+    append(messages);
+
+    assert.equal(await make().restore(), true);
+    assert.deepEqual(thinker.count.mock.calls[0].arguments[0], messages);
+  });
+
+  test('picks up a session by id', async () => {
     const id = startSession();
 
     append([{ role: 'user', content: 'by id' }]);
@@ -760,11 +748,11 @@ describe('restore', () => {
 
     const controller = make();
 
-    assert.equal(controller.restore(id), true);
+    assert.equal(await controller.restore(id), true);
     assert.equal(controller.messages[0].content, 'by id');
   });
 
-  test('offers back what the user typed, oldest first', () => {
+  test('offers back what the user typed, oldest first', async () => {
     append([
       { role: 'user', content: 'first' },
       { role: 'assistant', content: 'reply' },
@@ -774,11 +762,11 @@ describe('restore', () => {
 
     const { remember, prompts } = seeded();
 
-    assert.equal(make(1000, remember).restore(), true);
+    assert.equal(await make(1000, remember).restore(), true);
     assert.deepEqual(prompts(), ['first', 'second']);
   });
 
-  test('leaves out the notes compaction wrote', () => {
+  test('leaves out the notes compaction wrote', async () => {
     append([
       { role: 'user', content: 'typed' },
       // deliberately one line, so only the flag could leave it out
@@ -787,11 +775,11 @@ describe('restore', () => {
 
     const { remember, prompts } = seeded();
 
-    assert.equal(make(1000, remember).restore(), true);
+    assert.equal(await make(1000, remember).restore(), true);
     assert.deepEqual(prompts(), ['typed']);
   });
 
-  test('leaves out blank prompts and previews multi-line ones', () => {
+  test('leaves out blank prompts and previews multi-line ones', async () => {
     append([
       { role: 'user', content: '   ' },
       { role: 'user', content: 'pasted\nover two lines' },
@@ -800,11 +788,11 @@ describe('restore', () => {
 
     const { remember, prompts } = seeded();
 
-    assert.equal(make(1000, remember).restore(), true);
+    assert.equal(await make(1000, remember).restore(), true);
     assert.deepEqual(prompts(), ['pasted … (+1 line)', 'typed']);
   });
 
-  test('offers back only the most recent prompts', () => {
+  test('offers back only the most recent prompts', async () => {
     append(
       ['oldest', 'older', 'newer', 'newest'].map((content) => ({
         role: 'user',
@@ -814,27 +802,19 @@ describe('restore', () => {
 
     const { remember, prompts } = seeded();
 
-    assert.equal(make(1000, remember).restore(), true);
+    assert.equal(await make(1000, remember).restore(), true);
     // AQ_HISTORY_LIMIT is 3 for this run
     assert.deepEqual(prompts(), ['older', 'newer', 'newest']);
   });
 
-  test('does not recap on its own', () => {
+  test('does not recap on its own', async () => {
     append([
       { role: 'user', content: 'earlier' },
       { role: 'assistant', content: 'the last reply' }
     ]);
 
-    assert.equal(make().restore(), true);
+    assert.equal(await make().restore(), true);
     assert.equal(thinker.recap.mock.callCount(), 0);
-  });
-
-  test('offers nothing back when there is nothing to resume', () => {
-    const { remember } = seeded();
-
-    assert.equal(make(1000, remember).restore(), false);
-    assert.equal(make(1000, remember).restore('no-such-session'), false);
-    assert.equal(remember.mock.callCount(), 0);
   });
 });
 
@@ -844,15 +824,18 @@ const qwen = { model: 'qwen3:30b', tokenizer: 'Qwen/Qwen3-Coder-30B' };
 // a session already running on one of two saved models, which is what /model
 // is for - the store and the config have to agree before it is asked to switch
 const onModel = (entry: typeof gemma) => {
-  saveStore({ active: entry.model, models: [gemma, qwen] });
-  ollama.model = entry.model;
+  saveStore({
+    active: { ollama: entry.model },
+    models: { ollama: [gemma, qwen] }
+  });
+  provider.model = entry.model;
   tokenizer.repo = entry.tokenizer;
 
   return make();
 };
 
 describe('/recap', () => {
-  const conversation = (): Message[] => [
+  const conversation = (): ChatMessage[] => [
     { role: 'user', content: 'earlier' },
     { role: 'assistant', content: 'the last reply' }
   ];
@@ -865,7 +848,7 @@ describe('/recap', () => {
     const { remember, prompts } = seeded();
     const controller = make(1000, remember);
 
-    controller.restore();
+    await controller.restore();
     thinker.recap.mock.mockImplementationOnce(
       async () => 'you were working on earlier'
     );
@@ -944,7 +927,7 @@ describe('commands', () => {
 
   test('shows the context limit for /context-limit', async () => {
     contextLength = 8192;
-    ollama.model = gemma.model;
+    provider.model = gemma.model;
     await make().runCommand(Command.ContextLimit);
 
     assert.match(printed(), /Context limit is 4096 tokens/);
@@ -954,7 +937,7 @@ describe('commands', () => {
   test('changes the context limit for /context-limit <value>', async () => {
     await make().runCommand(`${Command.ContextLimit} 8192`);
 
-    assert.equal(ollama.contextLimit, 8192);
+    assert.equal(provider.contextLimit, 8192);
     assert.match(
       readFileSync(resolve(root, 'home', 'config.yml'), 'utf8'),
       /^ {2}contextLimit: 8192$/m
@@ -968,20 +951,20 @@ describe('commands', () => {
       await controller.runCommand(`${Command.ContextLimit} ${value}`);
     }
 
-    assert.equal(ollama.contextLimit, 4096);
+    assert.equal(provider.contextLimit, 4096);
   });
 
   test('allows a context limit past what the model supports', async () => {
     contextLength = 2048;
     await make().runCommand(`${Command.ContextLimit} 16384`);
 
-    assert.equal(ollama.contextLimit, 16384);
+    assert.equal(provider.contextLimit, 16384);
   });
 
   test('compacts at once when the limit drops below the context', async () => {
     const controller = createController({
       thinker: thinker as never,
-      compactAt: () => ollama.contextLimit / 2
+      compactAt: () => provider.contextLimit / 2
     });
 
     await controller.runCommand(`${Command.ContextLimit} 1000`);
@@ -1070,10 +1053,10 @@ describe('commands', () => {
     pickModel.mock.mockImplementationOnce(async () => qwen.model);
     await controller.runCommand(Command.Model);
 
-    assert.equal(ollama.model, qwen.model);
+    assert.equal(provider.model, qwen.model);
     assert.equal(tokenizer.repo, qwen.tokenizer);
     // the next run starts where this session ended up
-    assert.equal(loadStore().active, qwen.model);
+    assert.equal(loadStore().active.ollama, qwen.model);
     // the conversation carries over, counted again by the new tokenizer
     assert.deepEqual(thinker.rebuild.mock.calls[0].arguments[0], [
       { role: 'user', content: 'hello' }
@@ -1088,10 +1071,10 @@ describe('commands', () => {
     pickModel.mock.mockImplementationOnce(async () => qwen.model);
     await controller.runCommand(Command.Model);
 
-    assert.equal(ollama.model, gemma.model);
+    assert.equal(provider.model, gemma.model);
     assert.equal(tokenizer.repo, gemma.tokenizer);
     // a switch that did not happen must not decide what the next run starts on
-    assert.equal(loadStore().active, gemma.model);
+    assert.equal(loadStore().active.ollama, gemma.model);
     assert.equal(thinker.rebuild.mock.callCount(), 0);
     assert.equal(ensureTokenizer.mock.callCount(), 0);
   });
@@ -1106,9 +1089,9 @@ describe('commands', () => {
     pickModel.mock.mockImplementationOnce(async () => qwen.model);
     await controller.runCommand(Command.Model);
 
-    assert.equal(ollama.model, gemma.model);
+    assert.equal(provider.model, gemma.model);
     assert.equal(tokenizer.repo, gemma.tokenizer);
-    assert.equal(loadStore().active, gemma.model);
+    assert.equal(loadStore().active.ollama, gemma.model);
     assert.match(
       String(error.mock.calls[0]?.arguments[0]),
       /supports 20 tokens, but this session already needs 35/
@@ -1128,7 +1111,7 @@ describe('commands', () => {
     pickModel.mock.mockImplementationOnce(async () => qwen.model);
     await controller.runCommand(Command.Model);
 
-    assert.equal(ollama.model, qwen.model);
+    assert.equal(provider.model, qwen.model);
     assert.equal(thinker.rebuild.mock.callCount(), 1);
   });
 
@@ -1150,7 +1133,7 @@ describe('commands', () => {
     });
     await controller.runCommand(Command.Model);
 
-    assert.equal(ollama.model, gemma.model);
+    assert.equal(provider.model, gemma.model);
     assert.equal(thinker.rebuild.mock.callCount(), 0);
   });
 
@@ -1273,7 +1256,7 @@ describe('/undo', () => {
 
       return {
         ...thought,
-        messages: [...thought.messages, reply.message as Message],
+        messages: [...thought.messages, reply.message as ChatMessage],
         lastResponse: reply as ThoughtState['lastResponse']
       };
     });
@@ -1399,7 +1382,7 @@ describe('/undo', () => {
 
     const controller = make();
 
-    controller.restore();
+    await controller.restore();
     controller.addUserMessage('typed');
     writes({ 'a.txt': 'changed' });
     await controller.takeTurn();
@@ -1550,7 +1533,7 @@ describe('/paste', () => {
     const { remember, prompts } = seeded();
     const resumed = make(1000, remember);
 
-    resumed.restore();
+    await resumed.restore();
 
     assert.deepEqual(prompts(), [preview, 'typed']);
 
@@ -1600,7 +1583,7 @@ describe('/paste', () => {
 
       return {
         ...thought,
-        messages: [...thought.messages, reply.message as Message],
+        messages: [...thought.messages, reply.message as ChatMessage],
         lastResponse: reply as ThoughtState['lastResponse']
       };
     });

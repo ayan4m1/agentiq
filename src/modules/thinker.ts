@@ -1,9 +1,8 @@
 import ora from 'ora';
 import chalk from 'chalk';
-import type { Message } from 'ollama';
 
-import { client } from './client';
-import { logging, ollama, session } from './config';
+import { chatProvider } from '../providers';
+import { logging, ollama, provider, session } from './config';
 import { describeElision, findSplit, isElided, pairCalls } from './compaction';
 import { getLogger } from './logging';
 import { makeTokenizer } from './tokenizer';
@@ -14,7 +13,13 @@ import { buildSystemPrompt } from './prompt';
 import { describeSkills } from './skills';
 import { watchForInterrupt } from './interrupt';
 import { showElapsed } from './elapsed';
-import type { AgentMessage, ThoughtState, TokenStats } from '../types';
+import type {
+  AgentMessage,
+  ChatChunk,
+  ChatMessage,
+  ThoughtState,
+  TokenStats
+} from '../types';
 import { tools } from '../tools';
 import {
   askModel,
@@ -23,7 +28,7 @@ import {
   serializeResult
 } from '../utils';
 
-const log = getLogger('ollama');
+const log = getLogger('thinker');
 
 const interruptHint = (elapsed: string) => `esc to interrupt (${elapsed})`;
 
@@ -42,7 +47,7 @@ const compactTarget = 0.5;
 // that has to survive, so unless AQ_OLLAMA_REPLAY_PREAMBLE says otherwise the
 // text goes the way the reasoning already does. a turn that neither spoke nor
 // called anything has nothing to replay whatever that setting says
-export const replayable = (message: Message, replayPreamble: boolean) => {
+export const replayable = (message: ChatMessage, replayPreamble: boolean) => {
   if (message.tool_calls?.length) {
     return replayPreamble ? message : { ...message, content: '' };
   }
@@ -65,7 +70,8 @@ export const makeThinker = () => {
     skills: 0,
     tools: 0,
     total: 0,
-    // until ollama has answered once, every number here is a tokenizer estimate
+    // until the provider has answered once, every number here is a tokenizer
+    // estimate
     measured: false
   };
   let turnCount = 0;
@@ -73,10 +79,10 @@ export const makeThinker = () => {
 
   // think() is re-entered with the array it returned last turn, so track which
   // messages have already been counted
-  let counted = new WeakSet<Message>();
+  let counted = new WeakSet<ChatMessage>();
 
   // a tool call's arguments are part of what gets sent back every turn
-  const measure = (message: Message) =>
+  const measure = (message: ChatMessage) =>
     tokenizer(message.content ?? '') +
     (message.tool_name ? tokenizer(message.tool_name) : 0) +
     (message.tool_calls?.length
@@ -84,7 +90,7 @@ export const makeThinker = () => {
       : 0);
 
   // get the complete token cost of a message
-  const countMessage = (message: Message) => {
+  const countMessage = (message: ChatMessage) => {
     if (message.role === 'system' || counted.has(message)) {
       return 0;
     }
@@ -101,8 +107,8 @@ export const makeThinker = () => {
 
   // compaction replaces message objects outright, so the incremental counter
   // cannot be trusted afterwards - start its bookkeeping over
-  const recount = (messages: Message[]) => {
-    counted = new WeakSet<Message>();
+  const recount = (messages: ChatMessage[]) => {
+    counted = new WeakSet<ChatMessage>();
     tokens.total -= tokens.messages;
     tokens.messages = 0;
 
@@ -113,11 +119,11 @@ export const makeThinker = () => {
     return tokens.messages;
   };
 
-  // ollama counts the prompt it actually rendered - chat template scaffolding,
-  // tool schemas, special tokens and all - which is the number it compares
-  // against num_ctx before it decides to truncate. our own figure is a
-  // tokenizer's guess at the same thing, and the tokenizer may not even be the
-  // model's, so once the server has spoken believe it over the estimate
+  // the provider counts the prompt it actually rendered - chat template
+  // scaffolding, tool schemas, special tokens and all - which is the number it
+  // compares against its window. our own figure is a tokenizer's guess at the
+  // same thing, and the tokenizer may not even be the model's, so once the
+  // server has spoken believe it over the estimate
   const reconcile = (promptTokens: number, messagesAtSend: number) => {
     // the count describes the prompt as it was sent, so whatever the turn
     // appended afterwards - the reply and its tool results - is still estimated
@@ -127,7 +133,7 @@ export const makeThinker = () => {
 
     if (drift) {
       log.debug(
-        `Corrected the context estimate by ${drift} token(s) - ollama counted ${promptTokens} in the prompt`
+        `Corrected the context estimate by ${drift} token(s) - the provider counted ${promptTokens} in the prompt`
       );
     }
 
@@ -180,16 +186,48 @@ export const makeThinker = () => {
   };
 
   log.debug(`Loaded ${tools.length} tools`);
-  log.debug(`Context limit is ${ollama.contextLimit} tokens`);
+  log.debug(`Context limit is ${provider.contextLimit} tokens`);
 
   countFixed();
 
-  const think = async (lastState: ThoughtState): Promise<ThoughtState> => {
-    let messages: Message[] = [...lastState.messages];
+  // the conversation as the model is shown it, which always opens with the
+  // system prompt - a resumed or rewound one may have been saved without it
+  const withSystemPrompt = (messages: ChatMessage[]): ChatMessage[] =>
+    systemPrompt && messages[0]?.role !== 'system'
+      ? [{ role: 'system', content: systemPrompt }, ...messages]
+      : [...messages];
 
-    if (systemPrompt && messages[0]?.role !== 'system') {
-      messages = [{ role: 'system', content: systemPrompt }, ...messages];
+  // the request think() would send for these messages, so that counting it
+  // measures exactly what the next turn will cost
+  const toRequest = (messages: ChatMessage[]) => ({
+    model: provider.model,
+    messages: withSystemPrompt(messages),
+    tools: toolDefs,
+    think: resolveThink()
+  });
+
+  // ask the provider what these messages cost, for one that can say without a
+  // reply - everything that drops back to an estimate calls this after it, so
+  // the decisions taken before the next turn are taken on the real figure. a
+  // failure only costs accuracy until that turn reports its own count
+  const count = async (messages: ChatMessage[]) => {
+    if (!chatProvider.countTokens) {
+      return;
     }
+
+    try {
+      const promptTokens = await chatProvider.countTokens(toRequest(messages));
+
+      // reconcile() expects tokens.messages to describe what was sent
+      recount(messages);
+      reconcile(promptTokens, tokens.messages);
+    } catch (error) {
+      log.warn(`Could not count the context: ${describeError(error)}`);
+    }
+  };
+
+  const think = async (lastState: ThoughtState): Promise<ThoughtState> => {
+    const messages = withSystemPrompt(lastState.messages);
 
     turnCount++;
     aborted = false;
@@ -223,19 +261,19 @@ export const makeThinker = () => {
       stopClock = showElapsed(spinner, interruptHint);
     }
 
-    const assistantMessage: Message = { role: 'assistant', content: '' };
+    const assistantMessage: ChatMessage = { role: 'assistant', content: '' };
     let wroteThoughts = false;
     let wroteOutput = false;
-    let lastChunk;
+    let lastChunk: ChatChunk | undefined;
 
     // counting before the call rather than only after it gives reconcile() a
-    // baseline that covers exactly the messages ollama is about to be shown
+    // baseline that covers exactly the messages the model is about to be shown
     for (const message of messages) {
       countMessage(message);
     }
 
     const messagesAtSend = tokens.messages;
-    // client.abort() only reaches a request once its response has arrived, and
+    // chatProvider.abort() only reaches a request once its response has arrived, and
     // a model still loading can hold that back for a minute - so escape also
     // settles this, and the turn stops waiting on the request at all
     let interrupt!: () => void;
@@ -250,24 +288,12 @@ export const makeThinker = () => {
     // the request itself is inside the try too - a failed connection must
     // still hand stdin back
     try {
-      const request = client.chat({
-        model: ollama.model,
-        messages,
-        tools: toolDefs,
-        stream: true,
-        think: resolveThink(),
-        keep_alive: ollama.keepAlive,
-        // without this ollama falls back to the model default - often 4096 -
-        // and silently truncates the prompt, dropping messages the model needs
-        options: {
-          num_ctx: ollama.contextLimit
-        }
-      });
+      const request = chatProvider.stream(toRequest(messages));
       const stream = await Promise.race([request, interrupted]);
 
       if (!stream) {
         // escape beat the response. close it the moment it does arrive, so
-        // ollama sees the disconnect and never generates the reply - and a
+        // the server sees the disconnect and never generates the reply - and a
         // request that fails instead has nobody left to hear about it
         request.then(
           (late) => late.abort(),
@@ -298,7 +324,7 @@ export const makeThinker = () => {
           stopSpinner();
 
           // put the answer on its own, rather than running it straight on from
-          // the reasoning that led to it - which ollama streams in the chunks
+          // the reasoning that led to it - which arrives in the chunks
           // before the answer, not alongside its first one
           if (wroteThoughts && !wroteOutput) {
             process.stdout.write('\n\n');
@@ -315,6 +341,12 @@ export const makeThinker = () => {
             ...(assistantMessage.tool_calls ?? []),
             ...chunk.message.tool_calls
           ];
+        }
+
+        // the provider's own record of the reply, which it may need back
+        // verbatim on the turns that follow
+        if (chunk.message?.native) {
+          assistantMessage.native = chunk.message.native;
         }
       }
     } catch (error) {
@@ -346,13 +378,14 @@ export const makeThinker = () => {
       return { ...lastState, interrupted: true };
     }
 
-    if (lastChunk?.eval_count && lastChunk?.eval_duration) {
-      // eval_duration is measured in nanoseconds
+    const usage = lastChunk?.usage;
+
+    if (usage?.outputTokens && usage.outputDurationNs) {
       const rate = Math.round(
-        lastChunk.eval_count / (lastChunk.eval_duration / 1e9)
+        usage.outputTokens / (usage.outputDurationNs / 1e9)
       );
 
-      log.debug(`Generated ${lastChunk.eval_count} tokens at ${rate} tok/s`);
+      log.debug(`Generated ${usage.outputTokens} tokens at ${rate} tok/s`);
     }
 
     // a model served with a template that does not know its tool call format
@@ -438,6 +471,7 @@ export const makeThinker = () => {
       messages.push({
         role: 'tool',
         tool_name: name,
+        ...(toolCall.id ? { tool_call_id: toolCall.id } : {}),
         content
       });
     }
@@ -449,8 +483,8 @@ export const makeThinker = () => {
 
     log.debug(`Context grew by ${tokenCount} tokens`);
 
-    if (lastChunk?.prompt_eval_count) {
-      reconcile(lastChunk.prompt_eval_count, messagesAtSend);
+    if (usage?.promptTokens) {
+      reconcile(usage.promptTokens, messagesAtSend);
     }
 
     // the final chunk carries an empty message, but callers expect the response
@@ -469,7 +503,7 @@ export const makeThinker = () => {
   // read, commands run - and dropping the oldest of it costs nothing but the
   // text itself. the message stays where it is so that call and result remain
   // paired and the conversation stays well formed
-  const elideToolResults = (messages: Message[], target: number) => {
+  const elideToolResults = (messages: ChatMessage[], target: number) => {
     const calls = pairCalls(messages);
     const startedAt = tokens.total;
     let projected = tokens.total;
@@ -508,9 +542,9 @@ export const makeThinker = () => {
   };
 
   // replace the older part of the conversation with a summary of it, so a long
-  // session degrades into notes rather than reaching num_ctx and being silently
-  // truncated by ollama
-  const summarize = async (messages: Message[], before: number) => {
+  // session degrades into notes rather than reaching the context limit and
+  // being silently truncated
+  const summarize = async (messages: ChatMessage[], before: number) => {
     // cutting mid-turn would orphan a tool result from the call that produced
     // it, so the split has to land where nothing straddles it
     const splitAt = findSplit(messages);
@@ -557,12 +591,12 @@ export const makeThinker = () => {
   // cheapest first: drop old tool output, and only pay for a summarization
   // call if that was not enough. either tier freeing something is what keeps
   // the caller from deciding that nothing can be done
-  const compact = async (messages: Message[]) => {
+  const compact = async (messages: ChatMessage[]) => {
     // measure the array we were handed rather than trusting the running total.
     // it is the only baseline guaranteed to describe these exact messages
     recount(messages);
 
-    const target = Math.floor(ollama.contextLimit * compactTarget);
+    const target = Math.floor(provider.contextLimit * compactTarget);
     const before = tokens.total;
     const elided = elideToolResults(messages, target);
 
@@ -585,7 +619,7 @@ export const makeThinker = () => {
   // a few lines for the user on what the last few turns were about. it is only
   // ever printed, so nothing here is counted - and a failure is only a warning,
   // since a recap is never worth losing the conversation over
-  const recap = async (messages: Message[], turns = session.recapTurns) => {
+  const recap = async (messages: ChatMessage[], turns = session.recapTurns) => {
     const transcript = renderTranscript(recentTurns(messages, turns));
 
     if (!transcript) {
@@ -628,12 +662,12 @@ export const makeThinker = () => {
 
   // adopt a conversation that was not built by think() - a resumed session -
   // so the token stats describe the history the model is about to be sent
-  const load = (messages: Message[]) => {
+  const load = (messages: ChatMessage[]) => {
     turnCount = 0;
 
     const counted = recount(messages);
 
-    // ollama has not seen this conversation, so the correction it gave for the
+    // the provider has not seen this conversation, so the correction it gave for the
     // last one does not describe this one - drop back to a self-consistent
     // estimate and let the next turn measure it again
     tokens.measured = false;
@@ -660,7 +694,7 @@ export const makeThinker = () => {
   // the model changed under us - /model switched to another one. the prompt
   // names the model and the tokenizer belongs to it, so both are built again
   // and everything they measured is counted again from scratch
-  const rebuild = (messages: Message[]) => {
+  const rebuild = (messages: ChatMessage[]) => {
     tokenizer = makeTokenizer();
     systemPrompt = buildSystemPrompt();
 
@@ -677,7 +711,7 @@ export const makeThinker = () => {
 
     recount(messages);
     countFixed();
-    // the count ollama gave described a prompt rendered by another model with
+    // the count the provider gave described a prompt rendered by another model with
     // another template, so it says nothing about what this one will be sent
     tokens.measured = false;
 
@@ -688,7 +722,7 @@ export const makeThinker = () => {
   // stream so think() can roll the turn back, leaving the conversation intact
   const abort = () => {
     aborted = true;
-    client.abort();
+    chatProvider.abort();
   };
 
   return {
@@ -696,6 +730,7 @@ export const makeThinker = () => {
     load,
     reset,
     rebuild,
+    count,
     compact,
     recap,
     abort,

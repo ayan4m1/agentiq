@@ -1,5 +1,3 @@
-import type { ChatResponse, Message, Tool } from 'ollama';
-
 // an object rather than an enum: enums are the one piece of TypeScript that
 // cannot be erased, and node runs these files by stripping types alone. the
 // derived union means LogLevel is still both a value and a type
@@ -11,6 +9,33 @@ export const LogLevel = {
 } as const;
 
 export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel];
+
+export const Provider = {
+  Anthropic: 'anthropic',
+  Ollama: 'ollama'
+} as const;
+
+export type Provider = (typeof Provider)[keyof typeof Provider];
+
+// what applies whichever provider serves the model. anything only one of them
+// understands lives in that provider's own section
+export type ProviderConfig = {
+  name: Provider;
+  // filled in from ~/.agentiq/models.yml rather than read as a setting - see
+  // modules/models.ts
+  model: string;
+  contextLimit: number;
+  // milliseconds enforced between turns. zero for a local server, which has no
+  // rate limit to respect - it is here for a metered remote endpoint
+  minTurnDelay: number;
+  // left undefined when unset, so the field is not sent at all and the choice
+  // falls to whatever the model does by default
+  think?: ThinkSetting;
+};
+
+export type AnthropicConfig = {
+  apiKey: string;
+};
 
 export type LoggingConfig = {
   level: LogLevel;
@@ -81,17 +106,9 @@ export type ThinkSetting = boolean | ThinkLevel;
 export type OllamaConfig = {
   host?: string;
   bearerToken?: string;
-  model: string;
-  contextLimit: number;
   // how long ollama keeps the model in memory after a call - "-1" never
   // unloads it, "0" unloads it immediately
   keepAlive: string;
-  // milliseconds enforced between turns. zero for a local server, which has no
-  // rate limit to respect - it is here for a metered remote endpoint
-  minTurnDelay: number;
-  // left undefined when unset, so the field is not sent at all and the choice
-  // falls to whatever the model does by default
-  think?: ThinkSetting;
   // whether the text a model writes on its way to a tool call is sent back on
   // the turns that follow. off by default: some renderers, ollama's gemma one
   // among them, read a tool call that arrives with text beside it as a turn
@@ -103,21 +120,24 @@ export type OllamaConfig = {
   recoverToolCalls: boolean;
 };
 
-// an ollama model and the huggingface repo whose tokenizer matches it. the two
-// are only useful together - a tokenizer from the wrong model counts a prompt
-// the server will render differently - so they are chosen and saved as a pair.
-// the tokenizer may instead be a local directory holding tokenizer.json and
-// tokenizer_config.json, ./-relative to ~/.agentiq or absolute
+// a model and the huggingface repo whose tokenizer matches it. the two are only
+// useful together - a tokenizer from the wrong model counts a prompt the server
+// will render differently - so they are chosen and saved as a pair. the
+// tokenizer may instead be a local directory holding tokenizer.json and
+// tokenizer_config.json, ./-relative to ~/.agentiq or absolute. an anthropic
+// model has no published tokenizer and is counted by the API, so it has none
 export type ModelEntry = {
   model: string;
-  tokenizer: string;
+  tokenizer?: string;
 };
 
-// ~/.agentiq/models.json: every pair the user has set up, and which of them the
-// next run starts on
+// ~/.agentiq/models.yml: every pair the user has set up, and which of them the
+// next run starts on - both kept per provider, since a model only makes sense
+// to the server it was set up against. a provider nobody has used yet has no
+// key at all
 export type ModelStore = {
-  active?: string;
-  models: ModelEntry[];
+  active: Partial<Record<Provider, string>>;
+  models: Partial<Record<Provider, ModelEntry[]>>;
 };
 
 export type SessionConfig = {
@@ -146,12 +166,138 @@ export type ExploreConfig = {
   rounds: number;
 };
 
+// the shapes the rest of agentiq speaks, whichever provider is behind them.
+// they follow ollama's field names, snake_case and all, because messages are
+// written to session files as they are - a rename would orphan every saved
+// conversation - and because it lets the ollama provider pass them straight
+// through. another provider translates to and from these at its own edge
+export type ChatMessage = {
+  role: string;
+  content: string;
+  // reasoning, when the model separates it from the answer
+  thinking?: string;
+  images?: Uint8Array[] | string[];
+  tool_calls?: ModelToolCall[];
+  // set on a tool result, naming the tool that produced it
+  tool_name?: string;
+  // set on a tool result, naming the call it answers - a provider that pairs
+  // results with calls by id needs it, one that pairs them by order does not
+  tool_call_id?: string;
+  // the reply exactly as the provider that wrote it sent it. a provider may
+  // need its own blocks back verbatim - anthropic's thinking blocks carry
+  // signatures that cannot be rebuilt from the text - and ignores what another
+  // provider left here. it rides along into the session file like the rest
+  native?: NativeContent;
+};
+
+export type NativeContent = {
+  provider: Provider;
+  content: unknown;
+};
+
+// a call as the model made it. the arguments are untyped JSON until
+// validateArgs() has looked at them
+export type ModelToolCall = {
+  // the provider's id for the call, when it gives one
+  id?: string;
+  function: {
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+};
+
+// a tool as it is offered to the model - a JSON schema of its parameters
+export type ToolDefinition = {
+  type: string;
+  function: {
+    name?: string;
+    description?: string;
+    parameters?: {
+      type?: string;
+      required?: string[];
+      properties?: Record<
+        string,
+        {
+          type?: string | string[];
+          items?: unknown;
+          description?: string;
+          enum?: unknown[];
+        }
+      >;
+    };
+  };
+};
+
+// what every provider is asked. anything only one provider understands - how
+// long ollama keeps a model loaded, the window it renders the prompt into - is
+// added by that provider from its own config
+export type ChatRequest = {
+  model: string;
+  messages: ChatMessage[];
+  tools?: ToolDefinition[];
+  think?: ThinkSetting;
+};
+
+// what a provider counted for the request, when it says. the prompt figure is
+// the one the context estimate is corrected against
+export type ChatUsage = {
+  promptTokens?: number;
+  outputTokens?: number;
+  outputDurationNs?: number;
+};
+
+// one piece of a streamed reply. the last one carries the usage
+export type ChatChunk = {
+  message: ChatMessage;
+  done?: boolean;
+  usage?: ChatUsage;
+};
+
+// a reply arriving in pieces, which can be cut off part way through
+export type ChatStream = AsyncIterable<ChatChunk> & {
+  abort: () => void;
+};
+
+// a model the provider can serve. ollama names a model twice, and either name
+// may be the one the user configured, so both are kept
+export type ModelSummary = {
+  name: string;
+  id: string;
+};
+
+// what a provider says about one model. empty capabilities means it did not
+// say, not that the model can do nothing
+export type ModelDetails = {
+  capabilities: string[];
+  contextLength?: number;
+};
+
+// everything agentiq needs from whatever serves the model. ollama is the only
+// one today (see providers/ollama.ts); another is a new implementation of this
+// rather than a change to the code that calls it
+export interface ChatProvider {
+  // who is being talked to, for messages about failing to reach them
+  readonly label: string;
+  // a turn of the main conversation, shown to the user as it arrives
+  stream(request: ChatRequest): Promise<ChatStream>;
+  // a reply wanted whole - a side question, or a round of an exploration
+  complete(request: ChatRequest): Promise<ChatMessage>;
+  // cancels whatever is in flight
+  abort(): void;
+  listModels(): Promise<ModelSummary[]>;
+  describeModel(model: string): Promise<ModelDetails>;
+  // the exact size of a prompt, without generating anything. only a provider
+  // whose tokenizer cannot be had locally offers it - the rest estimate until
+  // the first reply reports what was actually counted
+  countTokens?(request: ChatRequest): Promise<number>;
+}
+
 // handlers declare their own argument type, so the parameter here is `never` -
 // it is the one shape every handler is assignable to regardless of variance
 // rules. Tool arguments arrive as untyped JSON from the model, so the call site
-// in modules/ollama.ts is where that gets narrowed.
+// in modules/thinker.ts is where that gets narrowed.
 export type ToolCall = {
-  definition: Tool;
+  definition: ToolDefinition;
   handler: (args: never) => unknown;
 };
 
@@ -173,10 +319,10 @@ export type Validation = {
   message?: string;
 };
 
-// ollama's Message plus what agentiq needs to remember about one of its own.
+// a ChatMessage plus what agentiq needs to remember about one of its own.
 // the extra field rides along into the session file, so a resumed conversation
 // still knows which of its user messages the agent wrote for itself
-export type AgentMessage = Message & {
+export type AgentMessage = ChatMessage & {
   // set by compaction, so nothing downstream has to recognise its notes by
   // what they happen to say
   summary?: boolean;
@@ -186,8 +332,8 @@ export type AgentMessage = Message & {
 };
 
 export type ThoughtState = {
-  messages: Message[];
-  lastResponse?: ChatResponse;
+  messages: ChatMessage[];
+  lastResponse?: ChatChunk;
   // set when the user interrupted generation - the turn is rolled back rather
   // than kept, so the caller needs to know it should hand control back
   interrupted?: boolean;
@@ -208,7 +354,7 @@ export type TokenStats = {
   system: number;
   skills: number;
   messages: number;
-  // whether total came from ollama's own count of the last prompt rather than
+  // whether total came from the provider's own count of the prompt rather than
   // from the tokenizer. the parts stay estimates either way, so they will not
   // add up to the total once this is set
   measured: boolean;

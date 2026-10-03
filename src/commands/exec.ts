@@ -5,10 +5,10 @@ import { getLogger } from '../modules/logging';
 import { startAgent } from '../modules/startup';
 import { approval } from '../modules/approval';
 import { terminal } from '../modules/turn';
-import { compactThreshold } from '../modules/ollama';
+import { compactThreshold } from '../modules/thinker';
 import { createController } from '../modules/repl';
 import { pruneSessions, startSession } from '../modules/session';
-import { approval as approvalConfig, ollama } from '../modules/config';
+import { approval as approvalConfig, provider } from '../modules/config';
 import { ApprovalMode } from '../types';
 
 const log = getLogger('exec');
@@ -42,7 +42,7 @@ if (!agent) {
 const { thinker, schedule, cleanUp } = agent;
 const controller = createController({
   thinker,
-  compactAt: () => ollama.contextLimit * compactThreshold
+  compactAt: () => provider.contextLimit * compactThreshold
 });
 
 pruneSessions();

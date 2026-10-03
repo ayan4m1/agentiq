@@ -3,9 +3,14 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { mkdtempSync } from 'node:fs';
-import type { ChatRequest, Message } from 'ollama';
 
-import type { AgentMessage } from '../types';
+import type {
+  AgentMessage,
+  ChatChunk,
+  ChatMessage,
+  ChatProvider,
+  ChatStream
+} from '../types';
 import { fakeInterrupt } from '../../test/fakes/interrupt';
 import { fakeOra } from '../../test/fakes/ora';
 import { fakePreflight } from '../../test/fakes/preflight';
@@ -16,19 +21,15 @@ import type { ModuleMock } from '../../test/fakes/module';
 // predictable. it also has to be set before the module first evaluates
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-thinker-'));
 
-// what the server says the model can do is learned by preflight, which needs
-// the server - so the answer is whatever the test says it is. utils reads it
-// too, so this has to be in place before utils is first imported
-let modelThinks = false;
+// whether to ask for reasoning is decided by preflight, which needs the
+// server - so the answer is whatever the test says it is
+let think: boolean | undefined;
 
 mock.module('./preflight', {
-  exports: fakePreflight({
-    supportsThinking: () => modelThinks,
-    resolveThink: () => modelThinks || undefined
-  }).exports
+  exports: fakePreflight({ resolveThink: () => think }).exports
 });
 
-const { logging, ollama, session } = await import('./config');
+const { logging, ollama, provider, session } = await import('./config');
 const { makeTool, makeParameter } = await import('../utils');
 
 const interrupt = fakeInterrupt();
@@ -55,7 +56,7 @@ mock.module('./prompt', {
     buildSystemPrompt: () =>
       promptBlank
         ? ''
-        : [`You are running as ${ollama.model}.`, skillsBlock]
+        : [`You are running as ${provider.model}.`, skillsBlock]
             .filter(Boolean)
             .join('\n\n')
   } satisfies ModuleMock<typeof import('./prompt')>
@@ -85,50 +86,60 @@ mock.module('../tools', {
   >
 });
 
-const { makeThinker, replayable } = await import('./ollama');
-const { client } = await import('./client');
+const { makeThinker, replayable } = await import('./thinker');
+const { chatProvider } = await import('../providers');
 const { isElided } = await import('./compaction');
 const { estimateTokens } = await import('./tokenizer');
 
-// the server, as far as the thinker can tell. each test says what it answers
-const chat = mock.method(
-  client as unknown as { chat: (request: ChatRequest) => Promise<unknown> },
-  'chat',
-  async (): Promise<unknown> => {
-    throw new Error('no response was set up for this test');
-  }
-);
-const abortClient = mock.method(client, 'abort', () => {});
-const requests = () =>
-  chat.mock.calls.map((call) => call.arguments[0] as ChatRequest);
-
-type Chunk = {
-  message?: Partial<Message>;
-  prompt_eval_count?: number;
-  eval_count?: number;
-  eval_duration?: number;
-  done?: boolean;
+// the server, as far as the thinker can tell. each test says what it answers -
+// a turn streams, while a summary or a recap is asked for whole
+const unanswered = async (): Promise<never> => {
+  throw new Error('no response was set up for this test');
 };
+const stream = mock.method(
+  chatProvider,
+  'stream',
+  unanswered as ChatProvider['stream']
+);
+const complete = mock.method(
+  chatProvider,
+  'complete',
+  unanswered as ChatProvider['complete']
+);
+const abortProvider = mock.method(chatProvider, 'abort', () => {});
+const requests = () => stream.mock.calls.map((call) => call.arguments[0]);
+const asked = () => complete.mock.calls.map((call) => call.arguments[0]);
 
-const chunk = (message: Partial<Message>, extra: Omit<Chunk, 'message'> = {}) =>
-  ({
-    message: { role: 'assistant', content: '', ...message },
-    ...extra
-  }) as Chunk;
+const chunk = (
+  message: Partial<ChatMessage>,
+  extra: Omit<ChatChunk, 'message'> = {}
+): ChatChunk => ({
+  message: { role: 'assistant', content: '', ...message },
+  ...extra
+});
 
-async function* streamOf(chunks: Chunk[]) {
-  yield* chunks;
-}
+// a stream with nothing behind it to abort
+const asStream = (chunks: AsyncIterable<ChatChunk>): ChatStream => ({
+  abort: () => {},
+  [Symbol.asyncIterator]: () => chunks[Symbol.asyncIterator]()
+});
 
-// the next chat call streams these chunks back
-const respond = (...chunks: Chunk[]) =>
-  chat.mock.mockImplementationOnce(async () => streamOf(chunks));
+const streamOf = (chunks: ChatChunk[]) =>
+  asStream(
+    (async function* () {
+      yield* chunks;
+    })()
+  );
+
+// the next turn streams these chunks back
+const respond = (...chunks: ChatChunk[]) =>
+  stream.mock.mockImplementationOnce(async () => streamOf(chunks));
 
 // enough tool output to put the conversation well past the point where
 // compaction has to do something about it
 const bulk = 'x'.repeat(50_000);
 
-const conversation = (): Message[] => [
+const conversation = (): ChatMessage[] => [
   { role: 'user', content: 'read the whole module and tell me what it does' },
   {
     role: 'assistant',
@@ -168,11 +179,11 @@ const conversation = (): Message[] => [
   { role: 'tool', tool_name: 'read', content: bulk }
 ];
 
-const toolResults = (messages: Message[]) =>
+const toolResults = (messages: ChatMessage[]) =>
   messages.filter((message) => message.role === 'tool');
 
 describe('keeping a finished turn for the rounds that follow', () => {
-  const preamble = (): Message => ({
+  const preamble = (): ChatMessage => ({
     role: 'assistant',
     content: 'I will lay out a plan before touching anything.',
     tool_calls: [
@@ -181,7 +192,7 @@ describe('keeping a finished turn for the rounds that follow', () => {
   });
 
   test('keeps a plain answer as it stands', () => {
-    const answered: Message = {
+    const answered: ChatMessage = {
       role: 'assistant',
       content: 'It does nothing.'
     };
@@ -230,7 +241,7 @@ describe('keeping a finished turn for the rounds that follow', () => {
 
 describe('compacting a conversation full of tool output', () => {
   let thinker: ReturnType<typeof makeThinker>;
-  let messages: Message[];
+  let messages: ChatMessage[];
   let freed: number;
 
   // the summarization tier is the one that needs a server, and eliding alone
@@ -241,7 +252,7 @@ describe('compacting a conversation full of tool output', () => {
     thinker.load(messages);
 
     assert.ok(
-      thinker.tokens.total > ollama.contextLimit * 0.5,
+      thinker.tokens.total > provider.contextLimit * 0.5,
       'the fixture has to start above the target for any of this to mean anything'
     );
 
@@ -253,7 +264,7 @@ describe('compacting a conversation full of tool output', () => {
   });
 
   test('brings the total under the target it aims for', () => {
-    assert.ok(thinker.tokens.total <= ollama.contextLimit * 0.5);
+    assert.ok(thinker.tokens.total <= provider.contextLimit * 0.5);
   });
 
   test('drops the oldest output first', () => {
@@ -293,7 +304,7 @@ describe('compacting a conversation full of tool output', () => {
 });
 
 describe('rebuilding around a model that was just switched to', () => {
-  const systemFirst = (): Message[] => [
+  const systemFirst = (): ChatMessage[] => [
     { role: 'system', content: 'built for the model being left behind' },
     { role: 'user', content: 'x'.repeat(400) },
     { role: 'assistant', content: 'y'.repeat(400) }
@@ -303,7 +314,7 @@ describe('rebuilding around a model that was just switched to', () => {
     const thinker = makeThinker();
     const messages = systemFirst();
 
-    ollama.model = 'a-completely-different-model';
+    provider.model = 'a-completely-different-model';
     thinker.rebuild(messages);
 
     // think() prepends the prompt to the array the caller keeps, so the stale
@@ -334,7 +345,7 @@ describe('rebuilding around a model that was just switched to', () => {
     );
   });
 
-  test('drops back to an estimate ollama has not corrected', () => {
+  test('drops back to an estimate the provider has not corrected', () => {
     const thinker = makeThinker();
     const messages = systemFirst();
 
@@ -342,23 +353,23 @@ describe('rebuilding around a model that was just switched to', () => {
     thinker.tokens.measured = true;
     thinker.rebuild(messages);
 
-    // the count ollama gave described a prompt another model's template
+    // the count the provider gave described a prompt another model's template
     // rendered, so it says nothing about what this one will be sent
     assert.equal(thinker.tokens.measured, false);
   });
 });
 
 describe('taking a turn', () => {
-  const ask = (content = 'what does this do?'): Message[] => [
+  const ask = (content = 'what does this do?'): ChatMessage[] => [
     { role: 'user', content }
   ];
 
   beforeEach(() => {
-    chat.mock.resetCalls();
-    abortClient.mock.resetCalls();
+    stream.mock.resetCalls();
+    abortProvider.mock.resetCalls();
     interrupt.reset();
-    ollama.model = 'test-model';
-    modelThinks = false;
+    provider.model = 'test-model';
+    think = undefined;
 
     for (const tool of [echo, boom, silent]) {
       tool.handler.mock.resetCalls();
@@ -392,38 +403,31 @@ describe('taking a turn', () => {
     );
   });
 
-  test('asks for a stream sized to the configured context', async () => {
+  test('streams from the configured model with every tool', async () => {
     respond(chunk({ content: 'ok' }));
 
     await makeThinker().think({ messages: ask() });
 
     const [request] = requests();
 
+    // sizing the window and keeping the model loaded are the provider's to
+    // add, and are tested with it
     assert.equal(request.model, 'test-model');
-    assert.equal(request.stream, true);
-    assert.equal(request.keep_alive, ollama.keepAlive);
-    assert.deepEqual(request.options, { num_ctx: ollama.contextLimit });
     assert.deepEqual(
       request.tools?.map((tool) => tool.function.name),
       ['echo', 'boom', 'silent']
     );
   });
 
-  test('asks a model that can reason to do so', async () => {
-    modelThinks = true;
-    respond(chunk({ content: 'ok' }));
+  test('sends whatever resolveThink() decides', async () => {
+    for (const decided of [true, false, undefined]) {
+      think = decided;
+      respond(chunk({ content: 'ok' }));
 
-    await makeThinker().think({ messages: ask() });
+      await makeThinker().think({ messages: ask() });
 
-    assert.equal(requests()[0].think, true);
-  });
-
-  test('leaves reasoning to the server default for a model that cannot', async () => {
-    respond(chunk({ content: 'ok' }));
-
-    await makeThinker().think({ messages: ask() });
-
-    assert.equal(requests()[0].think, undefined);
+      assert.equal(requests().at(-1)?.think, decided);
+    }
   });
 
   test('assembles the streamed reply into one message', async () => {
@@ -501,6 +505,29 @@ describe('taking a turn', () => {
     assert.equal(empty, 'The tool returned no output.');
     // a malformed call never reaches the handler
     assert.equal(echo.handler.mock.callCount(), 1);
+  });
+
+  test("keeps the provider's own record of the reply, and answers calls by id", async () => {
+    const native = { provider: 'anthropic' as const, content: ['the blocks'] };
+
+    respond(
+      chunk({ content: 'Let me check.' }),
+      chunk({
+        tool_calls: [
+          { id: 'toolu_1', function: { name: 'silent', arguments: {} } }
+        ],
+        native
+      })
+    );
+
+    const result = await makeThinker().think({ messages: ask() });
+    const call = result.messages.find((message) => message.tool_calls);
+    const [answer] = toolResults(result.messages);
+
+    // the preamble is dropped from history, but the record of it is not
+    assert.equal(call?.content, '');
+    assert.deepEqual(call?.native, native);
+    assert.equal(answer.tool_call_id, 'toolu_1');
   });
 
   test('keeps the call but not the preamble that led up to it', async () => {
@@ -643,9 +670,11 @@ describe('taking a turn', () => {
         {},
         {
           done: true,
-          prompt_eval_count: 1000,
-          eval_count: 20,
-          eval_duration: 1e9
+          usage: {
+            promptTokens: 1000,
+            outputTokens: 20,
+            outputDurationNs: 1e9
+          }
         }
       )
     );
@@ -661,7 +690,7 @@ describe('taking a turn', () => {
   });
 
   test('hands a failed request back to the caller', async () => {
-    chat.mock.mockImplementationOnce(async () => {
+    stream.mock.mockImplementationOnce(async () => {
       throw new Error('connection refused');
     });
 
@@ -677,38 +706,40 @@ describe('taking a turn', () => {
     const thinker = makeThinker();
     const lastState = { messages: ask() };
 
-    chat.mock.mockImplementationOnce(async () =>
-      (async function* () {
-        yield chunk({
-          content: 'Half an ans',
-          tool_calls: [{ function: { name: 'boom', arguments: {} } }]
-        });
-        interrupt.pressEscape();
-        // what the client's abort does to a stream that is being read
-        throw new Error('The operation was aborted');
-      })()
+    stream.mock.mockImplementationOnce(async () =>
+      asStream(
+        (async function* () {
+          yield chunk({
+            content: 'Half an ans',
+            tool_calls: [{ function: { name: 'boom', arguments: {} } }]
+          });
+          interrupt.pressEscape();
+          // what the provider's abort does to a stream that is being read
+          throw new Error('The operation was aborted');
+        })()
+      )
     );
 
     const result = await thinker.think(lastState);
 
     assert.equal(result.interrupted, true);
     assert.equal(result.messages, lastState.messages);
-    assert.equal(abortClient.mock.callCount(), 1);
+    assert.equal(abortProvider.mock.callCount(), 1);
     // a call that may have been cut short is never dispatched
     assert.equal(boom.handler.mock.callCount(), 0);
   });
 
   // a model still being loaded holds the response back, and until it arrives
-  // the client has nothing it can abort
+  // the provider has nothing it can abort
   const pendingResponse = () => {
-    let resolve!: (value: unknown) => void;
+    let resolve!: (value: ChatStream) => void;
     let reject!: (error: Error) => void;
-    const promise = new Promise((res, rej) => {
+    const promise = new Promise<ChatStream>((res, rej) => {
       resolve = res;
       reject = rej;
     });
 
-    chat.mock.mockImplementationOnce(() => {
+    stream.mock.mockImplementationOnce(() => {
       queueMicrotask(() => interrupt.pressEscape());
 
       return promise;
@@ -757,8 +788,8 @@ describe('taking a turn', () => {
 describe('summarizing when eliding is not enough', () => {
   // text rather than tool output, so there is nothing for the cheap tier to
   // drop and only a summary can bring this under the target
-  const talk = (): Message[] => {
-    const turn = 'x'.repeat(Math.ceil(ollama.contextLimit * 0.2 * 3.33));
+  const talk = (): ChatMessage[] => {
+    const turn = 'x'.repeat(Math.ceil(provider.contextLimit * 0.2 * 3.33));
 
     return [
       { role: 'user', content: turn },
@@ -769,12 +800,13 @@ describe('summarizing when eliding is not enough', () => {
   };
 
   const summarizeAs = (content: string) =>
-    chat.mock.mockImplementationOnce(async () => ({
-      message: { role: 'assistant', content }
+    complete.mock.mockImplementationOnce(async () => ({
+      role: 'assistant',
+      content
     }));
 
   beforeEach(() => {
-    chat.mock.resetCalls();
+    complete.mock.resetCalls();
   });
 
   test('replaces the older turns with notes on them', async () => {
@@ -793,7 +825,7 @@ describe('summarizing when eliding is not enough', () => {
     assert.match(String(notes.content), /the user asked twice about x/);
     // the latest exchange is what the model is working on, so it survives
     assert.deepEqual(recent, messages.slice(2));
-    assert.ok(thinker.tokens.total <= ollama.contextLimit * 0.5);
+    assert.ok(thinker.tokens.total <= provider.contextLimit * 0.5);
   });
 
   test('asks for notes without offering any tools', async () => {
@@ -804,10 +836,9 @@ describe('summarizing when eliding is not enough', () => {
     summarizeAs('notes');
     await thinker.compact(messages);
 
-    const [request] = requests();
+    const [request] = asked();
 
     assert.equal(request.tools, undefined);
-    assert.equal(request.stream, undefined);
     assert.deepEqual(
       request.messages?.map((message) => message.role),
       ['user', 'assistant', 'user']
@@ -822,7 +853,7 @@ describe('summarizing when eliding is not enough', () => {
 
     const before = thinker.tokens.total;
 
-    summarizeAs('y'.repeat(ollama.contextLimit * 4));
+    summarizeAs('y'.repeat(provider.contextLimit * 4));
 
     const compacted = await thinker.compact(messages);
 
@@ -834,8 +865,8 @@ describe('summarizing when eliding is not enough', () => {
 
   test('does not ask for a summary when nothing can be split off', async () => {
     const thinker = makeThinker();
-    const messages: Message[] = [
-      { role: 'user', content: 'x'.repeat(ollama.contextLimit * 3) }
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'x'.repeat(provider.contextLimit * 3) }
     ];
 
     thinker.load(messages);
@@ -844,12 +875,12 @@ describe('summarizing when eliding is not enough', () => {
 
     assert.equal(compacted.messages, messages);
     assert.equal(compacted.freed, 0);
-    assert.equal(chat.mock.callCount(), 0);
+    assert.equal(complete.mock.callCount(), 0);
   });
 });
 
 describe('recapping the last few turns', () => {
-  const talk = (): Message[] => [
+  const talk = (): ChatMessage[] => [
     { role: 'user', content: 'first' },
     { role: 'assistant', content: 'first reply' },
     { role: 'user', content: 'second' },
@@ -863,14 +894,15 @@ describe('recapping the last few turns', () => {
   ];
 
   const recapAs = (content: string) =>
-    chat.mock.mockImplementationOnce(async () => ({
-      message: { role: 'assistant', content }
+    complete.mock.mockImplementationOnce(async () => ({
+      role: 'assistant',
+      content
     }));
 
   let recapTurns: number;
 
   beforeEach(() => {
-    chat.mock.resetCalls();
+    complete.mock.resetCalls();
     recapTurns = session.recapTurns;
     session.recapTurns = 1;
   });
@@ -886,7 +918,7 @@ describe('recapping the last few turns', () => {
 
     assert.equal(await thinker.recap(talk()), 'you asked about a.ts');
 
-    const [request] = requests();
+    const [request] = asked();
     const [message] = request.messages ?? [];
 
     assert.equal(request.tools, undefined);
@@ -914,7 +946,7 @@ describe('recapping the last few turns', () => {
     recapAs('a recap');
     await makeThinker().recap(talk(), 2);
 
-    const [message] = requests()[0].messages ?? [];
+    const [message] = asked()[0].messages ?? [];
 
     assert.match(message.content, /User: first\n\nAssistant: first reply/);
     assert.match(message.content, /User: second\n\nAssistant: second reply$/);
@@ -925,14 +957,14 @@ describe('recapping the last few turns', () => {
     recapAs('a recap');
     await makeThinker().recap(talk());
 
-    const [message] = requests()[0].messages ?? [];
+    const [message] = asked()[0].messages ?? [];
 
     assert.match(message.content, /User: first/);
     assert.match(message.content, /User: second/);
   });
 
   test('gives up quietly when the model call fails', async () => {
-    chat.mock.mockImplementationOnce(async () => {
+    complete.mock.mockImplementationOnce(async () => {
       throw new Error('connection refused');
     });
 
@@ -947,7 +979,7 @@ describe('recapping the last few turns', () => {
 });
 
 describe('starting the conversation over', () => {
-  const history = (): Message[] => [
+  const history = (): ChatMessage[] => [
     { role: 'user', content: 'x'.repeat(400) },
     { role: 'assistant', content: 'y'.repeat(400) }
   ];
@@ -980,6 +1012,80 @@ describe('starting the conversation over', () => {
     assert.ok(thinker.tokens.system > 0);
     assert.equal(thinker.tokens.measured, false);
     assert.equal(thinker.turnCount, 0);
+  });
+});
+
+describe('asking the provider to count', () => {
+  const history = (): ChatMessage[] => [
+    { role: 'user', content: 'x'.repeat(400) },
+    { role: 'assistant', content: 'x'.repeat(400) }
+  ];
+  let countTokens: ReturnType<
+    typeof mock.fn<NonNullable<ChatProvider['countTokens']>>
+  >;
+
+  beforeEach(() => {
+    countTokens = mock.fn<NonNullable<ChatProvider['countTokens']>>(
+      async () => 5000
+    );
+    chatProvider.countTokens = countTokens;
+  });
+
+  afterEach(() => {
+    delete chatProvider.countTokens;
+  });
+
+  test('takes the count as the total', async () => {
+    const thinker = makeThinker();
+    const messages = history();
+
+    thinker.load(messages);
+    await thinker.count(messages);
+
+    assert.equal(thinker.tokens.total, 5000);
+    assert.equal(thinker.tokens.measured, true);
+    assert.equal(thinker.tokens.messages, 2 * estimateTokens('x'.repeat(400)));
+  });
+
+  test('counts the request a turn would send', async () => {
+    const thinker = makeThinker();
+
+    await thinker.count(history());
+
+    const [request] = countTokens.mock.calls[0].arguments;
+
+    assert.equal(request.messages[0].role, 'system');
+    assert.deepEqual(request.messages.slice(1), history());
+    assert.ok(request.tools?.length);
+  });
+
+  test('keeps the estimate when the count fails', async () => {
+    const thinker = makeThinker();
+    const messages = history();
+
+    thinker.load(messages);
+
+    const estimate = thinker.tokens.total;
+
+    countTokens.mock.mockImplementation(async () => {
+      throw new Error('overloaded');
+    });
+    await thinker.count(messages);
+
+    assert.equal(thinker.tokens.total, estimate);
+    assert.equal(thinker.tokens.measured, false);
+  });
+
+  test('does nothing for a provider that cannot count', async () => {
+    delete chatProvider.countTokens;
+
+    const thinker = makeThinker();
+    const estimate = thinker.tokens.total;
+
+    await thinker.count([]);
+
+    assert.equal(thinker.tokens.total, estimate);
+    assert.equal(thinker.tokens.measured, false);
   });
 });
 
@@ -1016,7 +1122,7 @@ describe('rebuilding onto a model with no system prompt', () => {
 
   test('drops the stale prompt rather than leave it in place', () => {
     const thinker = makeThinker();
-    const messages: Message[] = [
+    const messages: ChatMessage[] = [
       { role: 'system', content: 'built for the model being left behind' },
       { role: 'user', content: 'hello' }
     ];
@@ -1033,7 +1139,7 @@ describe('rebuilding onto a model with no system prompt', () => {
 });
 
 describe('the spinner', () => {
-  const ask = (): Message[] => [{ role: 'user', content: 'go on then' }];
+  const ask = (): ChatMessage[] => [{ role: 'user', content: 'go on then' }];
   const wasTTY = process.stdin.isTTY;
 
   beforeEach(() => {
@@ -1060,13 +1166,9 @@ describe('the spinner', () => {
   });
 
   test('is taken back once the reply starts, and only once', async () => {
-    // reasoning and then content - both write, and the second must not wipe
-    // out a line the first already put there
-    respond(
-      chunk({ thinking: 'hmm' }),
-      chunk({ content: 'Right, ' }),
-      chunk({ content: 'here goes.' })
-    );
+    // every chunk of the answer writes, and a later one must not stop the
+    // spinner again over a line an earlier one already put there
+    respond(chunk({ content: 'Right, ' }), chunk({ content: 'here goes.' }));
 
     await makeThinker().think({ messages: ask() });
 
@@ -1085,7 +1187,7 @@ describe('the spinner', () => {
   });
 
   test('is taken back when the request fails', async () => {
-    chat.mock.mockImplementationOnce(async () => {
+    stream.mock.mockImplementationOnce(async () => {
       throw new Error('connection refused');
     });
 
@@ -1110,7 +1212,7 @@ describe('the spinner', () => {
 
     // hold the response back, the way a model still loading would
     let answer!: () => void;
-    chat.mock.mockImplementationOnce(
+    stream.mock.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           answer = () => resolve(streamOf([chunk({ content: 'ok' })]));
@@ -1134,12 +1236,14 @@ describe('the spinner', () => {
   const spinningAfterThoughts = async () => {
     let during: boolean | undefined;
 
-    chat.mock.mockImplementationOnce(async () =>
-      (async function* () {
-        yield chunk({ thinking: 'hmm' });
-        during = spinner.spinning;
-        yield chunk({ content: 'ok' });
-      })()
+    stream.mock.mockImplementationOnce(async () =>
+      asStream(
+        (async function* () {
+          yield chunk({ thinking: 'hmm' });
+          during = spinner.spinning;
+          yield chunk({ content: 'ok' });
+        })()
+      )
     );
 
     await makeThinker().think({ messages: ask() });

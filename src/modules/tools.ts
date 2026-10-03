@@ -1,22 +1,20 @@
-import type { ToolCall } from 'ollama';
-
 import { getLogger } from './logging';
 import { getParameters } from '../utils';
-import type { ToolParameter, Validation } from '../types';
+import type { ModelToolCall, ToolParameter, Validation } from '../types';
 
 const log = getLogger('tools');
 
 type Span = { start: number; end: number };
 
 type Recovery = {
-  calls: ToolCall[];
+  calls: ModelToolCall[];
   // what the model said around its calls, once the calls themselves are gone
   remainder: string;
 };
 
-type Found = { calls: ToolCall[]; spans: Span[] };
+type Found = { calls: ModelToolCall[]; spans: Span[] };
 
-type Arguments = ToolCall['function']['arguments'];
+type Arguments = ModelToolCall['function']['arguments'];
 
 const nameKeys = ['name', 'tool', 'tool_name'];
 const argKeys = ['arguments', 'parameters', 'args', 'input'];
@@ -48,7 +46,7 @@ const toArguments = (raw: unknown) => {
 // every model family spells a call its own way - {name, arguments} for hermes,
 // {name, parameters} for llama, {function: {name, arguments}} for anything that
 // learned it from openai - and they all mean the same thing
-const toCall = (value: unknown): ToolCall | undefined => {
+const toCall = (value: unknown): ModelToolCall | undefined => {
   if (!isRecord(value)) {
     return;
   }
@@ -73,7 +71,7 @@ const toCall = (value: unknown): ToolCall | undefined => {
 const toCalls = (value: unknown) =>
   (Array.isArray(value) ? value : [value])
     .map(toCall)
-    .filter((call): call is ToolCall => !!call);
+    .filter((call): call is ModelToolCall => !!call);
 
 // qwen's own parser takes exactly one newline off either end of a value - the
 // ones that put it on lines of its own - and nothing else, which is what keeps
@@ -114,7 +112,7 @@ const parameterClose = '</parameter>';
 // is allowed to end one. generation often stops on the stop token right where
 // a closing tag belongs, so a missing one at the end is forgiven
 const findXmlCalls = (text: string): Found => {
-  const calls: ToolCall[] = [];
+  const calls: ModelToolCall[] = [];
   const spans: Span[] = [];
   let position = 0;
 
@@ -235,7 +233,7 @@ const findXmlCalls = (text: string): Found => {
 // they name: the tag leaves no doubt a call was meant, and an unknown name gets
 // a reply listing the real ones, which is how the model learns them
 const findTaggedCalls = (text: string): Found => {
-  const calls: ToolCall[] = [];
+  const calls: ModelToolCall[] = [];
   const spans: Span[] = [];
   const pattern = /<tool_call>([\s\S]*?)(?:<\/tool_call>|(?=<tool_call>)|$)/g;
 
@@ -257,7 +255,7 @@ const findTaggedCalls = (text: string): Found => {
 // JSON in a fence could just as well be an example written for the user, so
 // only a call to a tool that exists counts
 const findFencedCalls = (text: string, toolNames: string[]): Found => {
-  const calls: ToolCall[] = [];
+  const calls: ModelToolCall[] = [];
   const spans: Span[] = [];
   const pattern = /```([\w-]*)[ \t]*\r?\n([\s\S]*?)```/g;
 

@@ -2,9 +2,9 @@ import chalk from 'chalk';
 import inquirer from 'inquirer';
 import InquirerCommandPrompt, { type KeyEvent } from 'inquirer-command-prompt';
 
-import { ollama } from './config';
+import { provider } from './config';
 import { startAgent } from './startup';
-import { compactThreshold } from './ollama';
+import { compactThreshold } from './thinker';
 import { cycleMode, describeMode } from './approval';
 import { describeCheck } from './check';
 import { pruneSessions, sessionId, startSession } from './session';
@@ -119,7 +119,7 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
 
   const controller = createController({
     thinker,
-    compactAt: () => ollama.contextLimit * compactThreshold,
+    compactAt: () => provider.contextLimit * compactThreshold,
     rememberPrompts: (prompts) => {
       historyContext = `history-${++historyGeneration}`;
       prompts.forEach((prompt) =>
@@ -138,7 +138,7 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
   // a failed resume still needs somewhere to write what happens next
   if (
     !resume ||
-    !controller.restore(typeof resume === 'string' ? resume : undefined)
+    !(await controller.restore(typeof resume === 'string' ? resume : undefined))
   ) {
     startSession();
   }

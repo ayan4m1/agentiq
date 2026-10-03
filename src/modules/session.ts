@@ -11,7 +11,7 @@ import {
   writeFileSync
 } from 'node:fs';
 
-import { home, ollama, session as config } from './config';
+import { home, provider, session as config } from './config';
 import { getLogger } from './logging';
 import type { AgentMessage } from '../types';
 import { describeError, slugFor } from '../utils';
@@ -50,7 +50,7 @@ export type SessionSummary = {
 
 let meta: Meta;
 let activePath: string;
-// messages already on disk, tracked the same way modules/ollama.ts tracks the
+// messages already on disk, tracked the same way modules/thinker.ts tracks the
 // ones it has already counted
 let persisted = new WeakSet<AgentMessage>();
 
@@ -91,7 +91,7 @@ export const startSession = (check?: string) => {
     type: 'meta',
     id,
     startedAt: new Date().toISOString(),
-    model: ollama.model,
+    model: provider.model,
     cwd,
     check
   };
@@ -313,7 +313,7 @@ export const loadSession = (id: string) => {
     type: 'meta',
     id,
     startedAt: new Date().toISOString(),
-    model: ollama.model,
+    model: provider.model,
     cwd: process.cwd()
   };
   activePath = path;

@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import type { ChatRequest } from 'ollama';
 
 import { fakeInterrupt } from '../../test/fakes/interrupt';
 import { fakeOra } from '../../test/fakes/ora';
 import type { ModuleMock } from '../../test/fakes/module';
+import type { ChatProvider } from '../types';
 
 // config reads the home directory as it is evaluated, so it has to point
 // somewhere disposable before anything imports it
@@ -72,7 +72,7 @@ mock.module('./jobs', {
 });
 
 const { turn } = await import('./turn');
-const { client } = await import('./client');
+const { chatProvider } = await import('../providers');
 const {
   check,
   checkPrompt,
@@ -85,17 +85,14 @@ const {
 
 // the server, as far as check mode can tell. each test says what it answers
 let reply: string | Error = 'yarn test';
-const chat = mock.method(
-  client as unknown as { chat: (request: ChatRequest) => Promise<unknown> },
-  'chat',
-  async () => {
-    if (reply instanceof Error) {
-      throw reply;
-    }
-
-    return { message: { role: 'assistant', content: reply } };
+const answer: ChatProvider['complete'] = async () => {
+  if (reply instanceof Error) {
+    throw reply;
   }
-);
+
+  return { role: 'assistant', content: reply };
+};
+const complete = mock.method(chatProvider, 'complete', answer);
 
 const stripColor = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, '');
 
@@ -126,7 +123,7 @@ describe('check', () => {
     turn.yieldToUser = false;
 
     for (const fn of [
-      chat,
+      complete,
       spawnCommand,
       killTree,
       setSessionCheck,
@@ -192,8 +189,8 @@ describe('check', () => {
       assert.equal(check.status, undefined);
       assert.deepEqual(setSessionCheck.mock.calls[0].arguments, ['yarn test']);
 
-      const [request] = chat.mock.calls[0].arguments;
-      const [message] = request.messages!;
+      const [request] = complete.mock.calls[0].arguments;
+      const [message] = request.messages;
 
       assert.equal(request.tools, undefined);
       assert.ok(message.content.startsWith(checkPrompt));
@@ -239,7 +236,7 @@ describe('check', () => {
 
       assert.equal(check.command, 'yarn lint --fix');
       assert.equal(check.status, undefined);
-      assert.equal(chat.mock.callCount(), 0);
+      assert.equal(complete.mock.callCount(), 0);
       assert.deepEqual(setSessionCheck.mock.calls[0].arguments, [
         'yarn lint --fix'
       ]);
@@ -251,7 +248,7 @@ describe('check', () => {
       await setCheck();
 
       assert.equal(check.command, 'yarn test');
-      assert.equal(chat.mock.callCount(), 0);
+      assert.equal(complete.mock.callCount(), 0);
       assert.equal(setSessionCheck.mock.callCount(), 0);
     });
   });
@@ -264,7 +261,7 @@ describe('check', () => {
 
       assert.equal(check.command, 'make check');
       assert.equal(check.status, undefined);
-      assert.equal(chat.mock.callCount(), 0);
+      assert.equal(complete.mock.callCount(), 0);
       assert.equal(setSessionCheck.mock.callCount(), 0);
     });
 

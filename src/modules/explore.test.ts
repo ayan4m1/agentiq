@@ -3,42 +3,36 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import type { ChatRequest, Message } from 'ollama';
 
 import { fakeInterrupt } from '../../test/fakes/interrupt';
 import { fakeOra } from '../../test/fakes/ora';
+import type { ChatMessage, ChatProvider } from '../types';
 
 const interrupt = fakeInterrupt();
 
 mock.module('./interrupt', { exports: interrupt.exports });
 mock.module('ora', { exports: fakeOra().exports });
 
-const { explore: config, ollama } = await import('./config');
+const { explore: config, provider } = await import('./config');
 const { explore, describeCall } = await import('./explore');
-const { client } = await import('./client');
+const { chatProvider } = await import('../providers');
 const { takeYield } = await import('./turn');
 
-const chat = mock.method(
-  client as unknown as { chat: (request: ChatRequest) => Promise<unknown> },
-  'chat',
-  async (): Promise<unknown> => {
-    throw new Error('no response was set up for this test');
-  }
-);
-const abortClient = mock.method(client, 'abort', () => {});
-const requests = () =>
-  chat.mock.calls.map((call) => call.arguments[0] as ChatRequest);
+const unanswered: ChatProvider['complete'] = async () => {
+  throw new Error('no response was set up for this test');
+};
+const complete = mock.method(chatProvider, 'complete', unanswered);
+const abortProvider = mock.method(chatProvider, 'abort', () => {});
+const requests = () => complete.mock.calls.map((call) => call.arguments[0]);
 
 // answers each request with the next of these, in order
-const answer = (...messages: Partial<Message>[]) => {
+const answer = (...messages: Partial<ChatMessage>[]) => {
   let index = 0;
 
-  chat.mock.mockImplementation(async () => ({
-    message: {
-      role: 'assistant',
-      content: '',
-      ...messages[Math.min(index++, messages.length - 1)]
-    }
+  complete.mock.mockImplementation(async () => ({
+    role: 'assistant',
+    content: '',
+    ...messages[Math.min(index++, messages.length - 1)]
   }));
 };
 
@@ -47,15 +41,15 @@ const call = (name: string, args: Record<string, unknown>) => ({
 });
 
 const original = process.cwd();
-const defaults = { rounds: config.rounds, contextLimit: ollama.contextLimit };
+const defaults = { rounds: config.rounds, contextLimit: provider.contextLimit };
 let root: string;
 
 beforeEach(() => {
   root = mkdtempSync(resolve(tmpdir(), 'agentiq-explore-'));
   process.chdir(root);
   writeFileSync(resolve(root, 'notes.txt'), 'the answer is 42\n');
-  chat.mock.resetCalls();
-  abortClient.mock.resetCalls();
+  complete.mock.resetCalls();
+  abortProvider.mock.resetCalls();
   interrupt.reset();
   takeYield();
 });
@@ -64,7 +58,7 @@ afterEach(() => {
   process.chdir(original);
   rmSync(root, { recursive: true, force: true });
   config.rounds = defaults.rounds;
-  ollama.contextLimit = defaults.contextLimit;
+  provider.contextLimit = defaults.contextLimit;
 });
 
 describe('explore', () => {
@@ -96,6 +90,32 @@ describe('explore', () => {
     assert.equal(second[1].content, 'what is the answer?');
   });
 
+  test("answers calls by id, and keeps the provider's record of the turn", async () => {
+    const native = { provider: 'anthropic' as const, content: ['the blocks'] };
+
+    answer(
+      {
+        tool_calls: [
+          {
+            id: 'toolu_1',
+            function: { name: 'read', arguments: { path: 'notes.txt' } }
+          }
+        ],
+        native
+      },
+      { content: 'found it' }
+    );
+
+    await explore('what is in notes?');
+
+    const second = requests()[1].messages;
+    const turn = second.find((message) => message.tool_calls);
+    const result = second.find((message) => message.role === 'tool');
+
+    assert.deepEqual(turn?.native, native);
+    assert.equal(result?.tool_call_id, 'toolu_1');
+  });
+
   test('cannot write, patch or run a command', async () => {
     answer(
       call('write', { path: 'evil.txt', content: 'oops' }),
@@ -123,11 +143,11 @@ describe('explore', () => {
 
   test('asks for the report without tools once its rounds are used up', async () => {
     config.rounds = 2;
-    chat.mock.mockImplementation(async (request: ChatRequest) => ({
-      message: request.tools
+    complete.mock.mockImplementation(async (request) =>
+      request.tools
         ? { role: 'assistant', content: '', ...call('list', {}) }
         : { role: 'assistant', content: 'ran out, here is what I have' }
-    }));
+    );
 
     assert.equal(await explore('keep going'), 'ran out, here is what I have');
 
@@ -142,17 +162,17 @@ describe('explore', () => {
   });
 
   test('stops early once the conversation passes its token budget', async () => {
-    ollama.contextLimit = 100;
+    provider.contextLimit = 100;
     writeFileSync(resolve(root, 'big.txt'), 'x'.repeat(2000));
-    chat.mock.mockImplementation(async (request: ChatRequest) => ({
-      message: request.tools
+    complete.mock.mockImplementation(async (request) =>
+      request.tools
         ? {
             role: 'assistant',
             content: '',
             ...call('read', { path: 'big.txt' })
           }
         : { role: 'assistant', content: 'summary' }
-    }));
+    );
 
     assert.equal(await explore('read it all'), 'summary');
     // one round of reading, then straight to the report
@@ -184,7 +204,7 @@ describe('explore', () => {
   });
 
   test('escape ends the exploration and hands the keyboard back', async () => {
-    chat.mock.mockImplementation(() => new Promise(() => {}));
+    complete.mock.mockImplementation(() => new Promise(() => {}));
 
     const pending = explore('this will take a while');
 
@@ -193,7 +213,7 @@ describe('explore', () => {
     interrupt.pressEscape();
 
     assert.match(await pending, /The user interrupted the exploration/);
-    assert.equal(abortClient.mock.callCount(), 1);
+    assert.equal(abortProvider.mock.callCount(), 1);
     assert.equal(interrupt.stopWatching.mock.callCount(), 1);
     assert.equal(takeYield(), true);
   });

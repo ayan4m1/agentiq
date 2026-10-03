@@ -1,9 +1,8 @@
 import chalk from 'chalk';
 import { existsSync, statSync } from 'node:fs';
 import { confirm, editor, select } from '@inquirer/prompts';
-import type { Message } from 'ollama';
 
-import { ollama, saveSetting, session } from './config';
+import { provider, saveSetting, session } from './config';
 import { getLogger } from './logging';
 import {
   cycleMode,
@@ -15,14 +14,15 @@ import {
 import { pickModel } from './picker';
 import { modelContextLength, preflight } from './preflight';
 import { beginTurn, changes, countSince, rewind } from './checkpoints';
-import { ensureTokenizer } from './tokenizer';
+import { chatProvider } from '../providers';
+import { ensureTokenizer, usesHfTokenizer } from './tokenizer';
 import {
   applyEntry,
   chooseEntry,
   findEntry,
   loadStore,
-  rememberEntry,
-  saveStore
+  markActive,
+  rememberEntry
 } from './models';
 import {
   append,
@@ -34,9 +34,14 @@ import {
 } from './session';
 import { takeYield } from './turn';
 import { check, restoreCheck, runCheck, setCheck } from './check';
-import type { makeThinker } from './ollama';
+import type { makeThinker } from './thinker';
 import { readFile } from '../tools/read';
-import type { AgentMessage, ModelEntry, ThoughtState } from '../types';
+import type {
+  AgentMessage,
+  ChatMessage,
+  ModelEntry,
+  ThoughtState
+} from '../types';
 import { describeAge, describeError } from '../utils';
 
 // the label stays that of the command it was lifted out of, so the log reads
@@ -72,6 +77,7 @@ type Thinker = Pick<
   | 'load'
   | 'reset'
   | 'rebuild'
+  | 'count'
   | 'compact'
   | 'recap'
   | 'tokens'
@@ -214,7 +220,7 @@ export const createController = ({
 
   // the turn each prompt typed here started, for /undo. a prompt restored from
   // a session file has none, since its changes were made by another process
-  const turns = new WeakMap<Message, number>();
+  const turns = new WeakMap<ChatMessage, number>();
   // the turn the latest prompt started, and the first turn whose changes the
   // check has not run against yet - a turn that wrote nothing has nothing new
   // to check, but one cut short still leaves its changes for the next
@@ -226,7 +232,7 @@ export const createController = ({
 
   // loading an earlier conversation also hands the session file back to it, so
   // the resumed history keeps growing where it left off
-  const restore = (id?: string) => {
+  const restore = async (id?: string) => {
     const target = id ?? listSessions(1)[0]?.id;
 
     if (!target) {
@@ -247,6 +253,7 @@ export const createController = ({
     needsUserInput = true;
     compactionStalled = false;
     thinker.load(messages);
+    await thinker.count(messages);
     rememberPrompts?.(typedPrompts(messages));
     restoreCheck(sessionCheck());
 
@@ -288,6 +295,9 @@ export const createController = ({
 
     nextThought.messages = messages;
     compactionStalled = freed <= 0;
+    // freed stays the estimate both sides of it were measured with - only the
+    // total is corrected
+    await thinker.count(messages);
     // summarizing replaces the messages outright, so there is nothing left to
     // append to - the file has to be written again from what survived
     rewrite(messages);
@@ -301,7 +311,7 @@ export const createController = ({
     }
   };
 
-  const clear = () => {
+  const clear = async () => {
     nextThought.lastResponse = undefined;
     nextThought.messages = [];
     compactionStalled = false;
@@ -311,15 +321,16 @@ export const createController = ({
     const before = thinker.tokens.total;
 
     logFreed(thinker.reset(), before);
+    await thinker.count([]);
   };
 
   const showContext = () => {
     const { measured, messages, skills, system, tools, total } = thinker.tokens;
-    const share = Math.round((total / ollama.contextLimit) * 100);
+    const share = Math.round((total / provider.contextLimit) * 100);
     const estimated = chalk.gray('(estimated)');
 
-    // the parts are always the tokenizer's estimate, while the total is
-    // ollama's own count of the last prompt once there has been one - so they
+    // the parts are always the tokenizer's estimate, while the total is the
+    // provider's own count of the prompt once there has been one - so they
     // deliberately do not add up
     console.log(
       `${systemColor('{SYSTEM   }')} - ${system} tokens ${estimated}`
@@ -332,8 +343,8 @@ export const createController = ({
       `${systemColor('{MESSAGES }')} - ${messages} tokens ${estimated}`
     );
     console.log(
-      `${systemColor('{TOTAL    }')} - ${total} tokens / ${ollama.contextLimit} max (${share}%) ${
-        measured ? chalk.gray('(counted by ollama)') : estimated
+      `${systemColor('{TOTAL    }')} - ${total} tokens / ${provider.contextLimit} max (${share}%) ${
+        measured ? chalk.gray(`(counted by ${chatProvider.label})`) : estimated
       }`
     );
   };
@@ -342,13 +353,13 @@ export const createController = ({
     const summaries = listSessions();
 
     if (!summaries.length) {
-      restore();
+      await restore();
 
       return;
     }
 
     try {
-      restore(
+      await restore(
         await select({
           message: 'Which session?',
           choices: summaries.map((summary) => ({
@@ -436,6 +447,7 @@ export const createController = ({
       needsUserInput = true;
       compactionStalled = false;
       thinker.load(nextThought.messages);
+      await thinker.count(nextThought.messages);
       rewrite(nextThought.messages);
       // a pasted prompt would corrupt the single-line prompt it was put back
       // into, so it comes back as its preview and is edited in the editor
@@ -458,14 +470,14 @@ export const createController = ({
   // handed to the thinker to be counted again, since the tokenizer that
   // measured it belonged to the model being left behind
   const switchModel = async () => {
-    const previous = findEntry(loadStore(), ollama.model);
+    const previous = findEntry(loadStore(), provider.model);
     const entry = await chooseEntry();
 
     if (!entry) {
       return;
     }
 
-    if (entry.model === ollama.model) {
+    if (entry.model === provider.model) {
       log.info(systemColor(`Already using ${entry.model}`));
 
       return;
@@ -475,7 +487,7 @@ export const createController = ({
       applyEntry(kept);
       // the store said this entry was the one to start on, and a switch that
       // did not happen must not change that
-      saveStore({ ...loadStore(), active: kept.model });
+      markActive(kept.model);
       log.warn(chalk.red(`Staying on ${kept.model}`));
     };
 
@@ -492,8 +504,12 @@ export const createController = ({
       return;
     }
 
-    await ensureTokenizer();
+    if (usesHfTokenizer()) {
+      await ensureTokenizer();
+    }
+
     thinker.rebuild(nextThought.messages);
+    await thinker.count(nextThought.messages);
 
     // only now is the session counted by the tokenizer the new model uses. a
     // model that cannot hold what is already here would have ollama drop the
@@ -513,8 +529,13 @@ export const createController = ({
         // preflight() replaced what was known about the old model, and
         // rebuild() counted with the new model's tokenizer - undo both
         await preflight();
-        await ensureTokenizer();
+
+        if (usesHfTokenizer()) {
+          await ensureTokenizer();
+        }
+
         thinker.rebuild(nextThought.messages);
+        await thinker.count(nextThought.messages);
       }
 
       return;
@@ -522,13 +543,13 @@ export const createController = ({
 
     log.info(
       chalk.green(
-        `Switched to ${entry.model} using the ${entry.tokenizer} tokenizer - ${thinker.tokens.total} tokens`
+        `Switched to ${entry.model}${entry.tokenizer ? ` using the ${entry.tokenizer} tokenizer` : ''} - ${thinker.tokens.total} tokens`
       )
     );
   };
 
   // shows the limit, or changes it and saves it to config.yml for the runs
-  // that follow. every reader of ollama.contextLimit asks at call time, so
+  // that follow. every reader of provider.contextLimit asks at call time, so
   // assigning it is enough for this session
   const contextLimit = async (value?: string) => {
     const supported = modelContextLength();
@@ -536,8 +557,8 @@ export const createController = ({
     if (value === undefined) {
       console.log(
         systemColor(
-          `Context limit is ${ollama.contextLimit} tokens${
-            supported ? ` (${ollama.model} supports ${supported})` : ''
+          `Context limit is ${provider.contextLimit} tokens${
+            supported ? ` (${provider.model} supports ${supported})` : ''
           }`
         )
       );
@@ -557,11 +578,11 @@ export const createController = ({
       return;
     }
 
-    ollama.contextLimit = limit;
+    provider.contextLimit = limit;
     log.info(chalk.green(`Context limit set to ${limit} tokens`));
 
     try {
-      saveSetting('ollama', 'contextLimit', limit);
+      saveSetting('provider', 'contextLimit', limit);
     } catch (error) {
       log.warn(
         chalk.red(
@@ -573,7 +594,7 @@ export const createController = ({
     if (supported && limit > supported) {
       log.warn(
         chalk.red(
-          `${ollama.model} supports ${supported} - the prompt will be silently truncated`
+          `${provider.model} supports ${supported} - the prompt will be silently truncated`
         )
       );
     }
@@ -749,7 +770,7 @@ export const createController = ({
         break;
       case Command.Clear:
       case Command.Reset:
-        clear();
+        await clear();
         break;
       case Command.Resume:
         await chooseSession();

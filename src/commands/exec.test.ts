@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import { spawn } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
+import { stringify } from 'yaml';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 
 // like commands/run.ts, the command runs as it is evaluated, so it can only be
@@ -65,10 +66,10 @@ const configured = (name = 'configured') => {
 
   mkdirSync(cache, { recursive: true });
   writeFileSync(
-    resolve(home, 'models.json'),
-    JSON.stringify({
-      active: model,
-      models: [{ model, tokenizer: 'google/gemma-4-E4B' }]
+    resolve(home, 'models.yml'),
+    stringify({
+      active: { ollama: model },
+      models: { ollama: [{ model, tokenizer: 'google/gemma-4-E4B' }] }
     })
   );
   writeFileSync(resolve(cache, 'tokenizer.json'), '{}');

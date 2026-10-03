@@ -23,8 +23,8 @@ general instructions about how to be an agent.
   choosing what to elide; `client.ts` is the shared Ollama client.
 - `src/modules/tools.ts` - argument validation and recovery of tool calls the
   model wrote as text instead of emitting properly.
-- `src/modules/models.ts` - the model/tokenizer pairs in `~/.agentiq/models.json`,
-  and the prompting `/model` does to add or switch between them (`picker.ts`).
+- `src/modules/models.ts` - the model/tokenizer pairs in `~/.agentiq/models.yml`,
+  kept per provider, and the prompting `/model` does to add or switch between them (`picker.ts`).
 - `src/modules/turn.ts` - per-turn flags: whether anyone is at the terminal,
   and whether a tool has already handed control back to the user.
 - `src/modules/` - otherwise one concern per file: approval modes, checkpoints,

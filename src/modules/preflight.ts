@@ -1,9 +1,9 @@
 import chalk from 'chalk';
-import type { ListResponse, ShowResponse } from 'ollama';
 
-import { client } from './client';
-import { ollama } from './config';
+import { chatProvider } from '../providers';
+import { provider } from './config';
 import { getLogger } from './logging';
+import type { ChatProvider, ModelSummary } from '../types';
 import { describeError } from '../utils';
 
 const log = getLogger('preflight');
@@ -21,23 +21,22 @@ let contextLength: number | undefined;
 
 export const modelContextLength = () => contextLength;
 
-// only the two calls this needs, so a test can stand in for the server
-export type PreflightApi = {
-  list: () => Promise<ListResponse>;
-  show: (request: { model: string }) => Promise<ShowResponse>;
-};
+// only the part of the provider this needs, so a test can stand in for the
+// server
+export type PreflightApi = Pick<
+  ChatProvider,
+  'label' | 'listModels' | 'describeModel'
+>;
 
 // what the server has, or undefined when it could not be asked. modules/models.ts
 // needs the same list to offer a choice of model, and an unreachable host is the
 // same problem said the same way wherever it is noticed
-export const listModels = async (api: PreflightApi = client) => {
+export const listModels = async (api: PreflightApi = chatProvider) => {
   try {
-    return (await api.list()).models;
+    return await api.listModels();
   } catch (error) {
     log.error(
-      chalk.red(
-        `Could not reach ollama at ${ollama.host ?? 'its default address'} - ${describeError(error)}`
-      )
+      chalk.red(`Could not reach ${api.label} - ${describeError(error)}`)
     );
   }
 };
@@ -48,40 +47,7 @@ export const matchesModel = (installed: string, configured: string) =>
   installed === configured ||
   (!configured.includes(':') && installed === `${configured}:latest`);
 
-// model_info is typed as a Map but arrives as parsed JSON, so it is a plain
-// object in practice - handle both rather than betting on either
-const entriesOf = (info: ShowResponse['model_info']): [string, unknown][] => {
-  if (info instanceof Map) {
-    return [...info.entries()];
-  }
-
-  return info ? Object.entries(info) : [];
-};
-
-// the key is namespaced by architecture - "gemma3.context_length" - so the
-// architecture is read first, and any context length will do as a fallback
-export const readContextLength = (info: ShowResponse['model_info']) => {
-  const entries = entriesOf(info);
-  const architecture = entries.find(
-    ([key]) => key === 'general.architecture'
-  )?.[1];
-  const named = entries.find(
-    ([key]) => key === `${architecture}.context_length`
-  )?.[1];
-
-  if (typeof named === 'number') {
-    return named;
-  }
-
-  const any = entries.find(
-    ([key, value]) =>
-      key.endsWith('.context_length') && typeof value === 'number'
-  )?.[1];
-
-  return typeof any === 'number' ? any : undefined;
-};
-
-const listInstalled = (models: ListResponse['models']) => {
+const listInstalled = (models: ModelSummary[]) => {
   if (!models.length) {
     log.error(
       chalk.red(
@@ -95,7 +61,7 @@ const listInstalled = (models: ListResponse['models']) => {
   log.error(chalk.red('Installed models:'));
 
   for (const model of models) {
-    console.log(`  ${model.name ?? model.model}`);
+    console.log(`  ${model.name}`);
   }
 };
 
@@ -105,31 +71,31 @@ const inspect = async (api: PreflightApi) => {
   let details;
 
   try {
-    details = await api.show({ model: ollama.model });
+    details = await api.describeModel(provider.model);
   } catch (error) {
     log.debug(
-      `Could not read details for ${ollama.model}: ${describeError(error)}`
+      `Could not read details for ${provider.model}: ${describeError(error)}`
     );
 
     return;
   }
 
-  const reported = details.capabilities ?? [];
+  const reported = details.capabilities;
 
   for (const capability of reported) {
     capabilities.add(capability);
   }
 
   log.debug(
-    `${ollama.model} reports capabilities: ${reported.join(', ') || 'none'}`
+    `${provider.model} reports capabilities: ${reported.join(', ') || 'none'}`
   );
 
   // asking a model that cannot reason to reason is an error from the server
   // rather than a no-op, so it would cost every turn of the session
-  if (ollama.think && reported.length && !capabilities.has('thinking')) {
+  if (provider.think && reported.length && !capabilities.has('thinking')) {
     log.warn(
       chalk.red(
-        `AQ_OLLAMA_THINK is set, but ${ollama.model} does not report a thinking capability - the setting will be ignored`
+        `AQ_THINK is set, but ${provider.model} does not report a thinking capability - the setting will be ignored`
       )
     );
   }
@@ -139,19 +105,19 @@ const inspect = async (api: PreflightApi) => {
   if (reported.length && !capabilities.has('tools')) {
     log.warn(
       chalk.red(
-        `${ollama.model} cannot call tools, so it will ignore all of them and only chat. Choose a model whose capabilities include "tools".`
+        `${provider.model} cannot call tools, so it will ignore all of them and only chat. Choose a model whose capabilities include "tools".`
       )
     );
   }
 
-  contextLength = readContextLength(details.model_info);
+  contextLength = details.contextLength;
 
-  if (contextLength && ollama.contextLimit > contextLength) {
+  if (contextLength && provider.contextLimit > contextLength) {
     // num_ctx above what the model supports is not an error anywhere - ollama
     // simply truncates the prompt, dropping the oldest messages in silence
     log.warn(
       chalk.red(
-        `AQ_OLLAMA_CONTEXT_LIMIT is ${ollama.contextLimit}, but ${ollama.model} supports ${contextLength} - the prompt will be silently truncated. Lower it to ${contextLength} or less.`
+        `AQ_CONTEXT_LIMIT is ${provider.contextLimit}, but ${provider.model} supports ${contextLength} - the prompt will be silently truncated. Lower it to ${contextLength} or less.`
       )
     );
   }
@@ -160,7 +126,7 @@ const inspect = async (api: PreflightApi) => {
 // run before the first prompt: an unreachable host or a model that is not
 // there otherwise surfaces as a failed turn, after the user has typed
 // something and waited for it
-export const preflight = async (api: PreflightApi = client) => {
+export const preflight = async (api: PreflightApi = chatProvider) => {
   // whatever was learned about a previous model says nothing about this one,
   // and a run that gets no further must not leave the old answer standing
   capabilities.clear();
@@ -172,7 +138,7 @@ export const preflight = async (api: PreflightApi = client) => {
     return false;
   }
 
-  if (!ollama.model) {
+  if (!provider.model) {
     log.error(chalk.red('No model is configured - use /model to choose one'));
     listInstalled(installed);
 
@@ -180,8 +146,8 @@ export const preflight = async (api: PreflightApi = client) => {
   }
 
   const found = installed.some((model) =>
-    [model.name, model.model].some(
-      (name) => name && matchesModel(name, ollama.model)
+    [model.name, model.id].some(
+      (name) => name && matchesModel(name, provider.model)
     )
   );
 
@@ -189,7 +155,7 @@ export const preflight = async (api: PreflightApi = client) => {
     // deliberately no nearest-match guess: the list is the answer, and a guess
     // risks pointing at a model the user did not mean
     log.error(
-      chalk.red(`The configured model "${ollama.model}" is not installed`)
+      chalk.red(`The configured model "${provider.model}" is not installed`)
     );
     listInstalled(installed);
 
@@ -206,8 +172,8 @@ export const preflight = async (api: PreflightApi = client) => {
 // reasons anyway and buries the result in its reply - where it is streamed as
 // though it were the answer, and then re-sent on every turn that follows
 export const resolveThink = () => {
-  if (ollama.think !== undefined) {
-    return ollama.think;
+  if (provider.think !== undefined) {
+    return provider.think;
   }
 
   return supportsThinking() ? true : undefined;

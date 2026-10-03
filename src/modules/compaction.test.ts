@@ -1,6 +1,5 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Message, ToolCall } from 'ollama';
 
 import {
   describeElision,
@@ -10,22 +9,26 @@ import {
   pairCalls,
   safeBoundaries
 } from './compaction';
+import type { ChatMessage, ModelToolCall } from '../types';
 
-const user = (content: string): Message => ({ role: 'user', content });
+const user = (content: string): ChatMessage => ({ role: 'user', content });
 
-const calling = (...calls: ToolCall[]): Message => ({
+const calling = (...calls: ModelToolCall[]): ChatMessage => ({
   role: 'assistant',
   content: '',
   tool_calls: calls
 });
 
-const saying = (content: string): Message => ({ role: 'assistant', content });
+const saying = (content: string): ChatMessage => ({
+  role: 'assistant',
+  content
+});
 
-const call = (name: string, args: Record<string, unknown>): ToolCall => ({
+const call = (name: string, args: Record<string, unknown>): ModelToolCall => ({
   function: { name, arguments: args }
 });
 
-const result = (name: string, content: string): Message => ({
+const result = (name: string, content: string): ChatMessage => ({
   role: 'tool',
   tool_name: name,
   content
@@ -44,7 +47,7 @@ const singleLongTurn = () => [
 ];
 
 // every call made before the cut has its result before the cut too
-const isBalanced = (messages: Message[]) => {
+const isBalanced = (messages: ChatMessage[]) => {
   let outstanding = 0;
 
   for (const message of messages) {
@@ -128,10 +131,10 @@ describe('describeElision', () => {
     const marker = describeElision(
       'output',
       'read',
-      call('read', { path: 'src/modules/ollama.ts' })
+      call('read', { path: 'src/modules/thinker.ts' })
     );
 
-    assert.match(marker, /src\/modules\/ollama\.ts/);
+    assert.match(marker, /src\/modules\/thinker\.ts/);
   });
 
   test('tells the model it can ask again', () => {
@@ -217,17 +220,9 @@ describe('findSplit', () => {
     assert.equal(findSplit(messages), 2);
   });
 
-  test('finds a cut inside a single long turn', () => {
+  test('cuts as late as the pairing allows in a single turn', () => {
     // the dead end: one user message at index 0, so the old rule found
     // nothing to split on and compaction reclaimed nothing at all
-    const messages = singleLongTurn();
-    const splitAt = findSplit(messages);
-
-    assert.ok(splitAt >= 1, 'a long single turn must still be splittable');
-    assert.ok(isBalanced(messages.slice(0, splitAt)));
-  });
-
-  test('cuts as late as the pairing allows in a single turn', () => {
     assert.equal(findSplit(singleLongTurn()), 5);
   });
 

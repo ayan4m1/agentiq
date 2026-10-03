@@ -2,11 +2,19 @@ import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import type { ListResponse } from 'ollama';
+import { parse, stringify } from 'yaml';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
 
 import { fakePrompts } from '../../test/fakes/inquirer';
 import type { ModuleMock } from '../../test/fakes/module';
+import type { ModelEntry, ModelStore } from '../types';
 
 // the store lives under the home directory, which is read as the config module
 // is evaluated - so it has to point somewhere disposable before the imports
@@ -62,40 +70,58 @@ const typed = (...values: (string | Error)[]) => {
 };
 
 const {
+  activeModel,
   applyEntry,
   chooseEntry,
   findEntry,
   forgetEntry,
   loadStore,
+  markActive,
   rememberEntry,
   resolveStartupEntry,
   saveStore,
+  savedModels,
   validateRepo
 } = await import('./models');
-const { ollama, tokenizer } = await import('./config');
+const { provider, tokenizer } = await import('./config');
 const { terminal } = await import('./turn');
+const { Provider } = await import('../types');
 
-const storePath = resolve(home, 'models.json');
+const storePath = resolve(home, 'models.yml');
+const legacyPath = resolve(home, 'models.json');
 const gemma = { model: 'gemma4:e4b', tokenizer: 'google/gemma-4-E4B' };
 const qwen = {
   model: 'qwen3:30b',
   tokenizer: 'Qwen/Qwen3-Coder-30B-A3B-Instruct'
 };
+const claude = { model: 'claude-opus-5' };
 
-// only the call the chooser makes - show() is preflight's business
+// a store holding these models under one provider - the configured one unless
+// told otherwise - and nothing under any other
+const stored = (
+  models: ModelEntry[],
+  active?: string,
+  name: keyof ModelStore['models'] = provider.name
+): ModelStore => ({
+  active: active ? { [name]: active } : {},
+  models: { [name]: models }
+});
+
+// only the call the chooser makes - describeModel() is preflight's business
 const server = (...names: string[]) => ({
-  list: async () =>
-    ({ models: names.map((name) => ({ name })) }) as ListResponse,
-  show: async () => {
+  label: 'the test server',
+  listModels: async () => names.map((name) => ({ name, id: name })),
+  describeModel: async () => {
     throw new Error('not asked for here');
   }
 });
 
 const unreachable = {
-  list: async () => {
+  label: 'the test server',
+  listModels: async () => {
     throw new Error('connect ECONNREFUSED');
   },
-  show: async () => {
+  describeModel: async () => {
     throw new Error('not asked for here');
   }
 };
@@ -103,47 +129,82 @@ const unreachable = {
 // the store is rewritten by most of these, so each starts from nothing
 beforeEach(() => {
   rmSync(storePath, { force: true });
+  rmSync(legacyPath, { force: true });
   answers = [];
   select.mock.resetCalls();
   input.mock.resetCalls();
   pickModel.mock.resetCalls();
-  ollama.model = '';
+  provider.name = Provider.Ollama;
+  provider.model = '';
   tokenizer.repo = undefined;
   terminal.interactive = true;
 });
 
 describe('the saved store', () => {
   test('is empty before anything has been saved', () => {
-    assert.deepEqual(loadStore(), { models: [] });
+    assert.deepEqual(loadStore(), { active: {}, models: {} });
   });
 
   test('survives a round trip', () => {
-    saveStore({ active: gemma.model, models: [gemma] });
+    saveStore(stored([gemma], gemma.model));
 
-    assert.deepEqual(loadStore(), { active: gemma.model, models: [gemma] });
+    assert.deepEqual(loadStore(), stored([gemma], gemma.model));
   });
 
   test('reads as empty rather than throwing on a corrupt file', () => {
-    writeFileSync(storePath, '{ this is not json');
+    writeFileSync(storePath, 'models: [unclosed\n');
 
-    assert.deepEqual(loadStore(), { models: [] });
+    assert.deepEqual(loadStore(), { active: {}, models: {} });
   });
 
   test('drops an entry that is missing half of the pair', () => {
     // a model with no tokenizer would silently fall back to estimating, which
     // is worse than never offering it as a choice
+    writeFileSync(storePath, stringify(stored([gemma, { model: 'orphan' }])));
+
+    assert.deepEqual(savedModels(loadStore()), [gemma]);
+  });
+
+  test('reads a file from before models were kept per provider as empty', () => {
     writeFileSync(
       storePath,
-      JSON.stringify({ models: [gemma, { model: 'orphan' }] })
+      stringify({ active: gemma.model, models: [gemma, qwen] })
     );
 
-    assert.deepEqual(loadStore().models, [gemma]);
+    assert.deepEqual(loadStore(), { active: {}, models: {} });
+  });
+
+  test('moves a models.json from an older version into models.yml', () => {
+    // its flat list predates every provider but ollama, whichever one is
+    // configured when it is found
+    provider.name = Provider.Anthropic;
+    writeFileSync(
+      legacyPath,
+      JSON.stringify({ active: gemma.model, models: [gemma, qwen] })
+    );
+
+    const moved = {
+      active: { ollama: gemma.model },
+      models: { ollama: [gemma, qwen] }
+    };
+
+    assert.deepEqual(loadStore(), moved);
+    assert.equal(existsSync(legacyPath), false);
+    assert.deepEqual(parse(readFileSync(storePath, 'utf8')), moved);
+  });
+
+  test('leaves a models.json alone once models.yml exists', () => {
+    saveStore(stored([gemma], gemma.model));
+    writeFileSync(legacyPath, JSON.stringify({ models: [qwen] }));
+
+    assert.deepEqual(loadStore(), stored([gemma], gemma.model));
+    assert.equal(existsSync(legacyPath), true);
   });
 
   test('ignores an active name that no entry matches', () => {
-    saveStore({ active: 'gone:latest', models: [gemma] });
+    saveStore(stored([gemma], 'gone:latest'));
 
-    assert.equal(findEntry(loadStore(), loadStore().active), undefined);
+    assert.equal(findEntry(loadStore(), activeModel(loadStore())), undefined);
   });
 });
 
@@ -151,7 +212,7 @@ describe('remembering an entry', () => {
   test('saves it and makes it active', () => {
     rememberEntry(gemma);
 
-    assert.deepEqual(loadStore(), { active: gemma.model, models: [gemma] });
+    assert.deepEqual(loadStore(), stored([gemma], gemma.model));
   });
 
   test('keeps the entries that were already there', () => {
@@ -160,8 +221,8 @@ describe('remembering an entry', () => {
 
     const store = loadStore();
 
-    assert.deepEqual(store.models, [gemma, qwen]);
-    assert.equal(store.active, qwen.model);
+    assert.deepEqual(savedModels(store), [gemma, qwen]);
+    assert.equal(activeModel(store), qwen.model);
   });
 
   test('replaces the tokenizer of a model already saved', () => {
@@ -170,7 +231,7 @@ describe('remembering an entry', () => {
     rememberEntry(gemma);
     rememberEntry({ ...gemma, tokenizer: 'google/gemma-3-12b-it' });
 
-    assert.deepEqual(loadStore().models, [
+    assert.deepEqual(savedModels(loadStore()), [
       { ...gemma, tokenizer: 'google/gemma-3-12b-it' }
     ]);
   });
@@ -178,18 +239,91 @@ describe('remembering an entry', () => {
 
 describe('forgetting an entry', () => {
   test('removes it and keeps the rest', () => {
-    saveStore({ active: gemma.model, models: [gemma, qwen] });
+    saveStore(stored([gemma, qwen], gemma.model));
     forgetEntry(qwen.model);
 
-    assert.deepEqual(loadStore(), { active: gemma.model, models: [gemma] });
+    assert.deepEqual(loadStore(), stored([gemma], gemma.model));
   });
 
   test('clears the active name when it pointed at the entry', () => {
-    saveStore({ active: qwen.model, models: [gemma, qwen] });
+    saveStore(stored([gemma, qwen], qwen.model));
     forgetEntry(qwen.model);
 
-    assert.equal(loadStore().active, undefined);
-    assert.deepEqual(loadStore().models, [gemma]);
+    assert.equal(activeModel(loadStore()), undefined);
+    assert.deepEqual(savedModels(loadStore()), [gemma]);
+  });
+});
+
+describe('models kept per provider', () => {
+  // gemma saved for ollama, claude for anthropic, each the one to start on
+  const both = (): ModelStore => ({
+    active: { ollama: gemma.model, anthropic: claude.model },
+    models: { ollama: [gemma], anthropic: [claude] }
+  });
+
+  // this also keeps anthropic's entries, which have no tokenizer - checked
+  // against ollama's rule, claude would be dropped and then lost on the next
+  // save
+  test('remembers under the configured provider alone', () => {
+    saveStore(both());
+    rememberEntry(qwen);
+
+    assert.deepEqual(loadStore(), {
+      active: { ollama: qwen.model, anthropic: claude.model },
+      models: { ollama: [gemma, qwen], anthropic: [claude] }
+    });
+  });
+
+  test('forgets under the configured provider alone', () => {
+    saveStore(both());
+    provider.name = Provider.Anthropic;
+    forgetEntry(claude.model);
+
+    assert.deepEqual(loadStore(), {
+      active: { ollama: gemma.model },
+      models: { ollama: [gemma], anthropic: [] }
+    });
+  });
+
+  test('marks the active model under the configured provider alone', () => {
+    saveStore(both());
+    markActive('other:latest');
+
+    assert.deepEqual(loadStore().active, {
+      ollama: 'other:latest',
+      anthropic: claude.model
+    });
+  });
+
+  test('offers only the configured provider’s models', async () => {
+    saveStore(both());
+    provider.name = Provider.Anthropic;
+    typed(claude.model);
+
+    await chooseEntry(server(claude.model));
+
+    assert.deepEqual(
+      pickModel.mock.calls[0].arguments[0].choices.map(({ value }) => value),
+      [claude.model, '']
+    );
+  });
+
+  test('starts on the configured provider’s active model', async () => {
+    saveStore(both());
+    provider.name = Provider.Anthropic;
+
+    assert.equal(await resolveStartupEntry(server()), true);
+    assert.equal(provider.model, claude.model);
+  });
+
+  test('asks on a first run under a provider with nothing saved', async () => {
+    // models saved for ollama are no use to anthropic
+    saveStore(stored([gemma], gemma.model, Provider.Ollama));
+    provider.name = Provider.Anthropic;
+    typed(claude.model);
+
+    assert.equal(await resolveStartupEntry(server(claude.model)), true);
+    assert.equal(provider.model, claude.model);
   });
 });
 
@@ -197,7 +331,7 @@ describe('applying an entry', () => {
   test('moves both halves into the config', () => {
     applyEntry(qwen);
 
-    assert.equal(ollama.model, qwen.model);
+    assert.equal(provider.model, qwen.model);
     assert.equal(tokenizer.repo, qwen.tokenizer);
   });
 });
@@ -209,7 +343,7 @@ describe('validateRepo', () => {
   });
 
   test('refuses a blank answer', () => {
-    // every saved entry has a tokenizer, so there is nothing to skip to
+    // every saved ollama entry has a tokenizer, so there is nothing to skip to
     assert.equal(typeof validateRepo(''), 'string');
     assert.equal(typeof validateRepo('   '), 'string');
   });
@@ -249,7 +383,7 @@ describe('validateRepo', () => {
 
 describe('choosing a model', () => {
   test('offers the saved entries and returns the one picked', async () => {
-    saveStore({ active: gemma.model, models: [gemma, qwen] });
+    saveStore(stored([gemma, qwen], gemma.model));
     typed(qwen.model);
 
     assert.deepEqual(await chooseEntry(server()), qwen);
@@ -258,7 +392,7 @@ describe('choosing a model', () => {
   });
 
   test('marks the saved models the server does not have', async () => {
-    saveStore({ models: [gemma, qwen, { ...gemma, model: 'bare' }] });
+    saveStore(stored([gemma, qwen, { ...gemma, model: 'bare' }]));
     typed(gemma.model);
 
     // a bare name is the same model as its :latest tag
@@ -273,7 +407,7 @@ describe('choosing a model', () => {
   });
 
   test('marks nothing when the server cannot be reached', async () => {
-    saveStore({ models: [gemma, qwen] });
+    saveStore(stored([gemma, qwen]));
     typed(gemma.model);
 
     assert.deepEqual(await chooseEntry(unreachable), gemma);
@@ -285,8 +419,8 @@ describe('choosing a model', () => {
   });
 
   test('will not remove the model in use or the add row', async () => {
-    saveStore({ models: [gemma, qwen] });
-    ollama.model = gemma.model;
+    saveStore(stored([gemma, qwen]));
+    provider.model = gemma.model;
     typed(qwen.model);
 
     await chooseEntry(server());
@@ -300,7 +434,7 @@ describe('choosing a model', () => {
   });
 
   test('removes a pair from the store as soon as the user confirms', async () => {
-    saveStore({ active: gemma.model, models: [gemma, qwen] });
+    saveStore(stored([gemma, qwen], gemma.model));
     pickModel.mock.mockImplementationOnce(async ({ remove }) => {
       remove(qwen.model);
 
@@ -309,11 +443,11 @@ describe('choosing a model', () => {
 
     // walking away afterwards does not bring it back
     assert.equal(await chooseEntry(server()), undefined);
-    assert.deepEqual(loadStore(), { active: gemma.model, models: [gemma] });
+    assert.deepEqual(loadStore(), stored([gemma], gemma.model));
   });
 
   test('returns nothing when the picker is escaped', async () => {
-    saveStore({ active: gemma.model, models: [gemma, qwen] });
+    saveStore(stored([gemma, qwen], gemma.model));
     pickModel.mock.mockImplementationOnce(async () => undefined);
 
     assert.equal(await chooseEntry(server()), undefined);
@@ -345,11 +479,11 @@ describe('choosing a model', () => {
 
     // remembering is the caller's decision - a switch that preflight then
     // refuses must not have rewritten the store on the way
-    assert.deepEqual(loadStore(), { models: [] });
+    assert.deepEqual(loadStore(), { active: {}, models: {} });
   });
 
   test('reaches the add flow from the saved list', async () => {
-    saveStore({ active: gemma.model, models: [gemma] });
+    saveStore(stored([gemma], gemma.model));
     // the empty value is the "Add a new model…" row
     typed('', qwen.model, qwen.tokenizer);
 
@@ -357,7 +491,7 @@ describe('choosing a model', () => {
   });
 
   test('gives nothing back when the prompt is cancelled', async () => {
-    saveStore({ models: [gemma] });
+    saveStore(stored([gemma]));
     typed(new Error('User force closed the prompt'));
 
     assert.equal(await chooseEntry(server()), undefined);
@@ -370,51 +504,91 @@ describe('choosing a model', () => {
 
 describe('resolving the model to start on', () => {
   test('applies the active entry without asking', async () => {
-    saveStore({ active: qwen.model, models: [gemma, qwen] });
+    saveStore(stored([gemma, qwen], qwen.model));
 
     assert.equal(await resolveStartupEntry(server()), true);
-    assert.equal(ollama.model, qwen.model);
+    assert.equal(provider.model, qwen.model);
     assert.equal(tokenizer.repo, qwen.tokenizer);
     assert.equal(select.mock.callCount(), 0);
   });
 
   test('falls back to the first saved entry when none is active', async () => {
     // a hand-edited file may have no active name at all
-    saveStore({ models: [gemma] });
+    saveStore(stored([gemma]));
 
     assert.equal(await resolveStartupEntry(server()), true);
-    assert.equal(ollama.model, gemma.model);
+    assert.equal(provider.model, gemma.model);
   });
 
   test('asks and saves the answer on a first run', async () => {
     typed('gemma4:e4b', gemma.tokenizer);
 
     assert.equal(await resolveStartupEntry(server('gemma4:e4b')), true);
-    assert.equal(ollama.model, gemma.model);
-    assert.deepEqual(loadStore(), { active: gemma.model, models: [gemma] });
+    assert.equal(provider.model, gemma.model);
+    assert.deepEqual(loadStore(), stored([gemma], gemma.model));
   });
 
   test('refuses to start when the question goes unanswered', async () => {
     typed(new Error('User force closed the prompt'));
 
     assert.equal(await resolveStartupEntry(server('gemma4:e4b')), false);
-    assert.equal(ollama.model, '');
+    assert.equal(provider.model, '');
   });
 
   test('refuses to start without asking when there is no terminal', async () => {
     terminal.interactive = false;
 
     assert.equal(await resolveStartupEntry(server('gemma4:e4b')), false);
-    assert.equal(ollama.model, '');
+    assert.equal(provider.model, '');
     assert.equal(select.mock.callCount(), 0);
     assert.equal(input.mock.callCount(), 0);
   });
 
   test('applies a saved entry when there is no terminal', async () => {
     terminal.interactive = false;
-    saveStore({ active: gemma.model, models: [gemma] });
+    saveStore(stored([gemma], gemma.model));
 
     assert.equal(await resolveStartupEntry(server()), true);
-    assert.equal(ollama.model, gemma.model);
+    assert.equal(provider.model, gemma.model);
+  });
+});
+
+describe('a provider that counts for itself', () => {
+  beforeEach(() => {
+    provider.name = Provider.Anthropic;
+  });
+
+  test('keeps an entry with no tokenizer', () => {
+    writeFileSync(storePath, stringify(stored([claude])));
+
+    assert.deepEqual(savedModels(loadStore()), [claude]);
+  });
+
+  test('never asks for a tokenizer', async () => {
+    typed(claude.model);
+
+    assert.deepEqual(await chooseEntry(server(claude.model)), claude);
+    assert.equal(input.mock.callCount(), 0);
+  });
+
+  test('lists a saved entry by its name alone', async () => {
+    saveStore(stored([claude], claude.model));
+    typed(claude.model);
+
+    await chooseEntry(server(claude.model));
+
+    assert.deepEqual(
+      pickModel.mock.calls[0].arguments[0].choices.map(
+        (choice) => (choice as { name?: string }).name
+      )[0],
+      claude.model
+    );
+  });
+
+  test('clears any tokenizer left by the last entry', () => {
+    tokenizer.repo = gemma.tokenizer;
+    applyEntry(claude);
+
+    assert.equal(tokenizer.repo, undefined);
   });
 });

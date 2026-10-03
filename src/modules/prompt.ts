@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { getLogger } from './logging';
-import { explore, home, ollama, roadmap, shell } from './config';
+import { explore, home, provider, roadmap, shell } from './config';
 import { describeRoadmap } from './roadmap';
 import { describeSkills } from './skills';
 
@@ -111,7 +111,7 @@ const describeEnvironment = () => {
     `- Platform: ${process.platform}`,
     `- Shell: ${describeShell()} - this is what interprets commands you pass to \`shell\` and \`start_job\``,
     `- Today's date: ${new Date().toISOString().slice(0, 10)}`,
-    `- Model: ${ollama.model}`
+    `- Model: ${provider.model}`
   ];
 
   if (git) {

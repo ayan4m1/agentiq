@@ -27,25 +27,29 @@ shell:
   # milliseconds before a command is killed (AQ_SHELL_TIMEOUT)
   timeout: 120000
 
+provider:
+  # which provider serves the model - ollama or anthropic (AQ_PROVIDER)
+  name: ollama
+  # the context window to fill, in tokens (AQ_CONTEXT_LIMIT)
+  contextLimit: 131072
+  # milliseconds to wait between turns - 0 for a local server, raise it only
+  # for a metered remote endpoint (AQ_MIN_TURN_DELAY)
+  minTurnDelay: 0
+  # how hard a reasoning model should think - true, false, or high/medium/low.
+  # leave unset to let a model that reports a thinking capability separate its
+  # reasoning from its answer by default, which keeps it out of the transcript
+  # (AQ_THINK)
+  # think: true
+
 ollama:
   # leave unset for ollama's own default of http://127.0.0.1:11434
   # (AQ_OLLAMA_HOST)
   # host: http://127.0.0.1:11434/
   # only needed behind a proxy that asks for one (AQ_OLLAMA_BEARER_TOKEN)
   # bearerToken: your-token
-  # (AQ_OLLAMA_CONTEXT_LIMIT)
-  contextLimit: 131072
   # how long ollama keeps the model loaded; -1 never unloads it, 0 unloads it
   # immediately (AQ_OLLAMA_KEEP_ALIVE)
   keepAlive: 30m
-  # milliseconds to wait between turns - 0 for a local server, raise it only
-  # for a metered remote endpoint (AQ_OLLAMA_MIN_TURN_DELAY)
-  minTurnDelay: 0
-  # how hard a reasoning model should think - true, false, or high/medium/low.
-  # leave unset to let a model that reports a thinking capability separate its
-  # reasoning from its answer by default, which keeps it out of the transcript
-  # (AQ_OLLAMA_THINK)
-  # think: true
   # whether the text a model writes on its way to a tool call is sent back on
   # the turns that follow. off by default: some renderers - ollama's gemma one
   # among them - read a tool call that arrives with text beside it as a turn
@@ -59,6 +63,11 @@ ollama:
   # <tool_call> tag, or a fenced or bare JSON call. turn it off if a model's
   # replies are mistaken for calls (AQ_OLLAMA_RECOVER_TOOL_CALLS)
   recoverToolCalls: true
+
+anthropic:
+  # the key used when provider.name is anthropic. leave it empty to fall back
+  # to the ANTHROPIC_API_KEY environment variable (AQ_ANTHROPIC_API_KEY)
+  apiKey: ''
 
 session:
   # how many saved sessions to keep in ~/.agentiq/sessions; older ones are

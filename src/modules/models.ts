@@ -1,20 +1,29 @@
 import chalk from 'chalk';
 import { resolve } from 'node:path';
+import { parse, stringify } from 'yaml';
 import { input, select } from '@inquirer/prompts';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
 
 import { getLogger } from './logging';
 import { terminal } from './turn';
 import { pickModel } from './picker';
-import { localTokenizerDir } from './tokenizer';
+import { localTokenizerDir, usesHfTokenizer } from './tokenizer';
 import { type PreflightApi, listModels, matchesModel } from './preflight';
-import { home, ollama, tokenizer } from './config';
-import type { ModelEntry, ModelStore } from '../types';
+import { home, provider, tokenizer } from './config';
+import { type ModelEntry, type ModelStore, Provider } from '../types';
 import { describeError } from '../utils';
 
 const log = getLogger('models');
 // alongside sessions/ and tokenizers/, which already live under the same root
-const storePath = resolve(home, 'models.json');
+const storePath = resolve(home, 'models.yml');
+// where the store was kept before it moved to yaml
+const legacyPath = resolve(home, 'models.json');
 // the same shape modules/tokenizer.ts insists on before it joins the name into
 // a cache path - checked here as well so a bad one is caught while the user is
 // still looking at the prompt that produced it
@@ -43,52 +52,112 @@ export const validateRepo = (value: string) => {
 };
 
 // an entry is only useful with both halves, so a half-written one is dropped
-// rather than carried into the session as a model with no tokenizer
-const readable = (value: unknown): value is ModelEntry => {
-  const entry = value as ModelEntry;
+// rather than carried into the session as a model with no tokenizer - unless
+// its provider counts for itself, and there is no second half to have. each
+// list is checked against its own provider rather than the configured one, or
+// an anthropic entry would be dropped - and then saved over - on an ollama run
+const readable =
+  (name: Provider) =>
+  (value: unknown): value is ModelEntry => {
+    const entry = value as ModelEntry;
 
-  return Boolean(
-    entry &&
-    typeof entry.model === 'string' &&
-    entry.model &&
-    typeof entry.tokenizer === 'string' &&
-    entry.tokenizer
-  );
+    return Boolean(
+      entry &&
+      typeof entry.model === 'string' &&
+      entry.model &&
+      (!usesHfTokenizer(name) ||
+        (typeof entry.tokenizer === 'string' && entry.tokenizer))
+    );
+  };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+
+const emptyStore = (): ModelStore => ({ active: {}, models: {} });
+
+// a models.json left by an older version is rewritten as models.yml and then
+// removed. json is valid yaml, so the same parser reads it. its one flat list
+// predates every provider but ollama, so that is where its entries are filed.
+// the old file is only deleted once the new one has been written, so a failure
+// loses nothing - and loadStore checks the entries as it would any others
+const migrateLegacyStore = () => {
+  if (existsSync(storePath) || !existsSync(legacyPath)) {
+    return;
+  }
+
+  try {
+    const parsed: unknown = parse(readFileSync(legacyPath, 'utf8'));
+    const store = emptyStore();
+
+    if (isRecord(parsed) && Array.isArray(parsed.models)) {
+      store.models[Provider.Ollama] = parsed.models;
+    }
+
+    if (isRecord(parsed) && typeof parsed.active === 'string') {
+      store.active[Provider.Ollama] = parsed.active;
+    }
+
+    writeFileSync(storePath, stringify(store));
+    rmSync(legacyPath);
+    log.info(`Moved ${legacyPath} to ${storePath}`);
+  } catch (error) {
+    log.warn(`Could not move ${legacyPath}: ${describeError(error)}`);
+  }
 };
 
 // a file that cannot be read is an empty store rather than a failure to start:
 // the user is about to be asked which model to use anyway, and answering is a
-// better way out than an error they have to go and edit JSON to clear
+// better way out than an error they have to go and edit YAML to clear. that
+// includes a file from before models were kept per provider
 export const loadStore = (): ModelStore => {
+  migrateLegacyStore();
+
   if (!existsSync(storePath)) {
-    return { models: [] };
+    return emptyStore();
   }
 
   try {
-    const parsed = JSON.parse(readFileSync(storePath).toString());
-    const models = Array.isArray(parsed?.models)
-      ? parsed.models.filter(readable)
-      : [];
+    const parsed: unknown = parse(readFileSync(storePath, 'utf8'));
+    const store = emptyStore();
 
-    if (Array.isArray(parsed?.models) && models.length < parsed.models.length) {
-      log.warn(`Ignoring incomplete entries in ${storePath}`);
+    if (!isRecord(parsed) || !isRecord(parsed.models)) {
+      return store;
     }
 
-    return {
-      active: typeof parsed?.active === 'string' ? parsed.active : undefined,
-      models
-    };
+    for (const [name, list] of Object.entries(parsed.models)) {
+      if (!Array.isArray(list)) {
+        continue;
+      }
+
+      const models = list.filter(readable(name as Provider));
+
+      if (models.length < list.length) {
+        log.warn(`Ignoring incomplete ${name} entries in ${storePath}`);
+      }
+
+      store.models[name as Provider] = models;
+    }
+
+    if (isRecord(parsed.active)) {
+      for (const [name, model] of Object.entries(parsed.active)) {
+        if (typeof model === 'string') {
+          store.active[name as Provider] = model;
+        }
+      }
+    }
+
+    return store;
   } catch (error) {
     log.warn(`Could not read ${storePath}: ${describeError(error)}`);
 
-    return { models: [] };
+    return emptyStore();
   }
 };
 
 export const saveStore = (store: ModelStore) => {
   try {
     mkdirSync(home, { recursive: true });
-    writeFileSync(storePath, `${JSON.stringify(store, null, 2)}\n`);
+    writeFileSync(storePath, stringify(store));
   } catch (error) {
     // the session can still run on the entry that was chosen - it just will not
     // be there next time, which is worth saying but not worth stopping for
@@ -96,25 +165,44 @@ export const saveStore = (store: ModelStore) => {
   }
 };
 
+// the configured provider's half of the store - the only one a run looks at
+export const savedModels = (store: ModelStore) =>
+  store.models[provider.name] ?? [];
+
+export const activeModel = (store: ModelStore) => store.active[provider.name];
+
 export const findEntry = (store: ModelStore, model?: string) =>
-  store.models.find((entry) => entry.model === model);
+  savedModels(store).find((entry) => entry.model === model);
 
 // the only writer of these two settings. every consumer reads them at call time
 // - preflight before a turn, the tokenizer when it builds a cache path - so
 // there is nothing else to notify
 export const applyEntry = (entry: ModelEntry) => {
-  ollama.model = entry.model;
+  provider.model = entry.model;
   tokenizer.repo = entry.tokenizer;
 };
 
+// which model the next run on this provider starts on
+export const markActive = (model: string) => {
+  const store = loadStore();
+
+  store.active[provider.name] = model;
+  saveStore(store);
+};
+
 // upsert by model name: choosing a model that is already saved with a different
-// tokenizer is how a mismatched pair gets corrected, so the new one wins
+// tokenizer is how a mismatched pair gets corrected, so the new one wins. the
+// other providers' lists are left as they were
 export const rememberEntry = (entry: ModelEntry) => {
   const store = loadStore();
-  const models = store.models.filter(({ model }) => model !== entry.model);
+  const models = savedModels(store).filter(
+    ({ model }) => model !== entry.model
+  );
 
   models.push(entry);
-  saveStore({ active: entry.model, models });
+  store.models[provider.name] = models;
+  store.active[provider.name] = entry.model;
+  saveStore(store);
 
   return entry;
 };
@@ -125,10 +213,15 @@ export const rememberEntry = (entry: ModelEntry) => {
 export const forgetEntry = (model: string) => {
   const store = loadStore();
 
-  saveStore({
-    active: store.active === model ? undefined : store.active,
-    models: store.models.filter((entry) => entry.model !== model)
-  });
+  store.models[provider.name] = savedModels(store).filter(
+    (entry) => entry.model !== model
+  );
+
+  if (activeModel(store) === model) {
+    delete store.active[provider.name];
+  }
+
+  saveStore(store);
 };
 
 // the user walked away from the prompt - ^C raises rather than resolves, and
@@ -152,13 +245,11 @@ const addEntry = async (
     return;
   }
 
-  const names = installed
-    .map((model) => model.name ?? model.model)
-    .filter(Boolean);
+  const names = installed.map((model) => model.name).filter(Boolean);
 
   try {
     let model = await select({
-      message: 'Which ollama model?',
+      message: 'Which model?',
       choices: [
         ...names.map((name) => ({ name, value: name })),
         { name: 'Enter a name manually…', value: other }
@@ -172,6 +263,10 @@ const addEntry = async (
           validate: (value) => Boolean(value.trim()) || 'A name is required'
         })
       ).trim();
+    }
+
+    if (!usesHfTokenizer()) {
+      return { model };
     }
 
     const repo = await input({
@@ -194,7 +289,7 @@ export const chooseEntry = async (
 ): Promise<ModelEntry | undefined> => {
   const store = loadStore();
 
-  if (!store.models.length) {
+  if (!savedModels(store).length) {
     return addEntry(api);
   }
 
@@ -203,7 +298,7 @@ export const chooseEntry = async (
   // nothing is marked when the server could not be asked - listModels has
   // already said so, and a list of every model in red would say nothing more
   const names = (installed ?? [])
-    .flatMap((model) => [model.name, model.model])
+    .flatMap((model) => [model.name, model.id])
     .filter(Boolean);
   const isMissing = (model: string) =>
     Boolean(installed) && !names.some((name) => matchesModel(name, model));
@@ -214,14 +309,16 @@ export const chooseEntry = async (
     model = await pickModel({
       message: 'Which model?',
       choices: [
-        ...store.models.map((entry) => ({
-          name: `${entry.model} ${chalk.gray(`(${entry.tokenizer})`)}`,
+        ...savedModels(store).map((entry) => ({
+          name: entry.tokenizer
+            ? `${entry.model} ${chalk.gray(`(${entry.tokenizer})`)}`
+            : entry.model,
           value: entry.model,
           missing: isMissing(entry.model),
           // switchModel falls back to this entry when a switch fails, so it
           // has to still be there
           locked:
-            entry.model === ollama.model
+            entry.model === provider.model
               ? `${entry.model} is in use and cannot be removed`
               : undefined
         })),
@@ -231,7 +328,7 @@ export const chooseEntry = async (
           locked: 'Only a saved model can be removed'
         }
       ],
-      default: store.active,
+      default: activeModel(store),
       remove: forgetEntry
     });
   } catch (error) {
@@ -252,7 +349,7 @@ export const chooseEntry = async (
 // which is the ordinary case - the question is only asked on a fresh install
 export const resolveStartupEntry = async (api?: PreflightApi) => {
   const store = loadStore();
-  const active = findEntry(store, store.active) ?? store.models[0];
+  const active = findEntry(store, activeModel(store)) ?? savedModels(store)[0];
 
   if (active) {
     applyEntry(active);

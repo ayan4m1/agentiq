@@ -1,21 +1,21 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ListResponse, ShowResponse } from 'ollama';
 
-import { ollama } from './config';
+import { provider } from './config';
 import {
   matchesModel,
   preflight,
   resolveThink,
   supportsThinking
 } from './preflight';
+import type { ModelDetails, ModelSummary } from '../types';
 
 // the model is no longer read from the environment - modules/models.ts sets it
 // from the saved store - so these tests say which one they are checking against
 // rather than inheriting whatever a developer's .env happened to name. it is
 // deliberately untagged, so the implicit-latest case below has something to
 // match against
-ollama.model = 'test-model';
+provider.model = 'test-model';
 
 // winston writes straight to the streams, and these tests deliberately drive
 // the paths that report a problem
@@ -34,21 +34,22 @@ const quietly = async <T>(work: () => Promise<T>) => {
   }
 };
 
-const named = (...names: string[]) =>
-  ({
-    models: names.map((name) => ({ name, model: name }))
-  }) as ListResponse;
+const named = (...names: string[]): ModelSummary[] =>
+  names.map((name) => ({ name, id: name }));
 
-const showing = (details: Partial<ShowResponse>) =>
-  ({ capabilities: [], model_info: {}, ...details }) as ShowResponse;
+const showing = (details: Partial<ModelDetails>): ModelDetails => ({
+  capabilities: [],
+  ...details
+});
 
 // an api that answers with whatever the test needs
 const api = (options: {
-  list?: () => Promise<ListResponse>;
-  show?: () => Promise<ShowResponse>;
+  list?: () => Promise<ModelSummary[]>;
+  show?: () => Promise<ModelDetails>;
 }) => ({
-  list: options.list ?? (() => Promise.resolve(named(ollama.model))),
-  show: options.show ?? (() => Promise.resolve(showing({})))
+  label: 'the test server',
+  listModels: options.list ?? (() => Promise.resolve(named(provider.model))),
+  describeModel: options.show ?? (() => Promise.resolve(showing({})))
 });
 
 describe('matchesModel', () => {
@@ -104,10 +105,9 @@ describe('preflight', () => {
 
   test('matches an installed model by its implicit latest tag', async () => {
     const result = await quietly(() =>
-      preflight({
-        list: () => Promise.resolve(named(`${ollama.model}:latest`)),
-        show: () => Promise.resolve(showing({}))
-      })
+      preflight(
+        api({ list: () => Promise.resolve(named(`${provider.model}:latest`)) })
+      )
     );
 
     assert.equal(result, true);
@@ -116,14 +116,14 @@ describe('preflight', () => {
   test('fails when no model has been chosen', async () => {
     // /model has not been run and the store is empty - the session cannot
     // start, and the list of what is installed is the most useful answer
-    const chosen = ollama.model;
+    const chosen = provider.model;
 
-    ollama.model = '';
+    provider.model = '';
 
     try {
       assert.equal(await quietly(() => preflight(api({}))), false);
     } finally {
-      ollama.model = chosen;
+      provider.model = chosen;
     }
   });
 
@@ -145,15 +145,7 @@ describe('preflight', () => {
     const result = await quietly(() =>
       preflight(
         api({
-          show: () =>
-            Promise.resolve(
-              showing({
-                model_info: {
-                  'general.architecture': 'gemma3',
-                  'gemma3.context_length': 1
-                } as unknown as ShowResponse['model_info']
-              })
-            )
+          show: () => Promise.resolve(showing({ contextLength: 1 }))
         })
       )
     );
@@ -162,7 +154,7 @@ describe('preflight', () => {
   });
 
   test('still starts when the details call fails outright', async () => {
-    // the model is installed, and everything show() adds is advisory
+    // the model is installed, and everything describeModel() adds is advisory
     const result = await quietly(() =>
       preflight(
         api({ show: () => Promise.reject(new Error('no such endpoint')) })
@@ -217,12 +209,12 @@ describe('resolveThink', () => {
 
   // the setting is shared config, so whatever a test chooses must not leak
   const withSetting = (think: boolean | undefined, check: () => void) => {
-    ollama.think = think;
+    provider.think = think;
 
     try {
       check();
     } finally {
-      ollama.think = undefined;
+      provider.think = undefined;
     }
   };
 

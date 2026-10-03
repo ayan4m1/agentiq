@@ -13,7 +13,7 @@ const project = resolve(root, 'project');
 const nested = resolve(project, 'src', 'deep');
 
 process.env.AQ_HOME = stateDir;
-// empty rather than deleted, so a value in a local .env cannot fill it back in
+// cleared, so a value in the environment the tests run from cannot change them
 process.env.AQ_ENABLE_ROADMAP = '';
 
 // the roadmap path is resolved from the working directory when that module
@@ -24,7 +24,7 @@ mkdirSync(nested, { recursive: true });
 process.chdir(project);
 
 const { buildSystemPrompt } = await import('./prompt');
-const { ollama, roadmap } = await import('./config');
+const { provider, roadmap, shell } = await import('./config');
 const { loadSkills, skillsDir } = await import('./skills');
 
 process.chdir(original);
@@ -53,12 +53,8 @@ after(() => {
 });
 
 describe('the built-in prompt', () => {
-  test('is there even with no overlay of any kind', () => {
-    // the whole point: an agent handed twelve tools and no instructions is not
-    // a useful default
-    assert.ok(buildSystemPrompt().length > 0);
-  });
-
+  // the whole point: an agent handed twelve tools and no instructions is not
+  // a useful default, so this holds even with no overlay of any kind
   test('tells the model to read before it edits', () => {
     assert.match(buildSystemPrompt(), /Never edit a file you have not read/);
   });
@@ -88,11 +84,27 @@ describe('the environment block', () => {
   });
 
   test('names the shell that will actually interpret commands', () => {
-    assert.match(buildSystemPrompt(), /Shell:/);
+    const previous = shell.path;
+
+    shell.path = 'SHELL_MARKER';
+
+    try {
+      assert.match(buildSystemPrompt(), /- Shell: SHELL_MARKER/);
+    } finally {
+      shell.path = previous;
+    }
   });
 
   test('names the model in use', () => {
-    assert.ok(buildSystemPrompt().includes(ollama.model));
+    const previous = provider.model;
+
+    provider.model = 'MODEL_MARKER';
+
+    try {
+      assert.match(buildSystemPrompt(), /- Model: MODEL_MARKER/);
+    } finally {
+      provider.model = previous;
+    }
   });
 
   test("gives today's date", () => {
@@ -148,9 +160,11 @@ describe('overlays', () => {
   });
 
   test('ignores an empty overlay rather than appending a blank section', () => {
+    const without = buildSystemPrompt();
+
     writeFileSync(projectOverlay, '   \n  \n');
 
-    assert.doesNotMatch(buildSystemPrompt(), /\n\n\n/);
+    assert.equal(buildSystemPrompt(), without);
   });
 });
 

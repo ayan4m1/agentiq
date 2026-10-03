@@ -218,7 +218,7 @@ export const serializeRoadmap = ({
 };
 
 // an unreadable roadmap is a real failure and belongs to the dispatch loop in
-// modules/ollama.ts, but an absent one is the ordinary first run
+// modules/thinker.ts, but an absent one is the ordinary first run
 export const readRoadmap = (): Roadmap =>
   existsSync(roadmapPath)
     ? parseRoadmap(readFileSync(roadmapPath).toString())

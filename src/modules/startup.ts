@@ -1,15 +1,16 @@
 import Bottleneck from 'bottleneck';
 
-import { ollama } from './config';
+import { ollama, provider } from './config';
 import { killAllJobs } from './jobs';
-import { makeThinker } from './ollama';
+import { makeThinker } from './thinker';
 import { getLogger } from './logging';
 import { preflight } from './preflight';
 import { loadSkills } from './skills';
-import { ensureTokenizer } from './tokenizer';
+import { chatProvider } from '../providers';
+import { ensureTokenizer, usesHfTokenizer } from './tokenizer';
 import { resolveStartupEntry } from './models';
 import { discardCheckpoints } from './checkpoints';
-import type { ThoughtState } from '../types';
+import { Provider, type ThoughtState } from '../types';
 
 const log = getLogger('startup');
 
@@ -18,7 +19,7 @@ const log = getLogger('startup');
 // process is the command's to end, not this module's
 export const startAgent = async () => {
   // which model, and which tokenizer goes with it, comes from
-  // ~/.agentiq/models.json rather than the environment - so it has to be read
+  // ~/.agentiq/models.yml rather than the environment - so it has to be read
   // before anything asks the config what it is talking to
   if (!(await resolveStartupEntry())) {
     return;
@@ -33,23 +34,33 @@ export const startAgent = async () => {
 
   // an unset host is the client's own default, so say which one that is
   log.info(
-    `Connected to ollama server ${ollama.host ?? 'http://127.0.0.1:11434'} using model ${ollama.model}`
+    `Connected to ${
+      provider.name === Provider.Ollama
+        ? `ollama server ${ollama.host ?? 'http://127.0.0.1:11434'}`
+        : chatProvider.label
+    } using model ${provider.model}`
   );
 
   // makeThinker() tokenizes the system prompt and every tool definition up
   // front, so the tokenizer has to be on disk before it runs
-  await ensureTokenizer();
+  if (usesHfTokenizer()) {
+    await ensureTokenizer();
+  }
 
   // read once here, so a malformed skill is reported before the first prompt
   // rather than in the middle of it
   loadSkills();
 
   const thinker = makeThinker();
+
+  // the system prompt and tools are a sizeable share of a small window, and
+  // a provider that can count them exactly is asked to before the first turn
+  await thinker.count([]);
   // maxConcurrent is what matters here: turns must not overlap. minTime is for
   // a metered remote endpoint and is zero by default
   const rateLimiter = new Bottleneck({
     maxConcurrent: 1,
-    minTime: ollama.minTurnDelay
+    minTime: provider.minTurnDelay
   });
   const schedule = (work: () => Promise<ThoughtState>) =>
     rateLimiter.schedule(work);

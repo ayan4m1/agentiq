@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 
 // the character budget is sized from the context limit when the module is
 // evaluated, so shrink it first - 100 tokens is a budget of 99 characters
-process.env.AQ_OLLAMA_CONTEXT_LIMIT = '100';
+process.env.AQ_CONTEXT_LIMIT = '100';
 
 const { handler } = await import('./read');
 

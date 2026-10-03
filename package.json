@@ -39,6 +39,7 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@inquirer/core": "^12.0.3",
     "@inquirer/prompts": "^8.7.2",
     "@lenml/tokenizers": "^3.7.2",

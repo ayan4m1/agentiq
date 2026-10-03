@@ -2,7 +2,6 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import type { Message } from 'ollama';
 import {
   appendFileSync,
   mkdirSync,
@@ -13,6 +12,8 @@ import {
   utimesSync,
   writeFileSync
 } from 'node:fs';
+
+import type { ChatMessage } from '../types';
 
 // both are read when the module under test first evaluates, so they have to be
 // set before it is imported - which is why the import below is dynamic. node
@@ -41,7 +42,7 @@ const projectB = resolve(root, 'project-b');
 const projectC = resolve(root, 'project-c');
 const original = process.cwd();
 
-const user = (content: string): Message => ({ role: 'user', content });
+const user = (content: string): ChatMessage => ({ role: 'user', content });
 
 // the files this directory owns, by the same rule the module uses
 const filesHere = () =>
@@ -351,7 +352,7 @@ describe('listing and pruning per directory', () => {
     assert.equal(filesHere().length, elsewhere);
   });
 
-  test('survives a directory it cannot read', () => {
+  test('ignores files that are not sessions', () => {
     process.chdir(projectA);
     writeFileSync(resolve(sessionDir, 'not-a-session.txt'), 'ignore me');
 

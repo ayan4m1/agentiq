@@ -18,7 +18,10 @@ import {
   type RoadmapConfig,
   type SessionConfig,
   type ShellConfig,
-  type TokenizerConfig
+  type TokenizerConfig,
+  type AnthropicConfig,
+  type ProviderConfig,
+  Provider
 } from '../types';
 
 const truthy = ['true', 'yes', '1'];
@@ -52,7 +55,7 @@ export const toLogLevel = (value?: string) => {
 export const home = process.env.AQ_HOME || resolve(homedir(), '.agentiq');
 
 // a boolean or one of the levels. anything else is ignored rather than passed
-// through, since ollama rejects a value it does not recognise and that would
+// through, since a server rejects a value it does not recognise and that would
 // cost the session rather than the setting
 export const toThink = (value?: string): ThinkSetting | undefined => {
   if (!value) {
@@ -77,7 +80,7 @@ export const toThink = (value?: string): ThinkSetting | undefined => {
   }
 
   console.warn(
-    `Ignoring ollama.think (AQ_OLLAMA_THINK) "${value}" - expected true, false, or one of ${levels.join(', ')}`
+    `Ignoring provider.think (AQ_THINK) "${value}" - expected true, false, or one of ${levels.join(', ')}`
   );
 };
 
@@ -214,6 +217,25 @@ const setting = (envName: string, section: string, key: string) => {
 const integer = (envName: string, section: string, key: string) =>
   parseInt(setting(envName, section, key) ?? '', 10);
 
+// a provider setting that used to be an ollama one. the new name wins over the
+// old at each level, but the seeded default comes last of all - otherwise an
+// ollama.contextLimit already in someone's config.yml would lose to the
+// default seeded under provider, and their setting would silently stop working
+const renamed = (envName: string, legacyEnvName: string, key: string) => {
+  const fromEnv = process.env[envName] || process.env[legacyEnvName];
+
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  const value =
+    lookup(file, 'provider', key) ??
+    lookup(file, 'ollama', key) ??
+    lookup(defaults, 'provider', key);
+
+  return value === null || value === undefined ? undefined : String(value);
+};
+
 export const logging: LoggingConfig = {
   level: toLogLevel(setting('AQ_LOG_LEVEL', 'logging', 'level')),
   detailed: toBoolean(
@@ -240,19 +262,35 @@ export const shell: ShellConfig = {
   timeout: integer('AQ_SHELL_TIMEOUT', 'shell', 'timeout')
 };
 
-export const ollama: OllamaConfig = {
-  bearerToken: setting('AQ_OLLAMA_BEARER_TOKEN', 'ollama', 'bearerToken'),
-  host: setting('AQ_OLLAMA_HOST', 'ollama', 'host'),
-  // filled in by modules/models.ts from ~/.agentiq/models.json. there is no
+export const provider: ProviderConfig = {
+  name: setting('AQ_PROVIDER', 'provider', 'name') as Provider,
+  // filled in by modules/models.ts from ~/.agentiq/models.yml. there is no
   // setting for it: /model has to be able to change it mid-session, and a value
   // read from config.yml could not be changed back by the same command
   model: '',
-  contextLimit: integer('AQ_OLLAMA_CONTEXT_LIMIT', 'ollama', 'contextLimit'),
+  contextLimit: parseInt(
+    renamed('AQ_CONTEXT_LIMIT', 'AQ_OLLAMA_CONTEXT_LIMIT', 'contextLimit') ??
+      '',
+    10
+  ),
+  minTurnDelay: parseInt(
+    renamed('AQ_MIN_TURN_DELAY', 'AQ_OLLAMA_MIN_TURN_DELAY', 'minTurnDelay') ??
+      '',
+    10
+  ),
+  think: toThink(renamed('AQ_THINK', 'AQ_OLLAMA_THINK', 'think'))
+};
+
+export const anthropic: AnthropicConfig = {
+  apiKey: setting('AQ_ANTHROPIC_API_KEY', 'anthropic', 'apiKey') || ''
+};
+
+export const ollama: OllamaConfig = {
+  bearerToken: setting('AQ_OLLAMA_BEARER_TOKEN', 'ollama', 'bearerToken'),
+  host: setting('AQ_OLLAMA_HOST', 'ollama', 'host'),
   // ollama's own default is five minutes, which is short enough that a pause
   // to read something costs a full reload of the model on the next turn
   keepAlive: setting('AQ_OLLAMA_KEEP_ALIVE', 'ollama', 'keepAlive') ?? '30m',
-  minTurnDelay: integer('AQ_OLLAMA_MIN_TURN_DELAY', 'ollama', 'minTurnDelay'),
-  think: toThink(setting('AQ_OLLAMA_THINK', 'ollama', 'think')),
   replayPreamble: toBoolean(
     setting('AQ_OLLAMA_REPLAY_PREAMBLE', 'ollama', 'replayPreamble'),
     'ollama.replayPreamble (AQ_OLLAMA_REPLAY_PREAMBLE)'
@@ -271,7 +309,7 @@ export const session: SessionConfig = {
 };
 
 export const tokenizer: TokenizerConfig = {
-  // set alongside ollama.model, from the same entry - the pair is chosen and
+  // set alongside provider.model, from the same entry - the pair is chosen and
   // stored together
   repo: undefined,
   // HF_TOKEN is the name the huggingface CLI already writes, so honour it
