@@ -47,6 +47,12 @@ export const matchesModel = (installed: string, configured: string) =>
   installed === configured ||
   (!configured.includes(':') && installed === `${configured}:latest`);
 
+// whether the server has this model under either of the names it reports
+export const isInstalled = (installed: ModelSummary[], model: string) =>
+  installed.some((summary) =>
+    [summary.name, summary.id].some((name) => name && matchesModel(name, model))
+  );
+
 const listInstalled = (models: ModelSummary[]) => {
   if (!models.length) {
     log.error(
@@ -145,13 +151,7 @@ export const preflight = async (api: PreflightApi = chatProvider) => {
     return false;
   }
 
-  const found = installed.some((model) =>
-    [model.name, model.id].some(
-      (name) => name && matchesModel(name, provider.model)
-    )
-  );
-
-  if (!found) {
+  if (!isInstalled(installed, provider.model)) {
     // deliberately no nearest-match guess: the list is the answer, and a guess
     // risks pointing at a model the user did not mean
     log.error(

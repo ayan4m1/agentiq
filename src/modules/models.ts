@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { resolve } from 'node:path';
 import { parse, stringify } from 'yaml';
-import { input, select } from '@inquirer/prompts';
+import { confirm, input, select } from '@inquirer/prompts';
 import {
   existsSync,
   mkdirSync,
@@ -14,8 +14,14 @@ import { getLogger } from './logging';
 import { terminal } from './turn';
 import { pickModel } from './picker';
 import { localTokenizerDir, usesHfTokenizer } from './tokenizer';
-import { type PreflightApi, listModels, matchesModel } from './preflight';
+import {
+  type PreflightApi,
+  isInstalled,
+  listModels,
+  matchesModel
+} from './preflight';
 import { home, provider, tokenizer } from './config';
+import { chatProvider } from '../providers';
 import { type ModelEntry, type ModelStore, Provider } from '../types';
 import { describeError } from '../utils';
 
@@ -224,6 +230,16 @@ export const forgetEntry = (model: string) => {
   saveStore(store);
 };
 
+// every entry the configured provider has, and which of them was active. the
+// other providers' lists are left as they were
+export const clearModels = () => {
+  const store = loadStore();
+
+  store.models[provider.name] = [];
+  delete store.active[provider.name];
+  saveStore(store);
+};
+
 // the user walked away from the prompt - ^C raises rather than resolves, and
 // that is an answer of its own everywhere this is called
 const cancelled = (error: unknown) => {
@@ -344,14 +360,83 @@ export const chooseEntry = async (
     : findEntry(loadStore(), model);
 };
 
+// the first-run flow: the store has nothing for this provider, so the user is
+// asked to add a model, which becomes the active one
+const setUpEntry = async (
+  api?: PreflightApi,
+  known?: Awaited<ReturnType<typeof listModels>>
+) => {
+  log.info(chalk.green('No model has been set up yet'));
+
+  const chosen = await addEntry(api, known);
+
+  if (!chosen) {
+    return false;
+  }
+
+  applyEntry(rememberEntry(chosen));
+
+  return true;
+};
+
+// the server no longer has the model this run would start on. the saved list
+// is offered up for clearing rather than left to fail preflight on every start
+// - but only if the user says so, since the model may just not be pulled yet
+const replaceMissing = async (
+  model: string,
+  installed: NonNullable<Awaited<ReturnType<typeof listModels>>>,
+  api: PreflightApi = chatProvider
+) => {
+  log.warn(chalk.red(`${model} is no longer available from ${api.label}`));
+
+  let clear;
+
+  try {
+    clear = await confirm({
+      message: `Clear the saved ${provider.name} models and choose a new one?`,
+      default: false
+    });
+  } catch (error) {
+    cancelled(error);
+  }
+
+  if (!clear) {
+    return false;
+  }
+
+  clearModels();
+
+  return setUpEntry(api, installed);
+};
+
 // run before preflight: nothing else works until the config knows which model
 // it is talking about. a store with an active entry starts without a prompt,
-// which is the ordinary case - the question is only asked on a fresh install
+// which is the ordinary case - the question is only asked on a fresh install,
+// or when the server has lost the model the store points at
 export const resolveStartupEntry = async (api?: PreflightApi) => {
   const store = loadStore();
   const active = findEntry(store, activeModel(store)) ?? savedModels(store)[0];
 
+  // exec has nobody to answer a question, so a missing model is left for
+  // preflight to report
+  if (active && !terminal.interactive) {
+    applyEntry(active);
+
+    return true;
+  }
+
   if (active) {
+    const installed = await listModels(api);
+
+    // listModels has already said why, and preflight could get no further
+    if (!installed) {
+      return false;
+    }
+
+    if (!isInstalled(installed, active.model)) {
+      return replaceMissing(active.model, installed, api);
+    }
+
     applyEntry(active);
 
     return true;
@@ -368,15 +453,5 @@ export const resolveStartupEntry = async (api?: PreflightApi) => {
     return false;
   }
 
-  log.info(chalk.green('No model has been set up yet'));
-
-  const chosen = await addEntry(api);
-
-  if (!chosen) {
-    return false;
-  }
-
-  applyEntry(rememberEntry(chosen));
-
-  return true;
+  return setUpEntry(api);
 };

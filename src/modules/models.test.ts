@@ -26,7 +26,7 @@ process.env.AQ_HOME = home;
 // they are asked. node's mockImplementationOnce is keyed to the call index the
 // mock is on when it is queued, so two queued in a row would both answer the
 // first prompt - answers are shifted off a list instead
-let answers: (string | Error)[] = [];
+let answers: (string | boolean | Error)[] = [];
 
 const answer = async () => {
   const next = answers.shift();
@@ -37,7 +37,7 @@ const answer = async () => {
 
   assert.ok(next !== undefined, 'the prompt asked more than the test answered');
 
-  return next;
+  return next as never;
 };
 
 // select is handed what it was asked, so a test can assert on the choices it
@@ -45,6 +45,8 @@ const answer = async () => {
 const select =
   mock.fn<(config: { choices: readonly unknown[] }) => Promise<string>>(answer);
 const input = mock.fn<(config: { message: string }) => Promise<string>>(answer);
+const confirm =
+  mock.fn<(config: { message: string }) => Promise<boolean>>(answer);
 
 // the saved list is a prompt of our own, answered from the same queue. what it
 // was handed is kept for the test to look at, remove callback included
@@ -57,7 +59,7 @@ const pickModel =
   mock.fn<(config: Picked) => Promise<string | undefined>>(answer);
 
 mock.module('@inquirer/prompts', {
-  exports: fakePrompts({ select, input }).exports
+  exports: fakePrompts({ select, input, confirm }).exports
 });
 mock.module('./picker', {
   exports: { pickModel } satisfies ModuleMock<typeof import('./picker')>
@@ -65,7 +67,7 @@ mock.module('./picker', {
 
 // what the user types, in order. a prompt cancelled with ^C raises rather than
 // resolving, so an Error stands for walking away from one
-const typed = (...values: (string | Error)[]) => {
+const typed = (...values: (string | boolean | Error)[]) => {
   answers = values;
 };
 
@@ -73,6 +75,7 @@ const {
   activeModel,
   applyEntry,
   chooseEntry,
+  clearModels,
   findEntry,
   forgetEntry,
   loadStore,
@@ -133,6 +136,7 @@ beforeEach(() => {
   answers = [];
   select.mock.resetCalls();
   input.mock.resetCalls();
+  confirm.mock.resetCalls();
   pickModel.mock.resetCalls();
   provider.name = Provider.Ollama;
   provider.model = '';
@@ -312,7 +316,7 @@ describe('models kept per provider', () => {
     saveStore(both());
     provider.name = Provider.Anthropic;
 
-    assert.equal(await resolveStartupEntry(server()), true);
+    assert.equal(await resolveStartupEntry(server(claude.model)), true);
     assert.equal(provider.model, claude.model);
   });
 
@@ -324,6 +328,21 @@ describe('models kept per provider', () => {
 
     assert.equal(await resolveStartupEntry(server(claude.model)), true);
     assert.equal(provider.model, claude.model);
+  });
+});
+
+describe('clearing the models', () => {
+  test('empties the configured provider alone', () => {
+    saveStore({
+      active: { ollama: gemma.model, anthropic: claude.model },
+      models: { ollama: [gemma, qwen], anthropic: [claude] }
+    });
+    clearModels();
+
+    assert.deepEqual(loadStore(), {
+      active: { anthropic: claude.model },
+      models: { ollama: [], anthropic: [claude] }
+    });
   });
 });
 
@@ -506,7 +525,7 @@ describe('resolving the model to start on', () => {
   test('applies the active entry without asking', async () => {
     saveStore(stored([gemma, qwen], qwen.model));
 
-    assert.equal(await resolveStartupEntry(server()), true);
+    assert.equal(await resolveStartupEntry(server(qwen.model)), true);
     assert.equal(provider.model, qwen.model);
     assert.equal(tokenizer.repo, qwen.tokenizer);
     assert.equal(select.mock.callCount(), 0);
@@ -516,7 +535,7 @@ describe('resolving the model to start on', () => {
     // a hand-edited file may have no active name at all
     saveStore(stored([gemma]));
 
-    assert.equal(await resolveStartupEntry(server()), true);
+    assert.equal(await resolveStartupEntry(server(gemma.model)), true);
     assert.equal(provider.model, gemma.model);
   });
 
@@ -545,11 +564,56 @@ describe('resolving the model to start on', () => {
   });
 
   test('applies a saved entry when there is no terminal', async () => {
+    // even one the server lacks - there is nobody to ask, so preflight says so
     terminal.interactive = false;
     saveStore(stored([gemma], gemma.model));
 
     assert.equal(await resolveStartupEntry(server()), true);
     assert.equal(provider.model, gemma.model);
+    assert.equal(confirm.mock.callCount(), 0);
+  });
+
+  test('refuses to start without asking when the server cannot be reached', async () => {
+    saveStore(stored([gemma], gemma.model));
+
+    assert.equal(await resolveStartupEntry(unreachable), false);
+    assert.equal(provider.model, '');
+    assert.equal(confirm.mock.callCount(), 0);
+  });
+
+  test('keeps the store and refuses to start when told not to clear it', async () => {
+    saveStore(stored([gemma, qwen], gemma.model));
+    typed(false);
+
+    assert.equal(await resolveStartupEntry(server(qwen.model)), false);
+    assert.equal(provider.model, '');
+    assert.deepEqual(loadStore(), stored([gemma, qwen], gemma.model));
+  });
+
+  test('treats a cancelled question as a no', async () => {
+    saveStore(stored([gemma], gemma.model));
+    typed(new Error('User force closed the prompt'));
+
+    assert.equal(await resolveStartupEntry(server(qwen.model)), false);
+    assert.deepEqual(loadStore(), stored([gemma], gemma.model));
+  });
+
+  test('clears the store and asks again when the active model is gone', async () => {
+    saveStore({
+      active: { ollama: 'gone:latest', anthropic: claude.model },
+      models: {
+        ollama: [{ ...gemma, model: 'gone:latest' }, qwen],
+        anthropic: [claude]
+      }
+    });
+    typed(true, gemma.model, gemma.tokenizer);
+
+    assert.equal(await resolveStartupEntry(server(gemma.model)), true);
+    assert.equal(provider.model, gemma.model);
+    assert.deepEqual(loadStore(), {
+      active: { anthropic: claude.model, ollama: gemma.model },
+      models: { ollama: [gemma], anthropic: [claude] }
+    });
   });
 });
 
