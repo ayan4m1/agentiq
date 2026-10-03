@@ -113,7 +113,7 @@ const controller = {
   },
   restore: mock.fn<(id?: string) => Promise<boolean>>(async () => {
     if (rememberedPrompts) {
-      controllerOptions?.rememberPrompts(rememberedPrompts);
+      controllerOptions?.rememberPrompts?.(rememberedPrompts);
     }
 
     return restored;
@@ -141,6 +141,8 @@ const cycleMode = mock.fn();
 const describeMode = mock.fn(() => 'manual');
 // empty while check mode is off, which is how every session starts
 const describeCheck = mock.fn(() => '');
+// the model is read from here for every prompt, so a test can switch it
+const provider = { contextLimit: 1000, model: 'qwen3' };
 
 mock.module('inquirer', {
   exports: { default: { prompt, registerPrompt } } satisfies ModuleMock<
@@ -189,7 +191,7 @@ mock.module('./config', {
     anthropic: {},
     logging: {},
     ollama: {},
-    provider: { contextLimit: 1000 }
+    provider
   } satisfies ModuleMock<typeof import('./config')>
 });
 mock.module('./thinker', {
@@ -256,6 +258,7 @@ describe('startRepl', () => {
     activeSession = undefined;
     controller.messages = [];
     controllerOptions = undefined;
+    provider.model = 'qwen3';
 
     for (const fn of [
       prompt,
@@ -349,7 +352,25 @@ describe('startRepl', () => {
     assert.equal(options.type, 'command');
     assert.equal(options.name, 'userMessage');
     assert.equal(options.context, 'history-0');
-    assert.match(options.message, /^manual\[42 tok\]\n.*>/);
+    assert.match(options.message, /^manual\[qwen3\]\[42 tok \(4%\)\]\n.*>/);
+  });
+
+  test('names the model in use at each prompt', async () => {
+    answers = ['/model', '/quit'];
+    controller.runCommand.mock.mockImplementationOnce(async (name: string) => {
+      // what picking another model does to the provider's settings
+      provider.model = 'llama3.2';
+
+      return name;
+    });
+
+    await exitCodeOf();
+
+    assert.match(prompt.mock.calls[0].arguments[0].message, /^manual\[qwen3\]/);
+    assert.match(
+      prompt.mock.calls[1].arguments[0].message,
+      /^manual\[llama3\.2\]/
+    );
   });
 
   test('completes commands and project paths', async () => {
@@ -388,7 +409,7 @@ describe('startRepl', () => {
     rememberedPrompts = ['first'];
     answers = ['/paste', '/quit'];
     controller.runCommand.mock.mockImplementationOnce(async (name: string) => {
-      controllerOptions?.rememberPrompt('pasted … (+1 line)');
+      controllerOptions?.rememberPrompt?.('pasted … (+1 line)');
 
       return name;
     });
@@ -545,7 +566,7 @@ describe('startRepl', () => {
       assert.equal(cycleMode.mock.callCount(), 1);
       assert.equal(instance.rl.line, 'ab');
       assert.equal(instance.rl.cursor, 2);
-      assert.match(instance.opt.message, /^auto\[42 tok\]/);
+      assert.match(instance.opt.message, /^auto\[qwen3\]\[42 tok \(4%\)\]/);
       assert.equal(superRender.mock.callCount(), 1);
     });
 
@@ -554,7 +575,10 @@ describe('startRepl', () => {
 
       await instance.onKeypress({ key: { name: 'tab', shift: true } });
 
-      assert.match(instance.opt.message, /^manual\[42 tok\]\[✔\]/);
+      assert.match(
+        instance.opt.message,
+        /^manual\[qwen3\]\[42 tok \(4%\)\]\[✔\]/
+      );
     });
 
     test('keeps a completion list on screen when redrawing', async () => {

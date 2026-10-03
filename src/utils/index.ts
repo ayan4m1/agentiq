@@ -114,11 +114,11 @@ export const describeElapsed = (ms: number) => {
   return `${rest}d${result}`;
 };
 
-export const getTokenString = (value: number) =>
+export const getTokenString = (value: number, limit: number) =>
   `[${filesize(value, {
     fullform: true,
     fullforms: ['tok', 'kTok', 'mTok', 'gTok']
-  })}]`;
+  })} (${Math.round((value / limit) * 1e2)}%)]`;
 
 // the working directory goes into a file name, so anything that is not safe
 // in one on every platform becomes a dash - C:/code/agentiq turns into

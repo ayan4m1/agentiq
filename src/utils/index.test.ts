@@ -10,6 +10,7 @@ import {
   describeError,
   getContentBudget,
   getParameters,
+  getTokenString,
   makeParameter,
   makeTool,
   serializeResult,
@@ -96,6 +97,17 @@ describe('describeElapsed', () => {
 
   test('never reports a negative time', () => {
     assert.equal(describeElapsed(-5_000), '0s');
+  });
+});
+
+describe('getTokenString', () => {
+  test('shows the count and the rounded percentage of the limit used', () => {
+    assert.equal(getTokenString(42, 1000), '[42 tok (4%)]');
+    assert.equal(getTokenString(45, 1000), '[45 tok (5%)]');
+  });
+
+  test('reaches a hundred at the limit', () => {
+    assert.equal(getTokenString(1000, 1000), '[1 kTok (100%)]');
   });
 });
 
