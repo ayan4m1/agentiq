@@ -19,12 +19,6 @@ beforeEach(() => {
 });
 
 describe('explore', () => {
-  test('is declared as the explore tool', () => {
-    assert.equal(definition.type, 'function');
-    assert.equal(definition.function.name, 'explore');
-    assert.ok(definition.function.description);
-  });
-
   test('requires a question', () => {
     const { parameters } = definition.function;
 

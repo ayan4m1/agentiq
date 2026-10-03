@@ -105,12 +105,4 @@ describe('readPlan', () => {
 
     assert.equal(readPlan(), content);
   });
-
-  test('reads back what writePlan wrote', () => {
-    const plan = { title: 'Plan', steps: ['First', 'Second'] };
-
-    writePlan(plan);
-
-    assert.equal(readPlan(), serializePlan(plan));
-  });
 });

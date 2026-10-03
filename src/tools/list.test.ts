@@ -95,7 +95,10 @@ describe('list', () => {
 
     mkdirSync(empty, { recursive: true });
 
-    assert.match(String(await handler({ path: empty })), /empty/);
+    assert.match(
+      String(await handler({ path: empty })),
+      /is empty, or holds nothing that is not ignored/
+    );
   });
 
   test('defaults to the working directory', async () => {

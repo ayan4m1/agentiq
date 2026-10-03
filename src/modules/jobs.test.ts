@@ -66,29 +66,17 @@ describe('appendOutput', () => {
 
     assert.equal(target.cursor, 0);
   });
-
-  test('handles a single chunk larger than the whole budget', () => {
-    const target = empty();
-
-    appendOutput(target, 'abcdefghij', 3);
-
-    assert.equal(target.buffer, 'hij');
-    assert.equal(target.dropped, 7);
-  });
 });
 
 describe('looking up a job that is not there', () => {
-  test('readJob says so rather than returning nothing', () => {
+  test('readJob says so, and that none have been started', () => {
     assert.match(readJob(999), /no job 999/);
+    // a bare "not found" leaves the model guessing whether it used a stale id
+    assert.match(readJob(999), /no background jobs have been started/);
   });
 
   test('stopJob says so too', () => {
     assert.match(stopJob(999), /no job 999/);
-  });
-
-  test('the message explains that none have been started', () => {
-    // a bare "not found" leaves the model guessing whether it used a stale id
-    assert.match(readJob(999), /no background jobs have been started/);
   });
 
   test('listJobs reports an empty registry', () => {

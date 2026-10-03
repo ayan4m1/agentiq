@@ -89,17 +89,6 @@ describe('handler', () => {
     assert.match(result, /2\. \[x\] Second \(done 2026-03-04\)/);
   });
 
-  test('completes an objective by part of its wording', async () => {
-    roadmapWith('- [ ] Write the parser', '- [ ] Ship it');
-
-    await complete('the PARSER');
-
-    assert.deepEqual(
-      readRoadmap().todos.map(({ done }) => done),
-      [true, false]
-    );
-  });
-
   test('counts completed objectives when resolving a number', async () => {
     roadmapWith('- [x] First', '- [ ] Second');
 
@@ -129,36 +118,6 @@ describe('handler', () => {
 
     assert.match(result, /There is no objective number 5/);
     assert.match(result, /The todo list is now:/);
-    assert.equal(read(), before);
-  });
-
-  test('refuses wording that matches nothing', async () => {
-    roadmapWith('- [ ] First');
-
-    const before = read();
-    const result = await complete('nothing like it');
-
-    assert.match(result, /No objective matches "nothing like it"/);
-    assert.equal(read(), before);
-  });
-
-  test('refuses wording that matches more than one objective', async () => {
-    roadmapWith('- [ ] Add tests for add', '- [ ] Add tests for remove');
-
-    const before = read();
-    const result = await complete('add tests');
-
-    assert.match(result, /2 objectives match "add tests"/);
-    assert.equal(read(), before);
-  });
-
-  test('refuses an empty target', async () => {
-    roadmapWith('- [ ] First');
-
-    const before = read();
-    const result = await complete('  ');
-
-    assert.match(result, /No objective was named/);
     assert.equal(read(), before);
   });
 

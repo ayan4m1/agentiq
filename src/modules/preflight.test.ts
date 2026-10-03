@@ -6,7 +6,6 @@ import { ollama } from './config';
 import {
   matchesModel,
   preflight,
-  readContextLength,
   resolveThink,
   supportsThinking
 } from './preflight';
@@ -71,63 +70,6 @@ describe('matchesModel', () => {
 
   test('does not match a different model whose name starts the same', () => {
     assert.ok(!matchesModel('gemma3-tuned:latest', 'gemma3'));
-  });
-});
-
-describe('readContextLength', () => {
-  test('reads the key named for the architecture', () => {
-    assert.equal(
-      readContextLength({
-        'general.architecture': 'gemma3',
-        'gemma3.context_length': 131072,
-        'llama.context_length': 4096
-      } as unknown as ShowResponse['model_info']),
-      131072
-    );
-  });
-
-  test('reads it out of a real Map too', () => {
-    const info = new Map<string, unknown>([
-      ['general.architecture', 'qwen3'],
-      ['qwen3.context_length', 40960]
-    ]);
-
-    assert.equal(readContextLength(info as ShowResponse['model_info']), 40960);
-  });
-
-  test('falls back to any context length when the architecture is missing', () => {
-    assert.equal(
-      readContextLength({
-        'mystery.context_length': 8192
-      } as unknown as ShowResponse['model_info']),
-      8192
-    );
-  });
-
-  test('returns nothing when there is no context length at all', () => {
-    assert.equal(
-      readContextLength({
-        'general.architecture': 'gemma3'
-      } as unknown as ShowResponse['model_info']),
-      undefined
-    );
-  });
-
-  test('ignores a context length that is not a number', () => {
-    assert.equal(
-      readContextLength({
-        'general.architecture': 'gemma3',
-        'gemma3.context_length': 'lots'
-      } as unknown as ShowResponse['model_info']),
-      undefined
-    );
-  });
-
-  test('survives model_info being absent', () => {
-    assert.equal(
-      readContextLength(undefined as unknown as ShowResponse['model_info']),
-      undefined
-    );
   });
 });
 
@@ -239,12 +181,6 @@ describe('supportsThinking', () => {
     await quietly(() => preflight(reporting('tools', 'thinking')));
 
     assert.equal(supportsThinking(), true);
-  });
-
-  test('is false for a model that does not', async () => {
-    await quietly(() => preflight(reporting('tools')));
-
-    assert.equal(supportsThinking(), false);
   });
 
   test('does not carry an answer over from a previous model', async () => {

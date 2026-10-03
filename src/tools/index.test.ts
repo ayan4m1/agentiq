@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-// empty rather than deleted, so a value in a local .env cannot fill it back in
+// cleared, so a value in the environment the tests run from cannot change them
 process.env.AQ_ENABLE_ROADMAP = '';
 process.env.AQ_EXPLORE = '';
 

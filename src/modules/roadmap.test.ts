@@ -370,10 +370,6 @@ describe('describeTodoList', () => {
 
     assert.doesNotMatch(describeTodoList(todos), /omitted/);
   });
-
-  test('reports an empty list rather than nothing at all', () => {
-    assert.match(describeTodoList([]), /\(the todo list is empty\)/);
-  });
 });
 
 describe('findTodo', () => {

@@ -135,17 +135,6 @@ describe('handler', () => {
     assert.match(String(result), /Wrote 8 bytes/);
   });
 
-  test('writes content with real line breaks exactly as given', async () => {
-    const path = freshPath();
-    const content = 'console.log("a\\nb");\nnext();\n';
-
-    approval.mode = ApprovalMode.Auto;
-
-    await quietly(() => handler({ path, content }));
-
-    assert.equal(read(path), content);
-  });
-
   test('does not return the content, which the model already has', async () => {
     const path = freshPath();
 

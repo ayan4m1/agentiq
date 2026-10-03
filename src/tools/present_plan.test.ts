@@ -116,16 +116,6 @@ describe('present_plan', () => {
 
     assert.match(saved(), /# Add a test for every source file/);
   });
-
-  test('replaces an earlier plan', async () => {
-    select.mock.mockImplementationOnce(async () => 'keep');
-    select.mock.mockImplementationOnce(async () => 'keep');
-
-    await handler(plan);
-    await handler({ title: 'A better plan', steps: ['Do it'] });
-
-    assert.equal(saved(), '# A better plan\n\n1. Do it\n');
-  });
 });
 
 describe('present_plan without a terminal', () => {

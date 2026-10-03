@@ -255,16 +255,6 @@ describe('applyEdits', () => {
     replaceAll
   });
 
-  test('applies edits in order', () => {
-    const result = applyEdits(
-      'one two',
-      [edit('one', '1'), edit('two', '2')],
-      'f'
-    );
-
-    assert.equal(typeof result === 'string' ? result : result.text, '1 2');
-  });
-
   test('lets a later edit see what an earlier one wrote', () => {
     const result = applyEdits('a', [edit('a', 'b'), edit('b', 'c')], 'f');
 
@@ -284,9 +274,9 @@ describe('applyEdits', () => {
   });
 
   test('refuses an ambiguous edit inside a batch', () => {
-    const result = applyEdits('x x', [edit('x', 'y')], 'f');
+    const result = applyEdits('a x x', [edit('a', 'b'), edit('x', 'y')], 'f');
 
-    assert.match(String(result), /appears 2 times/);
+    assert.match(String(result), /appears 2 times in f \(edit 2 of 2\)/);
   });
 
   test('does not number a lone edit as though it were a batch', () => {

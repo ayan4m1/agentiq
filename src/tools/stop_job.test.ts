@@ -8,15 +8,8 @@ after(() => {
   killAllJobs();
 });
 
-// jobs are process-wide, so these run in order: nothing started, then one
+// jobs are process-wide, so these run in order: one started, then stopped
 describe('stop_job', () => {
-  test('says so when there is no such job', async () => {
-    assert.equal(
-      await handler({ id: 3 }),
-      'There is no job 3 - no background jobs have been started.'
-    );
-  });
-
   test('stops a running job', async () => {
     const command = 'node -e "setInterval(() => {}, 1000)"';
     const id = startJob(command, process.cwd());

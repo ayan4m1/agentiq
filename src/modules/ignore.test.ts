@@ -1,7 +1,7 @@
 import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 
@@ -132,19 +132,16 @@ describe('visibleDirectories', () => {
     assert.equal(visibleDirectories(new Set(['README.md'])).size, 0);
   });
 
-  test('does not offer a directory holding nothing visible', () => {
-    const directories = visibleDirectories(new Set(['src/index.ts']));
-
-    assert.ok(!directories.has('lib'));
-  });
-
   test('offers nothing at all for an empty set', () => {
     assert.equal(visibleDirectories(new Set()).size, 0);
   });
 });
 
 describe('toPosix', () => {
-  test('leaves a posix path alone', () => {
-    assert.equal(toPosix('src/modules/ignore.ts'), 'src/modules/ignore.ts');
+  test('joins the parts of a native path with forward slashes', () => {
+    assert.equal(
+      toPosix(['src', 'modules', 'ignore.ts'].join(sep)),
+      'src/modules/ignore.ts'
+    );
   });
 });

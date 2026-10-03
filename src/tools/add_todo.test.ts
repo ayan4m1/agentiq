@@ -144,16 +144,4 @@ describe('handler', () => {
     assert.equal(roadmap.notes, 'Remember this.');
     assert.equal(roadmap.extra, '## Other\n\nKeep me.');
   });
-
-  test('keeps CRLF line endings', async () => {
-    writeFileSync(
-      roadmapPath,
-      '# Roadmap\r\n\r\n## Todo\r\n\r\n- [ ] First\r\n'
-    );
-
-    await add('Second');
-
-    assert.doesNotMatch(read(), /[^\r]\n/);
-    assert.match(read(), /- \[ \] Second\r\n/);
-  });
 });

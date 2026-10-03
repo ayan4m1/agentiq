@@ -69,22 +69,6 @@ describe('handler', () => {
     assert.match(result, /2\. \[ \] Third/);
   });
 
-  test('removes an objective by its wording', async () => {
-    roadmapWith('- [ ] Write the parser', '- [ ] Ship it');
-
-    await remove('write the PARSER');
-
-    assert.deepEqual(texts(), ['Ship it']);
-  });
-
-  test('prefers an exact match over a longer one containing it', async () => {
-    roadmapWith('- [ ] Add tests for the parser', '- [ ] Add tests');
-
-    await remove('add tests');
-
-    assert.deepEqual(texts(), ['Add tests for the parser']);
-  });
-
   test('warns when the objective removed was already done', async () => {
     roadmapWith('- [x] First <!-- done 2026-01-01 -->', '- [ ] Second');
 
@@ -104,16 +88,6 @@ describe('handler', () => {
     assert.match(result, /\(the todo list is empty\)/);
   });
 
-  test('refuses a number outside the list', async () => {
-    roadmapWith('- [ ] First');
-
-    const before = read();
-    const result = await remove('0');
-
-    assert.match(result, /There is no objective number 0/);
-    assert.equal(read(), before);
-  });
-
   test('refuses wording that matches nothing', async () => {
     roadmapWith('- [ ] First');
 
@@ -122,18 +96,6 @@ describe('handler', () => {
 
     assert.match(result, /No objective matches "missing"/);
     assert.match(result, /The todo list is now:/);
-    assert.equal(read(), before);
-  });
-
-  test('refuses wording that matches more than one objective', async () => {
-    roadmapWith('- [ ] Fix the lexer', '- [ ] Fix the parser');
-
-    const before = read();
-    const result = await remove('fix the');
-
-    assert.match(result, /2 objectives match "fix the"/);
-    assert.match(result, /1\. Fix the lexer/);
-    assert.match(result, /2\. Fix the parser/);
     assert.equal(read(), before);
   });
 

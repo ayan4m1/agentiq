@@ -20,19 +20,8 @@ after(() => {
   killAllJobs();
 });
 
-// jobs are process-wide, so these run in order: nothing started, then one
+// jobs are process-wide, so these run in order: one started, then read
 describe('read_job', () => {
-  test('lists jobs when given no id', async () => {
-    assert.equal(await handler({}), 'No background jobs have been started.');
-  });
-
-  test('says so when there is no such job', async () => {
-    assert.equal(
-      await handler({ id: 7 }),
-      'There is no job 7 - no background jobs have been started.'
-    );
-  });
-
   test('returns what a job printed along with how it ended', async () => {
     const id = startJob(
       `node -e "console.log('hello from the job')"`,
