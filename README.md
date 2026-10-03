@@ -226,8 +226,8 @@ listing costs on its `SKILLS` line.
 
 Every installed skill starts out enabled. `/skills` turns individual skills off without deleting
 them: a disabled skill stays in `~/.agentiq/skills`, but its name and description are left out of
-the system prompt, so it adds nothing to the `SKILLS` line. The change applies from the next turn
-and is saved under `skills.disabled` in `config.yml`, so later runs start the same way.
+the system prompt. The change applies from the next turn and is saved under `skills.disabled` in
+`config.yml`, so later runs start the same way.
 
 ## MCP servers
 
