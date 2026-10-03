@@ -17,7 +17,7 @@ const run = (...args: string[]) =>
 
 describe('agentiq', () => {
   test('describes itself', () => {
-    assert.match(run('--help'), /Service-based AI agent/);
+    assert.match(run('--help'), /Agentic coding assistant/);
   });
 
   test('offers the run command', () => {
