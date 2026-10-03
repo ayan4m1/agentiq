@@ -3,7 +3,7 @@ import { select } from '@inquirer/prompts';
 
 import { approval, setMode } from '../modules/approval';
 import { getLogger } from '../modules/logging';
-import { planName, writePlan } from '../modules/plan';
+import { planPath, writePlan } from '../modules/plan';
 import { terminal, yieldToUser } from '../modules/turn';
 import { roadmap } from '../modules/config';
 import { ApprovalMode } from '../types';
@@ -15,7 +15,7 @@ export const definition = makeTool(
   'present_plan',
   [
     'Show the user a plan and ask permission to start work. Use this before making any changes to a codebase you have just finished investigating, and always while plan mode is active. The user replies with how they want the work approved.',
-    `The plan is saved to ${planName}, and read_plan returns it again later.`,
+    'The plan is saved, and read_plan returns it again later.',
     // add_todo is not offered without the roadmap, so it must not be named
     ...(roadmap.enabled
       ? [
@@ -52,7 +52,7 @@ const Answer = {
 
 type Answer = (typeof Answer)[keyof typeof Answer];
 
-const reminder = `The steps are saved in ${planName} - call read_plan to see them again.`;
+const reminder = 'The steps are saved - call read_plan to see them again.';
 
 const renderPlan = ({ title, steps }: Args) => {
   console.log(`\n${chalk.cyan.bold(title)}\n`);
@@ -72,7 +72,7 @@ export const handler = async ({ title, steps }: Args) => {
   // saved before the user answers, so a plan sent back for more work can still
   // be read and revised
   writePlan({ title, steps });
-  log.info(`Wrote the plan to ${planName}`);
+  log.info(`Wrote the plan to ${planPath}`);
 
   // the approval mode was chosen on the command line, so that stands as the
   // answer - except plan mode, where producing the plan was the whole point

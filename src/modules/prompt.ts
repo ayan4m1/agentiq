@@ -43,7 +43,7 @@ ${
     ? `- \`explore\` answers an open-ended question about the codebase in a separate conversation and returns only a short report, so the files it reads stay out of yours. Use it to orient yourself; use \`find\` and \`read\` directly when you already know the file.
 `
     : ''
-}- \`present_plan\` shows the user a plan and asks permission to begin work. The plan is saved to PLAN.md, and \`read_plan\` returns it whenever you need the agreed steps again.
+}- \`present_plan\` shows the user a plan and asks permission to begin work. The plan is saved, and \`read_plan\` returns it whenever you need the agreed steps again.
 
 ## Approval
 

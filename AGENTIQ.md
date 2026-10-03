@@ -30,6 +30,9 @@ general instructions about how to be an agent.
   model wrote as text instead of emitting properly.
 - `src/modules/models.ts` - the model/tokenizer pairs in `~/.agentiq/models.yml`,
   kept per provider, and the prompting `/model` does to add or switch between them (`picker.ts`).
+- `src/modules/plan.ts` - the plan `present_plan` saves and `read_plan`
+  returns, kept in `~/.agentiq/plans/<project slug>.md`. It is written before
+  the user approves anything, so it must never land in the project directory.
 - `src/modules/turn.ts` - per-turn flags: whether anyone is at the terminal,
   and whether a tool has already handed control back to the user.
 - `src/modules/` - otherwise one concern per file: approval modes, checkpoints,
@@ -64,7 +67,10 @@ If it is appropriate to add a new tool, follow this process each time to get it 
    answer is no. Read-only tools do neither.
 5. Pass a subject to `requestApproval()` - `{ kind: 'command' | 'path', value }`
    - so that "always" can be remembered by `src/modules/approval.ts`.
-6. If it writes to a file, call `record()` from `src/modules/checkpoints.ts`
+6. State the tool keeps for itself (like the plan) belongs under `home` from
+   `src/modules/config.ts`, never in the project - writing there without
+   approval is exactly what step 4 exists to prevent.
+7. If it writes to a file, call `record()` from `src/modules/checkpoints.ts`
    immediately before the write, so `/undo` can roll back the turn that made it.
 
 ## Working here

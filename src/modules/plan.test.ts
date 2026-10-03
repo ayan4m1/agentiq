@@ -4,34 +4,44 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync
 } from 'node:fs';
 
-// the plan path is resolved from the working directory when the module loads,
-// so it has to be imported from inside the scratch project
+// the plan path is resolved from the working directory and AQ_HOME when the
+// module loads, so it has to be imported from inside a scratch project with a
+// scratch home
 const root = mkdtempSync(resolve(tmpdir(), 'agentiq-plan-'));
+const project = resolve(root, 'project');
+const home = resolve(root, 'home');
 const original = process.cwd();
 
-process.chdir(root);
+mkdirSync(project);
+process.env.AQ_HOME = home;
+process.chdir(project);
 
-const { planName, planPath, readPlan, serializePlan, writePlan } =
-  await import('./plan');
+const { planPath, readPlan, serializePlan, writePlan } = await import('./plan');
+const { slugFor } = await import('../utils');
 
 process.chdir(original);
 
 const read = () => readFileSync(planPath).toString();
 
 beforeEach(() => {
-  rmSync(planPath, { force: true });
+  rmSync(resolve(home, 'plans'), { recursive: true, force: true });
 });
 
 describe('planPath', () => {
-  test('sits in the working directory the module was loaded from', () => {
-    assert.equal(planName, 'PLAN.md');
-    assert.equal(planPath, resolve(root, planName));
+  test('sits under AQ_HOME, keyed by the project it was loaded from', () => {
+    assert.equal(planPath, resolve(home, 'plans', `${slugFor(project)}.md`));
+  });
+
+  test('is outside the project', () => {
+    assert.ok(!planPath.startsWith(project));
   });
 });
 
@@ -84,6 +94,20 @@ describe('writePlan', () => {
     assert.equal(read(), serializePlan(plan));
   });
 
+  test('creates the plans directory when there is none yet', () => {
+    assert.ok(!existsSync(resolve(home, 'plans')));
+
+    writePlan({ title: 'Plan', steps: [] });
+
+    assert.ok(existsSync(planPath));
+  });
+
+  test('leaves the project directory untouched', () => {
+    writePlan({ title: 'Plan', steps: ['Only step'] });
+
+    assert.deepEqual(readdirSync(project), []);
+  });
+
   test('replaces the previous plan rather than appending to it', () => {
     writePlan({ title: 'Old', steps: ['Stale step'] });
     writePlan({ title: 'New', steps: ['Fresh step'] });
@@ -101,6 +125,7 @@ describe('readPlan', () => {
     // hand edits are handed back as they are, not reparsed
     const content = '# Edited by hand\r\n\r\n- not numbered\r\n';
 
+    mkdirSync(resolve(home, 'plans'), { recursive: true });
     writeFileSync(planPath, content);
 
     assert.equal(readPlan(), content);

@@ -1,10 +1,14 @@
-import { resolve } from 'node:path';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
-// kept beside the code like ROADMAP.md, so the plan outlives the session that
-// made it and whoever picks the work up next can see what was agreed
-export const planName = 'PLAN.md';
-export const planPath = resolve(process.cwd(), planName);
+import { home } from './config';
+import { slugFor } from '../utils';
+
+// beside the sessions and approvals rather than in the project: present_plan
+// saves the plan before anyone has approved anything - in plan mode, and in an
+// unattended exec run - so it must not write to the user's working tree. keyed
+// by the project, so the plan still outlives the session that made it
+export const planPath = resolve(home, 'plans', `${slugFor(process.cwd())}.md`);
 
 export type Plan = {
   title: string;
@@ -23,8 +27,10 @@ export const serializePlan = ({ title, steps }: Plan) =>
   ].join('\n\n') + '\n';
 
 // only the latest plan matters, so each one replaces the last
-export const writePlan = (plan: Plan) =>
+export const writePlan = (plan: Plan) => {
+  mkdirSync(dirname(planPath), { recursive: true });
   writeFileSync(planPath, serializePlan(plan));
+};
 
 export const readPlan = () =>
   existsSync(planPath) ? readFileSync(planPath).toString() : undefined;

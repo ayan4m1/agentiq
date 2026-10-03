@@ -2,7 +2,13 @@ import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync
+} from 'node:fs';
 
 import { ApprovalMode } from '../types';
 import { fakePrompts } from '../../test/fakes/inquirer';
@@ -15,12 +21,16 @@ const select =
 
 mock.module('@inquirer/prompts', { exports: fakePrompts({ select }).exports });
 
-// the plan path is resolved from the working directory when the module loads,
-// so the tool has to be imported from inside a scratch project
+// the plan path is resolved from the working directory and AQ_HOME when the
+// module loads, so the tool has to be imported from inside a scratch project
+// with a scratch home
 const root = mkdtempSync(resolve(tmpdir(), 'agentiq-present-plan-'));
+const project = resolve(root, 'project');
 const original = process.cwd();
 
-process.chdir(root);
+mkdirSync(project);
+process.env.AQ_HOME = resolve(root, 'home');
+process.chdir(project);
 
 const { handler } = await import('./present_plan');
 const { approval } = await import('../modules/approval');
@@ -99,7 +109,7 @@ describe('present_plan', () => {
     assert.equal(takeYield(), true);
   });
 
-  test('saves the plan to PLAN.md once approved', async () => {
+  test('saves the plan once approved', async () => {
     select.mock.mockImplementationOnce(async () => 'manual');
 
     assert.match(await handler(plan), /read_plan/);
@@ -115,6 +125,16 @@ describe('present_plan', () => {
     await handler(plan);
 
     assert.match(saved(), /# Add a test for every source file/);
+  });
+
+  test('writes nothing into the project, even in plan mode', async () => {
+    // plan mode promises that nothing changes, and the plan is saved before
+    // the user has answered - so it has to land outside the working tree
+    select.mock.mockImplementationOnce(async () => 'keep');
+
+    await handler(plan);
+
+    assert.deepEqual(readdirSync(project), []);
   });
 });
 
@@ -140,6 +160,16 @@ describe('present_plan without a terminal', () => {
     assert.match(await handler(plan), /cannot be approved. No work was done/);
     assert.equal(approval.mode, ApprovalMode.Plan);
     assert.equal(takeYield(), true);
+  });
+
+  test('writes nothing into the project under manual approval', async () => {
+    // an unattended exec run in manual mode cannot approve a write, so saving
+    // the plan must not be one
+    approval.mode = ApprovalMode.Manual;
+
+    await handler(plan);
+
+    assert.deepEqual(readdirSync(project), []);
   });
 
   for (const mode of [ApprovalMode.Auto, ApprovalMode.Manual]) {
