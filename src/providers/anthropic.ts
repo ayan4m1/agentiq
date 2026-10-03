@@ -26,9 +26,13 @@ const completeMaxTokens = 16000;
 
 // an empty key would stop the SDK looking anywhere else - ANTHROPIC_API_KEY,
 // ANTHROPIC_AUTH_TOKEN, or a profile from `ant auth login` - so only a key
-// that was actually set is handed over
+// that was actually set is handed over. the base URL is the same, so an unset
+// one still falls back to ANTHROPIC_BASE_URL and then the API itself
 const makeClient = () =>
-  new Anthropic({ apiKey: anthropic.apiKey || undefined });
+  new Anthropic({
+    apiKey: anthropic.apiKey || undefined,
+    baseURL: anthropic.baseUrl || undefined
+  });
 
 // the blocks a reply is replayed from. only ones this provider wrote are any
 // use here - another provider's record of a turn means nothing to the API

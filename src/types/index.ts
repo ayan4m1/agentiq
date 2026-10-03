@@ -35,6 +35,7 @@ export type ProviderConfig = {
 
 export type AnthropicConfig = {
   apiKey: string;
+  baseUrl: string;
 };
 
 export type LoggingConfig = {

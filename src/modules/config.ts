@@ -283,7 +283,8 @@ export const provider: ProviderConfig = {
 };
 
 export const anthropic: AnthropicConfig = {
-  apiKey: setting('AQ_ANTHROPIC_API_KEY', 'anthropic', 'apiKey') || ''
+  apiKey: setting('AQ_ANTHROPIC_API_KEY', 'anthropic', 'apiKey') || '',
+  baseUrl: setting('AQ_ANTHROPIC_BASE_URL', 'anthropic', 'baseUrl') || ''
 };
 
 export const ollama: OllamaConfig = {

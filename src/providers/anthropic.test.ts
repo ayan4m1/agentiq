@@ -108,10 +108,11 @@ const collect = async (chunks: AsyncIterable<ChatChunk>) => {
 };
 
 describe('the client it builds', () => {
-  const apiKey = anthropic.apiKey;
+  const { apiKey, baseUrl } = anthropic;
 
   afterEach(() => {
     anthropic.apiKey = apiKey;
+    anthropic.baseUrl = baseUrl;
   });
 
   test('uses a configured key', () => {
@@ -128,6 +129,24 @@ describe('the client it builds', () => {
     assert.equal(
       new AnthropicProvider().client.apiKey,
       process.env.ANTHROPIC_API_KEY ?? null
+    );
+  });
+
+  test('uses a configured base URL', () => {
+    anthropic.baseUrl = 'http://localhost:30000';
+
+    assert.equal(
+      new AnthropicProvider().client.baseURL,
+      'http://localhost:30000'
+    );
+  });
+
+  test('leaves the base URL to the SDK when none is configured', () => {
+    anthropic.baseUrl = '';
+
+    assert.equal(
+      new AnthropicProvider().client.baseURL,
+      process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
     );
   });
 });

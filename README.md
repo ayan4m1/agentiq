@@ -74,6 +74,10 @@ anthropic:
   # the key used when provider.name is anthropic - empty falls back to the
   # ANTHROPIC_API_KEY environment variable (AQ_ANTHROPIC_API_KEY)
   apiKey: ''
+  # a server speaking the Messages API, e.g. sglang - empty falls back to the
+  # ANTHROPIC_BASE_URL environment variable, then the Anthropic API
+  # (AQ_ANTHROPIC_BASE_URL)
+  baseUrl: ''
 
 session:
   # saved sessions to keep in ~/.agentiq/sessions; 0 keeps them all
@@ -133,6 +137,15 @@ The choices are:
 > The `anthropic` provider needs an API key. Set `anthropic.apiKey` in `config.yml` (or
 > `AQ_ANTHROPIC_API_KEY`); left empty, agentiq falls back to the `ANTHROPIC_API_KEY` environment
 > variable. Without a key, startup fails because the model list cannot be fetched.
+>
+> To use another server that speaks the Anthropic Messages API, such as
+> [sglang](https://github.com/sgl-project/sglang), set `anthropic.baseUrl` (or
+> `AQ_ANTHROPIC_BASE_URL`) to its address, e.g. `http://localhost:30000`.
+>
+> - Leave `/v1` off the address - the SDK adds `/v1/messages` itself, so
+>   `http://localhost:30000/v1` would end up requesting `/v1/v1/messages`.
+> - Set `anthropic.apiKey` to any non-empty value. sglang ignores it, but the client will not start
+>   without a key.
 
 ## Commands
 

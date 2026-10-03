@@ -68,6 +68,10 @@ anthropic:
   # the key used when provider.name is anthropic. leave it empty to fall back
   # to the ANTHROPIC_API_KEY environment variable (AQ_ANTHROPIC_API_KEY)
   apiKey: ''
+  # where the Messages API is served from - point it at any server that speaks
+  # it, such as sglang. leave it empty to fall back to the ANTHROPIC_BASE_URL
+  # environment variable, then the Anthropic API (AQ_ANTHROPIC_BASE_URL)
+  baseUrl: ''
 
 session:
   # how many saved sessions to keep in ~/.agentiq/sessions; older ones are
