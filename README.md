@@ -255,7 +255,7 @@ each. Their tools are offered to the model as `mcp__<server>__<tool>`, and `/con
 they cost on its `MCP` line.
 
 Calling an MCP tool always needs approval, like running a command does. Answering "always" saves a
-`tool` rule, and `/rules add tool mcp__github__*` allows every tool of one server at once. In plan
+`tool` rule, and `/rules add tool mcp__<server>__*` allows every tool for one server at once. In plan
 mode, only tools that their server marks as read-only can be called.
 
 ## Non-interactive use
