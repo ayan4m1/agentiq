@@ -247,7 +247,7 @@ export const runCheck = async () => {
   const spinner = ora({
     stream: process.stdout,
     discardStdin: false,
-    text: `Running ${command}`
+    text: `Running check "${command}"`
   });
   let stopClock = () => {};
 
