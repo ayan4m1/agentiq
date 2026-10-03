@@ -2,13 +2,30 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
 
 // read when the config module first evaluates, so it has to be set before the
 // dynamic import below - and it keeps the real skills out of these results
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-skills-'));
 
-const { describeSkills, loadSkills, skillsDir } = await import('./skills');
+const {
+  describeSkills,
+  isEnabled,
+  listSkills,
+  loadSkills,
+  setEnabled,
+  skillsDir
+} = await import('./skills');
+const { home, skills } = await import('./config');
+const { getLogger } = await import('./logging');
+
+const configPath = resolve(home, 'config.yml');
 
 const addSkill = (directory: string, content: string) => {
   mkdirSync(resolve(skillsDir, directory), { recursive: true });
@@ -20,6 +37,7 @@ const frontmatter = (name: string, description: string, body = '# Steps') =>
 
 afterEach(() => {
   rmSync(skillsDir, { recursive: true, force: true });
+  skills.disabled = [];
   loadSkills();
 });
 
@@ -141,5 +159,72 @@ describe('the skills block', () => {
     addSkill('late', frontmatter('late', 'Added afterwards'));
 
     assert.doesNotMatch(describeSkills() ?? '', /late/);
+  });
+});
+
+describe('enabling skills', () => {
+  test('starts every skill out enabled', () => {
+    addSkill('pdf-tools', frontmatter('pdf-tools', 'Work with PDF files'));
+    loadSkills();
+
+    assert.equal(isEnabled('pdf-tools'), true);
+  });
+
+  test('leaves a disabled skill out of the block', () => {
+    addSkill('kept', frontmatter('kept', 'Still listed'));
+    addSkill('dropped', frontmatter('dropped', 'Turned off'));
+    loadSkills();
+    setEnabled('dropped', false);
+
+    const block = describeSkills() ?? '';
+
+    assert.match(block, /<name>kept<\/name>/);
+    assert.doesNotMatch(block, /dropped/);
+    // still installed, so it can be turned back on
+    assert.equal(listSkills().length, 2);
+  });
+
+  test('drops the whole block once every skill is disabled', () => {
+    addSkill('only', frontmatter('only', 'The one skill'));
+    loadSkills();
+    setEnabled('only', false);
+
+    assert.equal(describeSkills(), undefined);
+  });
+
+  test('saves the disabled skills to config.yml, sorted', () => {
+    setEnabled('zeta', false);
+    setEnabled('alpha', false);
+    setEnabled('zeta', false);
+
+    assert.deepEqual(skills.disabled, ['alpha', 'zeta']);
+    assert.match(
+      readFileSync(configPath, 'utf8'),
+      /disabled:\s*\n\s*- alpha\s*\n\s*- zeta/
+    );
+
+    setEnabled('alpha', true);
+
+    assert.deepEqual(skills.disabled, ['zeta']);
+    assert.equal(isEnabled('alpha'), true);
+  });
+
+  test('keeps the change for this session when it cannot be saved', (t) => {
+    const warn = t.mock.method(getLogger('skills'), 'warn', () => {});
+    const original = readFileSync(configPath, 'utf8');
+
+    writeFileSync(configPath, 'skills: [unclosed\n');
+
+    try {
+      setEnabled('broken', false);
+    } finally {
+      writeFileSync(configPath, original);
+    }
+
+    assert.equal(isEnabled('broken'), false);
+    assert.match(
+      String(warn.mock.calls[0]?.arguments[0]),
+      /Could not save the disabled skills/
+    );
   });
 });

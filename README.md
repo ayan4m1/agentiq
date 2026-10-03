@@ -104,6 +104,10 @@ explore:
   # rounds of tool calls an exploration gets before it must report
   # (AQ_EXPLORE_ROUNDS)
   rounds: 8
+
+skills:
+  # skills in ~/.agentiq/skills to leave out of the prompt - /skills edits this
+  # disabled: []
 ```
 
 ## Providers
@@ -132,23 +136,24 @@ The choices are:
 
 ## Commands
 
-| Command                     | Description                                                                                                                                                                                    |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/context`                  | Shows how many tokens the system prompt, skills, tools and messages take up, against the context limit.                                                                                        |
-| `/context-limit [tokens]`   | Shows the current context limit or changes it if able, saving the new value to `config.yml`. `AQ_CONTEXT_LIMIT` still wins when set.                                                           |
-| `/mode`                     | Cycles the approval mode between manual, auto and plan (same as shift+tab).                                                                                                                    |
-| `/model`                    | Picks a model to use for the current session. See [Choosing a model](#choosing-a-model).                                                                                                       |
-| `/compact`                  | Summarizes the conversation to free up context.                                                                                                                                                |
-| `/recap [turns]`            | Prints a short recap of the last `session.recapTurns` turns, or of `turns` turns. The recap is never added to the conversation.                                                                |
-| `/paste`                    | Opens `$VISUAL` or `$EDITOR` (notepad or vim when neither is set) for a multi-line prompt, and sends it when the editor closes.                                                                |
-| `/clear`, `/reset`          | Starts a new conversation. The old one stays saved as a session.                                                                                                                               |
-| `/resume`                   | Picks a saved session to continue.                                                                                                                                                             |
-| `/undo`                     | Takes the conversation back to before the most recent prompt, restoring every file written since.                                                                                              |
-| `/changes`                  | Lists the files written this session.                                                                                                                                                          |
-| `/check [on\|off\|command]` | After each turn that writes files, runs a test/lint/type-check command (chosen by the model with `on`, or the one given) and shows `✔`/`✘` above the prompt. Alone, shows the current setting. |
-| `/rules`                    | Lists saved approval rules (↑↓ to move, `r` then `y` to remove). `/rules add command <pattern>` or `/rules add path <pattern>` saves one; `*` matches within a path segment, `**` across them. |
-| `/help`                     | Lists the available commands.                                                                                                                                                                  |
-| `/quit`                     | Exits agentiq.                                                                                                                                                                                 |
+| Command                     | Description                                                                                                                                                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/context`                  | Shows how many tokens the system prompt, skills, tools and messages take up, against the context limit.                                                                                                               |
+| `/context-limit [tokens]`   | Shows the current context limit or changes it if able, saving the new value to `config.yml`. `AQ_CONTEXT_LIMIT` still wins when set.                                                                                  |
+| `/mode`                     | Cycles the approval mode between manual, auto and plan (same as shift+tab).                                                                                                                                           |
+| `/model`                    | Picks a model to use for the current session. See [Choosing a model](#choosing-a-model).                                                                                                                              |
+| `/compact`                  | Summarizes the conversation to free up context.                                                                                                                                                                       |
+| `/recap [turns]`            | Prints a short recap of the last `session.recapTurns` turns, or of `turns` turns. The recap is never added to the conversation.                                                                                       |
+| `/paste`                    | Opens `$VISUAL` or `$EDITOR` (notepad or vim when neither is set) for a multi-line prompt, and sends it when the editor closes.                                                                                       |
+| `/clear`, `/reset`          | Starts a new conversation. The old one stays saved as a session.                                                                                                                                                      |
+| `/resume`                   | Picks a saved session to continue.                                                                                                                                                                                    |
+| `/undo`                     | Takes the conversation back to before the most recent prompt, restoring every file written since.                                                                                                                     |
+| `/changes`                  | Lists the files written this session.                                                                                                                                                                                 |
+| `/check [on\|off\|command]` | After each turn that writes files, runs a test/lint/type-check command (chosen by the model with `on`, or the one given) and shows `✔`/`✘` above the prompt. Alone, shows the current setting.                        |
+| `/rules`                    | Lists saved approval rules (↑↓ to move, `r` then `y` to remove). `/rules add command <pattern>` or `/rules add path <pattern>` saves one; `*` matches within a path segment, `**` across them.                        |
+| `/skills`                   | Lists installed skills to turn on or off (↑↓ to move, space to toggle, `a` for all/none, esc or ⏎ to close). Only enabled skills go into the system prompt; the choice is saved to `skills.disabled` in `config.yml`. |
+| `/help`                     | Lists the available commands.                                                                                                                                                                                         |
+| `/quit`                     | Exits agentiq.                                                                                                                                                                                                        |
 
 ## Choosing a model
 
@@ -192,6 +197,11 @@ description: Extract text and tables from PDF files. Use when the user mentions 
 Skills are read once at startup. Only each skill's name, description and location go into the
 system prompt; the model reads the full `SKILL.md` when a task matches it. `/context` shows what the
 listing costs on its `SKILLS` line.
+
+Every installed skill starts out enabled. `/skills` turns individual skills off without deleting
+them: a disabled skill stays in `~/.agentiq/skills`, but its name and description are left out of
+the system prompt, so it adds nothing to the `SKILLS` line. The change applies from the next turn
+and is saved under `skills.disabled` in `config.yml`, so later runs start the same way.
 
 ## Non-interactive use
 

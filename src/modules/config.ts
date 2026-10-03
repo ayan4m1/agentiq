@@ -17,6 +17,7 @@ import {
   type ExploreConfig,
   type RoadmapConfig,
   type SessionConfig,
+  type SkillsConfig,
   type ShellConfig,
   type TokenizerConfig,
   type AnthropicConfig,
@@ -335,4 +336,33 @@ export const explore: ExploreConfig = {
     true
   ),
   rounds: integer('AQ_EXPLORE_ROUNDS', 'explore', 'rounds')
+};
+
+// a list, so it is read from the file as it is rather than through setting(),
+// which makes a string of everything. there is no env var for it either: one
+// would override what /skills saves without /skills being able to tell
+export const toSkillNames = (value: unknown, name: string) => {
+  if (value === null || value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    console.warn(`Ignoring ${name} - expected a list of skill names`);
+
+    return [];
+  }
+
+  const names = value.filter(
+    (entry): entry is string => typeof entry === 'string'
+  );
+
+  if (names.length < value.length) {
+    console.warn(`Ignoring the entries of ${name} that are not skill names`);
+  }
+
+  return names;
+};
+
+export const skills: SkillsConfig = {
+  disabled: toSkillNames(lookup(file, 'skills', 'disabled'), 'skills.disabled')
 };

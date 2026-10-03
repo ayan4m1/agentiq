@@ -100,4 +100,8 @@ explore:
   # how many rounds of tool calls an exploration gets before it has to write
   # its report (AQ_EXPLORE_ROUNDS)
   rounds: 8
+
+skills:
+  # skills in ~/.agentiq/skills to leave out of the prompt - /skills edits this
+  # disabled: []
 `;

@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync
 } from 'node:fs';
 
@@ -55,11 +56,14 @@ const preflight = mock.fn(async () => preflightPasses);
 let contextLength: number | undefined;
 const ensureTokenizer = mock.fn(async () => true);
 
-// /model picks from a prompt of its own
+// /model picks from a prompt of its own, and /skills toggles in another
 const pickModel = mock.fn<(config: unknown) => Promise<string>>();
+const pickSkills = mock.fn<(config: unknown) => Promise<void>>(async () => {});
 
 mock.module('./picker', {
-  exports: { pickModel } satisfies ModuleMock<typeof import('./picker')>
+  exports: { pickModel, pickSkills } satisfies ModuleMock<
+    typeof import('./picker')
+  >
 });
 
 mock.module('./preflight', {
@@ -93,7 +97,7 @@ mock.module('./check', {
 
 const { Command, createController, previewOf } = await import('./repl');
 const { approval, loadRules, remember } = await import('./approval');
-const { provider, session, tokenizer } = await import('./config');
+const { provider, session, skills, tokenizer } = await import('./config');
 const { loadStore, saveStore } = await import('./models');
 const { yieldToUser, takeYield } = await import('./turn');
 const {
@@ -106,6 +110,7 @@ const {
 } = await import('./session');
 const { discardCheckpoints, record } = await import('./checkpoints');
 const { getLogger } = await import('./logging');
+const { loadSkills, skillsDir } = await import('./skills');
 
 // the commands print, which is only noise here - but what they print is worth
 // checking, so it is kept rather than dropped
@@ -218,6 +223,7 @@ beforeEach(() => {
   log.mock.resetCalls();
   select.mock.resetCalls();
   pickModel.mock.resetCalls();
+  pickSkills.mock.resetCalls();
   confirm.mock.resetCalls();
   editor.mock.resetCalls();
   discardCheckpoints();
@@ -1627,5 +1633,97 @@ describe('previewOf', () => {
       previewOf(`${'x'.repeat(80)}\nmore`),
       `${'x'.repeat(60)}… … (+1 line)`
     );
+  });
+});
+
+describe('/skills', () => {
+  type SkillsRequest = {
+    choices: { name: string; description: string; enabled: boolean }[];
+    toggle: (name: string, enabled: boolean) => void;
+  };
+
+  const request = () => pickSkills.mock.calls[0].arguments[0] as SkillsRequest;
+
+  const addSkill = (name: string) => {
+    mkdirSync(resolve(skillsDir, name), { recursive: true });
+    writeFileSync(
+      resolve(skillsDir, name, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: About ${name}\n---\n`
+    );
+  };
+
+  beforeEach(() => {
+    rmSync(skillsDir, { recursive: true, force: true });
+    skills.disabled = [];
+    loadSkills();
+  });
+
+  test('says so instead of opening an empty list', async (t) => {
+    const info = t.mock.method(getLogger('run'), 'info', () => {});
+
+    await make().runCommand(Command.Skills);
+
+    assert.equal(pickSkills.mock.callCount(), 0);
+    assert.match(
+      String(info.mock.calls[0]?.arguments[0]),
+      /No skills are installed/
+    );
+  });
+
+  test('lists every skill installed with whether it is enabled', async () => {
+    addSkill('alpha');
+    addSkill('beta');
+    loadSkills();
+    skills.disabled = ['beta'];
+
+    await make().runCommand(Command.Skills);
+
+    assert.deepEqual(request().choices, [
+      { name: 'alpha', description: 'About alpha', enabled: true },
+      { name: 'beta', description: 'About beta', enabled: false }
+    ]);
+  });
+
+  test('saves a toggle and rebuilds the prompt around it', async () => {
+    addSkill('alpha');
+    loadSkills();
+    pickSkills.mock.mockImplementationOnce(async (config) => {
+      (config as SkillsRequest).toggle('alpha', false);
+    });
+
+    await make().runCommand(Command.Skills);
+
+    assert.deepEqual(skills.disabled, ['alpha']);
+    assert.match(
+      readFileSync(resolve(process.env.AQ_HOME!, 'config.yml'), 'utf8'),
+      /disabled:\s*\n\s*- alpha/
+    );
+    assert.equal(thinker.rebuild.mock.callCount(), 1);
+    assert.equal(thinker.count.mock.callCount(), 1);
+  });
+
+  test('leaves the prompt alone when nothing was toggled', async () => {
+    addSkill('alpha');
+    loadSkills();
+
+    await make().runCommand(Command.Skills);
+
+    assert.equal(thinker.rebuild.mock.callCount(), 0);
+  });
+
+  test('keeps a toggle made before the picker failed', async (t) => {
+    t.mock.method(getLogger('run'), 'error', () => {});
+    addSkill('alpha');
+    loadSkills();
+    pickSkills.mock.mockImplementationOnce(async (config) => {
+      (config as SkillsRequest).toggle('alpha', false);
+
+      throw new Error('User force closed the prompt');
+    });
+
+    await make().runCommand(Command.Skills);
+
+    assert.deepEqual(skills.disabled, ['alpha']);
+    assert.equal(thinker.rebuild.mock.callCount(), 1);
   });
 });

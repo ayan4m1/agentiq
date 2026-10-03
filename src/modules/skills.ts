@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 import { parse } from 'yaml';
 
-import { home } from './config';
+import { home, saveSetting, skills as config } from './config';
 import { getLogger } from './logging';
 import { describeError, getContentBudget, truncate } from '../utils';
 import type { Skill } from '../types';
@@ -123,14 +123,37 @@ export const loadSkills = () => {
   return skills;
 };
 
+// every skill installed, enabled or not - /skills offers the disabled ones
+// back to be turned on again
+export const listSkills = () => loaded ?? loadSkills();
+
+export const isEnabled = (name: string) => !config.disabled.includes(name);
+
+// takes effect the next time the prompt is built, and is saved to config.yml
+// so the runs that follow start the same way. a save that fails still leaves
+// the change in place for this session, as /context-limit does
+export const setEnabled = (name: string, enabled: boolean) => {
+  const others = config.disabled.filter((disabled) => disabled !== name);
+
+  config.disabled = enabled ? others : [...others, name].sort();
+
+  try {
+    saveSetting('skills', 'disabled', config.disabled);
+  } catch (error) {
+    log.warn(
+      `Could not save the disabled skills to config.yml - ${describeError(error)}`
+    );
+  }
+};
+
 const escape = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // only the name, description and location go in the prompt - the model reads
 // the SKILL.md itself when a task calls for it, so a long skill costs nothing
-// on the turns that do not use it
+// on the turns that do not use it. a disabled skill costs nothing at all
 export const describeSkills = () => {
-  const skills = loaded ?? loadSkills();
+  const skills = listSkills().filter(({ name }) => isEnabled(name));
 
   if (!skills.length) {
     return;

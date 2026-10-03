@@ -11,6 +11,7 @@ import {
   saveSetting,
   toBoolean,
   toLogLevel,
+  toSkillNames,
   toThink
 } from './config';
 import { defaultConfig } from './config.default';
@@ -121,6 +122,31 @@ describe('toBoolean', () => {
     assert.equal(
       quietly(() => toBoolean('ture', 'AQ_TEST', true)),
       true
+    );
+  });
+});
+
+describe('toSkillNames', () => {
+  test('reads nothing set as no skills disabled', () => {
+    assert.deepEqual(toSkillNames(undefined, 'skills.disabled'), []);
+    assert.deepEqual(toSkillNames(null, 'skills.disabled'), []);
+  });
+
+  test('keeps a list of names as it is', () => {
+    assert.deepEqual(toSkillNames(['a', 'b'], 'skills.disabled'), ['a', 'b']);
+  });
+
+  test('ignores something that is not a list', () => {
+    assert.deepEqual(
+      quietly(() => toSkillNames('pdf-tools', 'skills.disabled')),
+      []
+    );
+  });
+
+  test('drops the entries that are not names', () => {
+    assert.deepEqual(
+      quietly(() => toSkillNames(['a', 3, { b: 1 }, 'c'], 'skills.disabled')),
+      ['a', 'c']
     );
   });
 });
@@ -283,6 +309,15 @@ describe('settings', () => {
     assert.equal(config.roadmap.enabled, true);
   });
 
+  test('reads the disabled skills as a list', async () => {
+    const config = await load(
+      'skills',
+      'skills:\n  disabled:\n    - pdf-tools\n    - react\n'
+    );
+
+    assert.deepEqual(config.skills.disabled, ['pdf-tools', 'react']);
+  });
+
   test('falls back to the defaults for anything the file leaves out', async () => {
     const config = await load('partial', 'session:\n  limit: 7\n');
 
@@ -294,6 +329,7 @@ describe('settings', () => {
     assert.equal(config.provider.contextLimit, 131072);
     assert.equal(config.provider.think, undefined);
     assert.equal(config.logging.logThoughts, false);
+    assert.deepEqual(config.skills.disabled, []);
   });
 
   test('lets an AQ_* env var override the file', async () => {

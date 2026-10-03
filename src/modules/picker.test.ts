@@ -4,7 +4,13 @@ import { PassThrough } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import chalk from 'chalk';
 
-import { pickModel, type PickerChoice } from './picker';
+import {
+  pickModel,
+  pickSkills,
+  toggleAll,
+  type PickerChoice,
+  type SkillChoice
+} from './picker';
 
 // the test runner is not a terminal, so chalk would otherwise drop every color
 // and there would be no telling a missing model from any other
@@ -321,5 +327,141 @@ describe('pickModel', { timeout: 2000 }, () => {
       assert.deepEqual(picker.remove.mock.calls[0].arguments, ['llama3']);
       assert.equal(await picker.answer, undefined);
     });
+  });
+});
+
+const skillChoices: SkillChoice[] = [
+  { name: 'alpha', description: 'First skill', enabled: true },
+  { name: 'beta', description: 'Second skill', enabled: false }
+];
+
+// the same streams as open() above, for the skills prompt
+const openSkills = async (choices = skillChoices) => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const toggle = mock.fn<(name: string, enabled: boolean) => void>();
+  let written = '';
+
+  output.on('data', (chunk: Buffer) => {
+    written += chunk.toString();
+  });
+
+  const answer = pickSkills(
+    { message: 'Skills', choices, toggle },
+    { input, output }
+  );
+
+  await new Promise(setImmediate);
+
+  return {
+    answer,
+    toggle,
+    input,
+    screen: () => stripVTControlCharacters(written),
+    press: (name: string) => {
+      written = '';
+      input.emit('keypress', null, { name, ctrl: false, meta: false });
+    }
+  };
+};
+
+describe('pickSkills', { timeout: 2000 }, () => {
+  test('marks each skill on or off and describes the active one', async () => {
+    const picker = await openSkills();
+    const screen = picker.screen();
+
+    assert.match(screen, /◉ alpha/);
+    assert.match(screen, /◯ beta/);
+    assert.match(screen, /First skill/);
+
+    picker.press('down');
+
+    assert.match(picker.screen(), /Second skill/);
+
+    picker.press('escape');
+    await picker.answer;
+  });
+
+  test('toggles the active skill with space as it goes', async () => {
+    const picker = await openSkills();
+
+    picker.press('space');
+
+    assert.deepEqual(picker.toggle.mock.calls[0].arguments, ['alpha', false]);
+    assert.match(picker.screen(), /◯ alpha/);
+
+    picker.press('down');
+    picker.press('space');
+
+    assert.deepEqual(picker.toggle.mock.calls[1].arguments, ['beta', true]);
+
+    picker.press('enter');
+    await picker.answer;
+
+    // alpha went off and beta came on
+    assert.match(picker.screen(), /1 of 2 enabled/);
+  });
+
+  test('turns them all on with a, then all off', async () => {
+    const picker = await openSkills();
+
+    picker.press('a');
+
+    // alpha was already on, so only beta changed
+    assert.deepEqual(
+      picker.toggle.mock.calls.map((call) => call.arguments),
+      [['beta', true]]
+    );
+
+    picker.press('a');
+
+    assert.deepEqual(
+      picker.toggle.mock.calls.slice(1).map((call) => call.arguments),
+      [
+        ['alpha', false],
+        ['beta', false]
+      ]
+    );
+
+    picker.press('escape');
+    await picker.answer;
+
+    assert.match(picker.screen(), /0 of 2 enabled/);
+  });
+
+  test('stops reading the terminal before readline lets go of it', async () => {
+    const picker = await openSkills();
+    // what a tty stream has under it - a closing readline turns raw mode off,
+    // and with this still reading windows queues a cooked read behind it
+    const handle = { reading: true, readStop: mock.fn(() => 0) };
+
+    Object.assign(picker.input, { _handle: handle });
+    picker.press('escape');
+    await picker.answer;
+
+    assert.equal(handle.readStop.mock.callCount(), 1);
+    assert.equal(handle.reading, false);
+  });
+
+  test('closes on escape without toggling anything', async () => {
+    const picker = await openSkills();
+
+    picker.press('escape');
+    await picker.answer;
+
+    assert.equal(picker.toggle.mock.callCount(), 0);
+  });
+});
+
+describe('toggleAll', () => {
+  test('turns everything on unless it already is', () => {
+    assert.deepEqual(
+      toggleAll(skillChoices).map(({ enabled }) => enabled),
+      [true, true]
+    );
+    assert.deepEqual(
+      toggleAll(toggleAll(skillChoices)).map(({ enabled }) => enabled),
+      [false, false]
+    );
   });
 });

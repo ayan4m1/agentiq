@@ -11,7 +11,8 @@ import {
   remember,
   type RuleKind
 } from './approval';
-import { pickModel } from './picker';
+import { pickModel, pickSkills } from './picker';
+import { isEnabled, listSkills, setEnabled, skillsDir } from './skills';
 import { modelContextLength, preflight } from './preflight';
 import { beginTurn, changes, countSince, rewind } from './checkpoints';
 import { chatProvider } from '../providers';
@@ -67,6 +68,7 @@ export const Command = {
   Changes: 'changes',
   Check: 'check',
   Rules: 'rules',
+  Skills: 'skills',
   Help: 'help',
   Quit: 'quit'
 } as const;
@@ -738,6 +740,51 @@ export const createController = ({
     }
   };
 
+  // the installed skills, to turn on and off. only an enabled one is listed in
+  // the system prompt, so a change rebuilds it in place for the next turn
+  const skills = async () => {
+    const installed = listSkills();
+
+    // a picker with nothing in it would only be something to close
+    if (!installed.length) {
+      log.info(systemColor(`No skills are installed in ${skillsDir}`));
+
+      return;
+    }
+
+    let changed = false;
+
+    try {
+      await pickSkills({
+        message: 'Skills',
+        choices: installed.map(({ name, description }) => ({
+          name,
+          description,
+          enabled: isEnabled(name)
+        })),
+        toggle: (name, enabled) => {
+          changed = true;
+          setEnabled(name, enabled);
+        }
+      });
+    } catch (error) {
+      // log but swallow an error (if the user cancelled the prompt) - whatever
+      // was toggled before then has already been saved, so it still applies
+      if (error instanceof Error) {
+        log.error(error.message);
+      }
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    thinker.rebuild(nextThought.messages);
+    await thinker.count(nextThought.messages);
+
+    log.info(chalk.green(`Skills now use ${thinker.tokens.skills} tokens`));
+  };
+
   // a slash command, without its slash, and anything typed after its name.
   // quitting is left to the caller, which owns the process and what has to be
   // cleaned up before it exits
@@ -790,6 +837,9 @@ export const createController = ({
         // a pattern is split into words above, and has to be saved exactly as
         // it was typed
         await rules(input.trim().slice(name.length).trim() || undefined);
+        break;
+      case Command.Skills:
+        await skills();
         break;
       case Command.Help:
         console.log(systemColor('\n--- Available Commands ---'));

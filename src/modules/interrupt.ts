@@ -18,6 +18,28 @@ type InternalStdin = {
   };
 };
 
+// pause() alone leaves the handle reading, and on windows libuv re-queues a
+// live read in whatever mode it finds - so a raw mode switched off after it is
+// a cooked ReadConsole that swallows every key until enter. stopping the read
+// first means there is nothing for the mode change to re-queue
+export const stopReading = (stdin: NodeJS.ReadableStream = process.stdin) => {
+  stdin.pause();
+
+  const internal = stdin as unknown as InternalStdin;
+  const handle = internal._handle;
+
+  // the same thing node does itself when a paused stream refuses a push.
+  // the stream's flag is normally cleared by the push itself, and none has
+  // happened - left set, the next resume() believes a read is already under
+  // way and never restarts the handle, so the event loop drains and the
+  // process exits mid-prompt
+  if (handle?.reading) {
+    handle.reading = false;
+    handle.readStop();
+    internal._readableState.reading = false;
+  }
+};
+
 // nothing owns stdin while the model streams - inquirer builds a readline per
 // prompt and closes it again - so escape has to be watched for directly. the
 // bytes are read raw rather than through emitKeypressEvents: readline's keypress
@@ -45,25 +67,9 @@ export const watchForInterrupt = (onInterrupt: () => void) => {
 
     // hand the terminal back exactly as it was found - the prompt that comes
     // next sets up its own mode, and undoing more than we did breaks it.
-    // the read has to stop before the mode changes: pause() alone leaves the
-    // handle reading, and on windows libuv re-queues a live read in whatever
-    // mode it finds - a cooked ReadConsole that swallows every key until enter
+    // the read has to stop before the mode changes
     if (wasPaused) {
-      stdin.pause();
-
-      const internal = stdin as unknown as InternalStdin;
-      const handle = internal._handle;
-
-      // the same thing node does itself when a paused stream refuses a push.
-      // the stream's flag is normally cleared by the push itself, and none has
-      // happened - left set, the next resume() believes a read is already under
-      // way and never restarts the handle, so the event loop drains and the
-      // process exits mid-prompt
-      if (handle?.reading) {
-        handle.reading = false;
-        handle.readStop();
-        internal._readableState.reading = false;
-      }
+      stopReading(stdin);
     }
 
     if (stdin.isRaw !== wasRaw) {

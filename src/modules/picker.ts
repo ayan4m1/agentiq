@@ -12,6 +12,8 @@ import {
   type Status
 } from '@inquirer/core';
 
+import { stopReading } from './interrupt';
+
 export type PickerChoice = {
   name: string;
   value: string;
@@ -44,6 +46,18 @@ type Picked = string | undefined;
 // the two pieces of them select uses are spelled out here instead
 const pointer = '❯';
 const hideCursor = '\u001B[?25l';
+
+// done() only settles the promise - inquirer closes its readline a microtask
+// later, and closing switches raw mode off. the read is stopped here first, or
+// on windows the switch leaves a cooked read behind that waits for enter
+const finish = <T>(
+  rl: { input: unknown },
+  done: (value: T) => void,
+  value: T
+) => {
+  stopReading(rl.input as NodeJS.ReadableStream);
+  done(value);
+};
 
 const describeKeys = (keys: string[][]) =>
   keys
@@ -107,7 +121,7 @@ export const pickModel = createPrompt<Picked, PickerRequest>((config, done) => {
       // an empty list has nothing left to browse
       if (config.browse && !remaining.length) {
         setStatus('done');
-        done(undefined);
+        finish(rl, done, undefined);
       }
 
       return;
@@ -115,13 +129,13 @@ export const pickModel = createPrompt<Picked, PickerRequest>((config, done) => {
 
     if (key.name === 'escape' || (config.browse && isEnterKey(key))) {
       setStatus(config.browse ? 'done' : 'cancelled');
-      done(undefined);
+      finish(rl, done, undefined);
     } else if (!selected) {
       // nothing to move to, choose or remove
       return;
     } else if (isEnterKey(key)) {
       setStatus('done');
-      done(selected.value);
+      finish(rl, done, selected.value);
     } else if (isUpKey(key, theme.keybindings)) {
       setActive((active - 1 + items.length) % items.length);
     } else if (isDownKey(key, theme.keybindings)) {
@@ -174,6 +188,125 @@ export const pickModel = createPrompt<Picked, PickerRequest>((config, done) => {
     ' ',
     error ? theme.style.error(error) : '',
     footer
+  ]
+    .filter(Boolean)
+    .join('\n')}${hideCursor}`;
+});
+
+export type SkillChoice = {
+  name: string;
+  description: string;
+  enabled: boolean;
+};
+
+type SkillsRequest = {
+  message: string;
+  choices: SkillChoice[];
+  // called on every change, so it has already happened by the time the
+  // prompt closes - there is nothing to cancel
+  toggle: (name: string, enabled: boolean) => void;
+};
+
+const skillsHelp = describeKeys([
+  ['esc/⏎', 'close'],
+  ['↑↓', 'navigate'],
+  ['space', 'toggle'],
+  ['a', 'all/none']
+]);
+
+// a with everything on turns everything off, and otherwise turns it all on -
+// the same as a checkbox list's select-all
+export const toggleAll = (items: SkillChoice[]) => {
+  const enabled = !items.every((item) => item.enabled);
+
+  return items.map((item) => ({ ...item, enabled }));
+};
+
+// @inquirer/checkbox only reports what was ticked once it closes, and each
+// change here has to be saved as it is made - so this is the same list with a
+// toggle callback, closing on enter or escape the way a browsing pickModel does
+export const pickSkills = createPrompt<void, SkillsRequest>((config, done) => {
+  const theme = makeTheme();
+  const [status, setStatus] = useState<Status>('idle');
+  const [items, setItems] = useState(config.choices);
+  const [active, setActive] = useState(0);
+  const prefix = usePrefix({ status, theme });
+  const selected = items[active];
+
+  const apply = (next: SkillChoice[]) => {
+    next.forEach((item, index) => {
+      if (item.enabled !== items[index].enabled) {
+        config.toggle(item.name, item.enabled);
+      }
+    });
+    setItems(next);
+  };
+
+  useKeypress((key, rl) => {
+    if (status !== 'idle') {
+      return;
+    }
+
+    // readline has already echoed whatever was typed into the line, and none
+    // of it is meant to be kept
+    rl.clearLine(0);
+
+    if (key.name === 'escape' || isEnterKey(key)) {
+      setStatus('done');
+      finish(rl, done, undefined);
+    } else if (!selected) {
+      return;
+    } else if (isUpKey(key, theme.keybindings)) {
+      setActive((active - 1 + items.length) % items.length);
+    } else if (isDownKey(key, theme.keybindings)) {
+      setActive((active + 1) % items.length);
+    } else if (key.name === 'space') {
+      apply(
+        items.map((item) =>
+          item === selected ? { ...item, enabled: !item.enabled } : item
+        )
+      );
+    } else if (key.name === 'a') {
+      apply(toggleAll(items));
+    }
+  });
+
+  const page = usePagination({
+    items,
+    active,
+    renderItem: ({ item, isActive }) => {
+      const mark = item.enabled ? '◉' : '◯';
+      const line = `${mark} ${item.name}`;
+
+      return isActive
+        ? `${theme.style.highlight(pointer)} ${theme.style.highlight(line)}`
+        : `  ${item.enabled ? line : chalk.gray(line)}`;
+    },
+    pageSize: 7
+  });
+  const message = theme.style.message(config.message, status);
+
+  // hooks are matched up by call order, so this comes after every one of them
+  if (status === 'done') {
+    const count = items.filter((item) => item.enabled).length;
+
+    return `${prefix} ${message} ${theme.style.answer(`${count} of ${items.length} enabled`)}`;
+  }
+
+  // one line of it, since a description can run to a paragraph
+  const description = selected?.description.replace(/\s+/g, ' ').trim() ?? '';
+  const columns = process.stdout.columns || 80;
+  const shown =
+    description.length > columns - 2
+      ? `${description.slice(0, columns - 3)}…`
+      : description;
+
+  return `${[
+    `${prefix} ${message}`,
+    page,
+    ' ',
+    shown ? chalk.gray(shown) : '',
+    skillsHelp
   ]
     .filter(Boolean)
     .join('\n')}${hideCursor}`;

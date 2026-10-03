@@ -160,6 +160,12 @@ export type RoadmapConfig = {
   enabled: boolean;
 };
 
+export type SkillsConfig = {
+  // the names of installed skills to leave out of the prompt - kept rather than
+  // the enabled ones, so a newly installed skill starts out on
+  disabled: string[];
+};
+
 export type ExploreConfig = {
   enabled: boolean;
   // how many rounds of tool calls an exploration gets before it has to report
