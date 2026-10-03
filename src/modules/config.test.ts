@@ -1,4 +1,4 @@
-import { test, describe } from 'node:test';
+import { test, describe, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -15,7 +15,7 @@ import {
   toThink
 } from './config';
 import { defaultConfig } from './config.default';
-import { LogLevel } from '../types';
+import { ApprovalMode, LogLevel } from '../types';
 
 // both parsers warn on the console when they reject something, which these
 // tests do on purpose
@@ -212,6 +212,27 @@ describe('loadConfigFile', () => {
     );
   });
 
+  test('carries on without settings when the directory cannot be made', () => {
+    // a file where the directory should be - mkdir fails, and not with EEXIST
+    const blocker = resolve(root, 'blocker');
+    const spoke = console.warn;
+    const warnings: string[] = [];
+
+    writeFileSync(blocker, '');
+    console.warn = (message: string) => warnings.push(message);
+
+    try {
+      assert.deepEqual(loadConfigFile(resolve(blocker, 'home')), {});
+    } finally {
+      console.warn = spoke;
+    }
+
+    // reading the missing file would also come back empty - the warning is
+    // what shows it gave up at the create rather than falling through to it
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /^Could not create /);
+  });
+
   test('ignores a file that is not a mapping', () => {
     const dir = resolve(root, 'list');
 
@@ -403,6 +424,36 @@ describe('settings', () => {
 
       assert.equal(config.provider.contextLimit, 2048);
     });
+  });
+
+  test('starts in manual approval when the mode is left blank', async () => {
+    const config = await load('blank-approval', 'approval:\n  mode: ""\n', {
+      AQ_APPROVAL_MODE: ''
+    });
+
+    assert.equal(config.approval.mode, ApprovalMode.Manual);
+  });
+
+  test('keeps everything under ~/.agentiq when AQ_HOME is unset', async () => {
+    // homedir is swapped out so the real ~/.agentiq is never seeded
+    const fakeHome = resolve(root, 'fake-user');
+    const os = mock.module('node:os', {
+      exports: { homedir: () => fakeHome }
+    });
+    const saved = { ...process.env };
+
+    process.env.AQ_HOME = '';
+
+    try {
+      const config = await import(
+        new URL('./config.ts?no-home', import.meta.url).href
+      );
+
+      assert.equal(config.home, resolve(fakeHome, '.agentiq'));
+    } finally {
+      process.env = saved;
+      os.restore();
+    }
   });
 
   test('reads config.yml from AQ_HOME', async () => {
