@@ -17,12 +17,15 @@ import * as addTodo from './add_todo';
 import * as completeTodo from './complete_todo';
 import * as removeTodo from './remove_todo';
 import * as updateNotes from './update_notes';
+import * as decide from './decide';
 
 import {
+  decide as decideConfig,
   explore as exploreConfig,
+  provider as providerConfig,
   roadmap as roadmapConfig
 } from '../modules/config';
-import type { ToolCall } from '../types';
+import { Provider, type ToolCall } from '../types';
 
 // offered only when AQ_ENABLE_ROADMAP is set - a model that cannot see them has
 // no way to write ROADMAP.md
@@ -49,7 +52,11 @@ export const tools: ToolCall[] = [
   presentPlan,
   readPlan,
   ...(exploreConfig.enabled ? [explore] : []),
-  ...(roadmapConfig.enabled ? roadmapTools : [])
+  ...(roadmapConfig.enabled ? roadmapTools : []),
+  // System One is ollama's alone, and needs a decision model of its own to ask
+  ...(providerConfig.name === Provider.Ollama && decideConfig.model
+    ? [decide]
+    : [])
 ];
 
 // tools that only exist once agentiq is running - those of the MCP servers it

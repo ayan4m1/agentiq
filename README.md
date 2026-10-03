@@ -109,6 +109,11 @@ explore:
   # (AQ_EXPLORE_ROUNDS)
   rounds: 8
 
+decide:
+  # the System One model the decide tool asks yes/no questions of - the tool is
+  # offered only with the ollama provider, once this is set (AQ_DECIDE_MODEL)
+  # model: kev-9b
+
 mcp:
   # offer the model the tools of the MCP servers below (AQ_MCP)
   enabled: true
@@ -141,7 +146,10 @@ startup, and decides:
 The choices are:
 
 - `ollama` (the default) - talks to an Ollama server at `ollama.host`. Each model needs a matching
-  tokenizer, and the other `ollama.*` settings apply.
+  tokenizer, and the other `ollama.*` settings apply. Setting `decide.model` (or `AQ_DECIDE_MODEL`)
+  also offers the model the `decide` tool, which puts yes/no questions about some context to that
+  decision model through Ollama's System One API and reports how likely each answer is. It needs
+  Ollama v0.35.0 or later and a System One model such as `kev-9b`.
 - `anthropic` - talks to the Anthropic API. No tokenizer is needed, since the API counts tokens
   itself, and the `ollama.*` settings are ignored.
 
@@ -272,6 +280,9 @@ agentiq exec "fix the failing tests" --mode auto
 - `manual` - only changes already allowed by a saved rule (an earlier "always" answer) are applied.
   Everything else is refused, and the model is told nobody was there to approve it.
 - `plan` - nothing can be changed. The run ends once the model presents its plan.
+
+Plans the model presents are saved to `~/.agentiq/plans/`, one file per project, rather than into the
+project itself - so presenting a plan never writes to your working tree, in any mode.
 
 Questions the model would normally put to you are answered with a note telling it to decide for
 itself. A model has to have been set up with `agentiq run` first.

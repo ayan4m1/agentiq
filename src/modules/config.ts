@@ -15,6 +15,7 @@ import {
   LogLevel,
   type OllamaConfig,
   type ExploreConfig,
+  type DecideConfig,
   type McpConfig,
   type McpServerConfig,
   type RoadmapConfig,
@@ -339,6 +340,12 @@ export const explore: ExploreConfig = {
     true
   ),
   rounds: integer('AQ_EXPLORE_ROUNDS', 'explore', 'rounds')
+};
+
+// unset by default: a decision model is a separate download, and offering the
+// decide tool without one would only hand the model a call that fails
+export const decide: DecideConfig = {
+  model: setting('AQ_DECIDE_MODEL', 'decide', 'model') || undefined
 };
 
 // a list, so it is read from the file as it is rather than through setting(),

@@ -66,6 +66,9 @@ const fakeClient = (overrides: Record<string, unknown> = {}) => {
     abort: mock.fn(),
     list: mock.fn(async (): Promise<unknown> => ({ models: [] })),
     show: mock.fn<(request: unknown) => Promise<unknown>>(async () => ({})),
+    systemone: mock.fn<(request: unknown) => Promise<unknown>>(async () => ({
+      answers: {}
+    })),
     ...overrides
   };
 
@@ -321,5 +324,81 @@ describe('readContextLength', () => {
       readContextLength(undefined as unknown as ShowResponse['model_info']),
       undefined
     );
+  });
+});
+
+describe('decide', () => {
+  test('asks each question as a noul question, keyed by position', async () => {
+    ollama.keepAlive = '30m';
+    const { client, provider } = fakeClient();
+
+    await provider.decide({
+      model: 'kev-9b',
+      state: 'CI is red on main',
+      questions: ['Is the build broken?', 'Is it flaky?']
+    });
+
+    assert.deepEqual(client.systemone.mock.calls[0].arguments, [
+      {
+        model: 'kev-9b',
+        state: 'CI is red on main',
+        questions: {
+          q1: { type: 'noul', instructions: 'Is the build broken?' },
+          q2: { type: 'noul', instructions: 'Is it flaky?' }
+        },
+        keep_alive: '30m'
+      }
+    ]);
+  });
+
+  test('hands the answers back in the order they were asked', async () => {
+    const { provider } = fakeClient({
+      systemone: mock.fn(async () => ({
+        answers: {
+          q2: { type: 'noul', noul: 0.25 },
+          q1: { type: 'noul', noul: 0.75 }
+        }
+      }))
+    });
+
+    const { probabilities } = await provider.decide({
+      model: 'kev-9b',
+      state: 'state',
+      questions: ['first', 'second']
+    });
+
+    assert.deepEqual(probabilities, [0.75, 0.25]);
+  });
+
+  test('leaves a missing or unexpected answer undefined', async () => {
+    const { provider } = fakeClient({
+      systemone: mock.fn(async () => ({
+        answers: {
+          q1: { type: 'choice', choice: 'a', probabilities: {}, confidence: 1 }
+        }
+      }))
+    });
+
+    const { probabilities } = await provider.decide({
+      model: 'kev-9b',
+      state: 'state',
+      questions: ['first', 'second']
+    });
+
+    assert.deepEqual(probabilities, [undefined, undefined]);
+  });
+
+  test('copes with a response that has no answers at all', async () => {
+    const { provider } = fakeClient({
+      systemone: mock.fn(async () => ({}))
+    });
+
+    const { probabilities } = await provider.decide({
+      model: 'kev-9b',
+      state: 'state',
+      questions: ['first']
+    });
+
+    assert.deepEqual(probabilities, [undefined]);
   });
 });

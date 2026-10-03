@@ -94,7 +94,7 @@ __metadata:
     inquirer-command-prompt: "npm:^0.1.0"
     lint-staged: "npm:^17.5.1"
     node-html-parser: "npm:^9.0.4"
-    ollama: "npm:^0.6.3"
+    ollama: "npm:^0.6.4"
     ora: "npm:^9.4.1"
     prettier: "npm:^3.9.6"
     rollup: "npm:^4.63.2"
@@ -6300,12 +6300,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ollama@npm:^0.6.3":
-  version: 0.6.3
-  resolution: "ollama@npm:0.6.3"
+"ollama@npm:^0.6.4":
+  version: 0.6.4
+  resolution: "ollama@npm:0.6.4"
   dependencies:
     whatwg-fetch: "npm:^3.6.20"
-  checksum: 10c0/040742dd1f96ad06d5508e387d8d953b3cfab527427f5dd463be7ccd589877eccfbf13ccea0bcb4d6b044a90a327c82c3089834fd3c0ea7243bb830a9c07295d
+  checksum: 10c0/f734e60ac1ac1d83ce81587e626982695cd6f639c3729b9a300529ab1b67e65b475d81dbf0add6e94057a47edf4823fd7e7a8d9065d66470a1d88584ddea5bdd
   languageName: node
   linkType: hard
 

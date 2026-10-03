@@ -191,6 +191,12 @@ export type ExploreConfig = {
   rounds: number;
 };
 
+export type DecideConfig = {
+  // the System One model the decide tool asks - unset leaves the tool out,
+  // since there would be nothing for it to call
+  model?: string;
+};
+
 // the shapes the rest of agentiq speaks, whichever provider is behind them.
 // they follow ollama's field names, snake_case and all, because messages are
 // written to session files as they are - a rename would orphan every saved
@@ -315,7 +321,24 @@ export interface ChatProvider {
   // whose tokenizer cannot be had locally offers it - the rest estimate until
   // the first reply reports what was actually counted
   countTokens?(request: ChatRequest): Promise<number>;
+  // yes/no questions put to a decision model rather than the chat model. only
+  // ollama's System One offers it, so the decide tool is not offered otherwise
+  decide?(request: DecisionRequest): Promise<DecisionResponse>;
 }
+
+// questions answered against the state alone - the decision model sees nothing
+// of the conversation
+export type DecisionRequest = {
+  model: string;
+  state: string;
+  questions: string[];
+};
+
+// the probability that each question is true, in the order asked. undefined
+// where the server sent nothing usable back for one
+export type DecisionResponse = {
+  probabilities: (number | undefined)[];
+};
 
 // handlers declare their own argument type, so the parameter here is `never` -
 // it is the one shape every handler is assignable to regardless of variance

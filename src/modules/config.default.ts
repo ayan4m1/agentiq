@@ -105,6 +105,12 @@ explore:
   # its report (AQ_EXPLORE_ROUNDS)
   rounds: 8
 
+decide:
+  # the System One model the decide tool asks yes/no questions of. only offered
+  # when provider.name is ollama, and only once this is set - it needs an
+  # ollama server with System One support (AQ_DECIDE_MODEL)
+  # model: kev-9b
+
 mcp:
   # whether tools from the MCP servers below are offered to the model (AQ_MCP)
   enabled: true

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 // cleared, so a value in the environment the tests run from cannot change them
 process.env.AQ_ENABLE_ROADMAP = '';
 process.env.AQ_EXPLORE = '';
+process.env.AQ_DECIDE_MODEL = '';
 
 const { tools } = await import('./index');
 
@@ -48,6 +49,12 @@ describe('tools', () => {
     const names = tools.map((tool) => tool.definition.function.name);
 
     assert.ok(names.includes('explore'));
+  });
+
+  test('leaves out decide unless AQ_DECIDE_MODEL is set', () => {
+    const names = tools.map((tool) => tool.definition.function.name);
+
+    assert.ok(!names.includes('decide'));
   });
 
   test('does not point the model at a roadmap tool it cannot call', () => {

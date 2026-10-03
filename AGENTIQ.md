@@ -40,7 +40,12 @@ general instructions about how to be an agent.
   the roadmap, skills from `~/.agentiq/skills` (only enabled ones reach the
   prompt; `/skills` toggles them via `picker.ts`), the system prompt.
 - `src/tools/` - one tool per file, each exporting a `definition` built with
-  `makeTool()` and a `handler`. `src/tools/index.ts` is the registry.
+  `makeTool()` and a `handler`. `src/tools/index.ts` is the registry, and
+  leaves out the tools config has not enabled - the roadmap tools, `explore`,
+  and `decide`, which is only offered with ollama and a `decide.model`.
+- `src/providers/` - one `ChatProvider` per backend. A capability only one
+  backend has is an optional method on the interface - `countTokens?` for
+  anthropic, `decide?` (ollama's System One) for ollama.
 - `src/utils/index.ts` - shared helpers, including the content budget used to
   keep tool output from overflowing the context window.
 

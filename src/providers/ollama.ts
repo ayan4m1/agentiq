@@ -1,4 +1,9 @@
-import { Ollama, type ChatResponse, type ShowResponse } from 'ollama';
+import {
+  Ollama,
+  type ChatResponse,
+  type ShowResponse,
+  type SystemOneNoulQuestion
+} from 'ollama';
 
 import { ollama, provider } from '../modules/config';
 import type {
@@ -6,6 +11,8 @@ import type {
   ChatProvider,
   ChatRequest,
   ChatStream,
+  DecisionRequest,
+  DecisionResponse,
   ModelDetails,
   ModelSummary
 } from '../types';
@@ -127,6 +134,35 @@ export class OllamaProvider implements ChatProvider {
   // only reaches a request once its response has started to arrive
   abort() {
     this.client.abort();
+  }
+
+  // System One takes its questions as a mapping, so each is keyed by position
+  // and read back the same way - the caller only ever sees them in order
+  async decide({
+    model,
+    state,
+    questions
+  }: DecisionRequest): Promise<DecisionResponse> {
+    const keys = questions.map((_, index) => `q${index + 1}`);
+    const { answers } = await this.client.systemone({
+      model,
+      state,
+      questions: Object.fromEntries(
+        questions.map((instructions, index) => [
+          keys[index],
+          { type: 'noul', instructions } satisfies SystemOneNoulQuestion
+        ])
+      ),
+      keep_alive: ollama.keepAlive
+    });
+
+    return {
+      probabilities: keys.map((key) => {
+        const answer = answers?.[key];
+
+        return answer?.type === 'noul' ? answer.noul : undefined;
+      })
+    };
   }
 
   async listModels(): Promise<ModelSummary[]> {

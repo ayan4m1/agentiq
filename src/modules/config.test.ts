@@ -351,6 +351,21 @@ describe('settings', () => {
     assert.equal(config.provider.think, undefined);
     assert.equal(config.logging.logThoughts, false);
     assert.deepEqual(config.skills.disabled, []);
+    assert.equal(config.decide.model, undefined);
+  });
+
+  test('reads the decision model from config.yml', async () => {
+    const config = await load('decide', 'decide:\n  model: kev-9b\n');
+
+    assert.equal(config.decide.model, 'kev-9b');
+  });
+
+  test('lets AQ_DECIDE_MODEL override the decision model', async () => {
+    const config = await load('decide-env', 'decide:\n  model: kev-9b\n', {
+      AQ_DECIDE_MODEL: 'other-model'
+    });
+
+    assert.equal(config.decide.model, 'other-model');
   });
 
   test('lets an AQ_* env var override the file', async () => {
