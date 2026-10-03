@@ -373,6 +373,17 @@ describe('startRepl', () => {
     );
   });
 
+  test('cuts a long model name short', async () => {
+    provider.model = 'hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M';
+
+    await exitCodeOf();
+
+    assert.match(
+      prompt.mock.calls[0].arguments[0].message,
+      /^manual\[hf\.co\/unsloth\/Qwen3-Coder-30B-\.\.\.\]\[42 tok/
+    );
+  });
+
   test('completes commands and project paths', async () => {
     await exitCodeOf();
 

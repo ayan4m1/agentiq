@@ -18,6 +18,7 @@ type ReplOptions = {
   resume?: string | boolean;
 };
 
+const maxModelNameLength = 30;
 const log = getLogger('interactive');
 
 // the interactive session commands/run.ts starts - kept apart from it so that a
@@ -31,8 +32,14 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
 
   const { thinker, schedule, cleanUp } = agent;
 
+  // read for every prompt, since /model can switch it mid-session
+  const describeModel = () =>
+    provider.model.length > maxModelNameLength
+      ? `${provider.model.substring(0, maxModelNameLength)}...`
+      : provider.model;
+
   const renderPrompt = () =>
-    `${systemColor(`${describeMode()}[${provider.model}]${getTokenString(thinker.tokens.total, provider.contextLimit)}${describeCheck()}`)}\n${chalk.blue('>')}`;
+    `${systemColor(`${describeMode()}[${describeModel()}]${getTokenString(thinker.tokens.total, provider.contextLimit)}${describeCheck()}`)}\n${chalk.blue('>')}`;
 
   // the prompt's own tab branch has no shift guard, so shift+tab would otherwise
   // fall into autocompletion and leave a literal tab in the buffer
