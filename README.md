@@ -149,10 +149,7 @@ startup, and decides:
 The choices are:
 
 - `ollama` (the default) - talks to an Ollama server at `ollama.host`. Each model needs a matching
-  tokenizer, and the other `ollama.*` settings apply. Setting `decide.model` (or `AQ_DECIDE_MODEL`)
-  also offers the model the `decide` tool, which puts yes/no questions about some context to that
-  decision model through Ollama's System One API and reports how likely each answer is. It needs
-  Ollama v0.35.0 or later and a System One model such as `kev-9b`.
+  tokenizer, and the other `ollama.*` settings apply.
 - `anthropic` - talks to the Anthropic API. No tokenizer is needed, since the API counts tokens
   itself, and the `ollama.*` settings are ignored.
 
@@ -273,6 +270,23 @@ they cost on its `MCP` line.
 Calling an MCP tool always needs approval, like running a command does. Answering "always" saves a
 `tool` rule, and `/rules add tool mcp__<server>__*` allows every tool for one server at once. In plan
 mode, only tools that their server marks as read-only can be called.
+
+## The decide tool
+
+The `decide` tool lets the model hand quick judgement calls to a second, much faster model instead
+of reasoning through them at length. It uses Ollama's [System One](https://pydantic.dev/docs/ai/models/system-one/) API, which is built for decision models: rather than writing a reply, a System One model reads some
+state and scores how likely each of a set of yes/no questions is to be true.
+
+To turn it on, set `decide.model` (or `AQ_DECIDE_MODEL`) to a System One model, such as `kev-9b`,
+installed on the same Ollama server:
+
+```yaml
+decide:
+  model: kev-9b
+```
+
+The tool is only offered with the `ollama` provider, once `decide.model` is set, and needs Ollama
+v0.35.0 or later. The decision model is kept loaded for `ollama.keepAlive`, like the chat model.
 
 ## Non-interactive use
 
