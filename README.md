@@ -303,9 +303,6 @@ agentiq exec "fix the failing tests" --mode auto
   Everything else is refused, and the model is told nobody was there to approve it.
 - `plan` - nothing can be changed. The run ends once the model presents its plan.
 
-Plans the model presents are saved to `~/.agentiq/plans/`, one file per project, rather than into the
-project itself - so presenting a plan never writes to your working tree, in any mode.
-
 Questions the model would normally put to you are answered with a note telling it to decide for
 itself. A model has to have been set up with `agentiq run` first.
 
