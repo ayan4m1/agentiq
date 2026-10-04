@@ -38,7 +38,9 @@ general instructions about how to be an agent.
 - `src/modules/` - otherwise one concern per file: approval modes, checkpoints,
   config, session persistence, background jobs, tokenizer caching, preflight,
   the roadmap, skills from `~/.agentiq/skills` (only enabled ones reach the
-  prompt; `/skills` toggles them via `picker.ts`), the system prompt.
+  prompt; `/skills` toggles them via `picker.ts`), saved prompts from
+  `~/.agentiq/commands` and `.agentiq/commands` that `runCommand()` sends as
+  `/<name>` (`commands.ts`), the system prompt.
 - `src/tools/` - one tool per file, each exporting a `definition` built with
   `makeTool()` and a `handler`. `src/tools/index.ts` is the registry, and
   leaves out the tools config has not enabled - the roadmap tools, `explore`,

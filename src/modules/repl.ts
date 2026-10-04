@@ -14,6 +14,7 @@ import {
 import { pickModel, pickSkills } from './picker';
 import { listServers } from './mcp';
 import { isEnabled, listSkills, setEnabled, skillsDir } from './skills';
+import { expandCommand, loadCommands } from './commands';
 import { modelContextLength, preflight } from './preflight';
 import { beginTurn, changes, countSince, rewind } from './checkpoints';
 import { chatProvider } from '../providers';
@@ -74,6 +75,10 @@ export const Command = {
   Help: 'help',
   Quit: 'quit'
 } as const;
+
+// the saved prompts that can be sent as /<name>, read fresh each time. a file
+// named for a built-in command is left out, since the built-in always runs
+export const customCommands = () => loadCommands(Object.values(Command));
 
 type Thinker = Pick<
   ReturnType<typeof makeThinker>,
@@ -814,6 +819,23 @@ export const createController = ({
     }
   };
 
+  // a saved command, without its slash, sent as its prompt with whatever was
+  // typed after its name. the history keeps the /command rather than the
+  // prompt it stands for. false when no saved command has that name
+  const sendCommand = (input: string) => {
+    const line = input.trim();
+    const [name] = line.split(/\s+/);
+    const command = customCommands().find((custom) => custom.name === name);
+
+    if (!command) {
+      return false;
+    }
+
+    addUserMessage(expandCommand(command, line.slice(name.length)), `/${line}`);
+
+    return true;
+  };
+
   // a slash command, without its slash, and anything typed after its name.
   // quitting is left to the caller, which owns the process and what has to be
   // cleaned up before it exits
@@ -878,12 +900,19 @@ export const createController = ({
         Object.values(Command).forEach((cmd) =>
           console.log(`${systemColor('*')} /${cmd}`)
         );
+        customCommands().forEach(({ name: custom, description }) =>
+          console.log(
+            `${systemColor('*')} /${custom}${description ? chalk.gray(` - ${description}`) : ''}`
+          )
+        );
         console.log(systemColor('---------------------------\n'));
         break;
       case Command.Quit:
         return Command.Quit;
       default:
-        log.error(chalk.red(`Tried to use unknown command /${name}!`));
+        if (!sendCommand(input)) {
+          log.error(chalk.red(`Tried to use unknown command /${name}!`));
+        }
         break;
     }
 
@@ -904,11 +933,18 @@ export const createController = ({
     return true;
   };
 
-  const addUserMessage = (content: string) => {
+  // typed is what the user would want offered back, when it is not the content
+  // itself - the /command that a saved prompt was sent with
+  const addUserMessage = (content: string, typed?: string) => {
     const expanded = expandMentions(content);
-    const message: AgentMessage = expanded
-      ? { role: 'user', content: expanded, typed: content }
-      : { role: 'user', content };
+    const message: AgentMessage =
+      expanded || typed !== undefined
+        ? {
+            role: 'user',
+            content: expanded ?? content,
+            typed: typed ?? content
+          }
+        : { role: 'user', content };
 
     nextThought.messages.push(message);
     currentTurn = beginTurn();
@@ -981,7 +1017,11 @@ export const createController = ({
   // model wants until it hands the conversation back. true unless the model
   // call itself failed
   const runPrompt = async (prompt: string, schedule?: Schedule) => {
-    addUserMessage(prompt);
+    // a saved command works here as at the prompt. anything else that starts
+    // with a / - a path, say - is sent as it was given
+    if (!(prompt.startsWith('/') && sendCommand(prompt.slice(1)))) {
+      addUserMessage(prompt);
+    }
 
     do {
       await takeTurn(schedule);

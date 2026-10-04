@@ -161,6 +161,9 @@ mock.module('./repl', {
   exports: {
     Command: { Help: 'help', Quit: 'quit' },
     createController,
+    customCommands: () => [
+      { name: 'review', body: 'Review the diff', path: 'review.md' }
+    ],
     systemColor: (text: string) => text
   } satisfies ModuleMock<typeof import('./repl')>
 });
@@ -384,14 +387,14 @@ describe('startRepl', () => {
     );
   });
 
-  test('completes commands and project paths', async () => {
+  test('completes commands, saved commands and project paths', async () => {
     await exitCodeOf();
 
     const [options] = prompt.mock.calls[0].arguments;
 
     assert.deepEqual(options.autoCompletion('/he'), ['/help']);
     assert.deepEqual(argumentsOf(complete), [
-      ['/he', { commands: ['help', 'quit'], paths: pathIndex }]
+      ['/he', { commands: ['help', 'quit', 'review'], paths: pathIndex }]
     ]);
     assert.equal(options.short, shortCompletions);
   });

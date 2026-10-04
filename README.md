@@ -191,7 +191,7 @@ The choices are:
 | `/rules`                    | Lists saved approval rules (↑↓ to move, `r` then `y` to remove). `/rules add command\|path\|tool <pattern>` saves one; `*` matches within a path segment, `**` across them.                                           |
 | `/skills`                   | Lists installed skills to turn on or off (↑↓ to move, space to toggle, `a` for all/none, esc or ⏎ to close). Only enabled skills go into the system prompt; the choice is saved to `skills.disabled` in `config.yml`. |
 | `/mcp`                      | Lists the configured MCP servers, whether each connected, and how many tools it offers. See [MCP servers](#mcp-servers).                                                                                              |
-| `/help`                     | Lists the available commands.                                                                                                                                                                                         |
+| `/help`                     | Lists the available commands, including [custom commands](#custom-commands).                                                                                                                                          |
 | `/quit`                     | Exits agentiq.                                                                                                                                                                                                        |
 
 ## Choosing a model
@@ -216,6 +216,31 @@ The tokenizer can be a huggingface.co model (formatted like `user/repo`) or a lo
 
 Switching mid-conversation keeps the history. The tokenizer is downloaded, the system prompt is
 rebuilt around the new model, and the context is counted again from scratch.
+
+## Custom commands
+
+A prompt you send often can be saved as a command of its own. Each markdown file in
+`~/.agentiq/commands/`, or in `.agentiq/commands/` in the directory agentiq runs in, becomes a
+slash command named for the file, so `~/.agentiq/commands/review.md` is sent with `/review`:
+
+```markdown
+---
+description: Review uncommitted changes for bugs
+---
+
+Run `git diff` and review the changes for correctness bugs. Focus on: $ARGUMENTS
+```
+
+- `$ARGUMENTS` is replaced with everything typed after the name, and `$1` to `$9` with each word
+  of it. When the prompt has neither, whatever was typed is added below it.
+- The frontmatter is optional. Its `description` is shown beside the command in `/help`.
+- A project's command replaces a global one of the same name. A built-in command always wins over
+  a file named for it.
+- Files mentioned with `@` in the prompt are attached just as when typed.
+- Commands are read again before every prompt, so a new or edited one works straight away, and
+  they tab-complete like the built-in ones.
+- The history and `/undo` offer back the `/command` you typed rather than the prompt it stood for.
+- `agentiq exec "/review"` runs a saved command headlessly.
 
 ## Skills
 

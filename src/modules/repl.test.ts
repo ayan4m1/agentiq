@@ -11,7 +11,12 @@ import {
   writeFileSync
 } from 'node:fs';
 
-import { ApprovalMode, type ChatMessage, type ThoughtState } from '../types';
+import {
+  ApprovalMode,
+  type AgentMessage,
+  type ChatMessage,
+  type ThoughtState
+} from '../types';
 import { fakePrompts } from '../../test/fakes/inquirer';
 import { fakePreflight } from '../../test/fakes/preflight';
 import type { ModuleMock } from '../../test/fakes/module';
@@ -1150,6 +1155,103 @@ describe('commands', () => {
     await make().runCommand(Command.Changes);
 
     assert.match(printed(), /Nothing has been written this session/);
+  });
+});
+
+describe('saved commands', () => {
+  // each test works in a project of its own, so the commands go with it
+  const save = (file: string, content: string) => {
+    mkdirSync(resolve('.agentiq', 'commands'), { recursive: true });
+    writeFileSync(resolve('.agentiq', 'commands', file), content);
+  };
+
+  test('sends a saved command as its prompt, and keeps what was typed', async () => {
+    const controller = make();
+
+    save('review.md', '---\ndescription: Review\n---\nReview $1 for bugs\n');
+
+    assert.equal(await controller.runCommand('review src/a.ts'), undefined);
+    assert.deepEqual(controller.messages, [
+      {
+        role: 'user',
+        content: 'Review src/a.ts for bugs',
+        typed: '/review src/a.ts'
+      }
+    ]);
+    assert.equal(controller.needsUserInput, false);
+  });
+
+  test('attaches files mentioned in a saved command', async () => {
+    const controller = make();
+
+    writeFileSync('notes.txt', 'alpha');
+    save('notes.md', 'Summarise @notes.txt');
+    await controller.runCommand('notes');
+
+    const [message] = controller.messages;
+
+    assert.match(
+      message.content,
+      /^Summarise @notes\.txt\n\nContents of notes\.txt:/
+    );
+    assert.equal((message as AgentMessage).typed, '/notes');
+  });
+
+  test('runs the built-in when a saved command shares its name', async () => {
+    const controller = make();
+
+    save('mode.md', 'not a mode');
+    await controller.runCommand(Command.Mode);
+
+    assert.equal(approval.mode, ApprovalMode.Auto);
+    assert.deepEqual(controller.messages, []);
+  });
+
+  test('lists saved commands with their descriptions for /help', async () => {
+    save('review.md', '---\ndescription: Review the diff\n---\nReview');
+    save('commit.md', 'Commit');
+    await make().runCommand(Command.Help);
+
+    assert.match(printed(), /\/review - Review the diff/);
+    assert.match(printed(), /\/commit$/m);
+  });
+
+  test('sends a saved command given to runPrompt', async () => {
+    const controller = make();
+
+    save('review.md', 'Review $ARGUMENTS');
+    answers(reply);
+
+    assert.equal(await controller.runPrompt('/review the diff'), true);
+    assert.equal(
+      thinker.think.mock.calls[0].arguments[0].messages[0].content,
+      'Review the diff'
+    );
+  });
+
+  test('sends any other prompt starting with a slash as it was given', async () => {
+    const controller = make();
+
+    answers(reply);
+    await controller.runPrompt('/usr/bin is missing');
+
+    assert.equal(
+      thinker.think.mock.calls[0].arguments[0].messages[0].content,
+      '/usr/bin is missing'
+    );
+  });
+
+  test('offers the /command back after /undo', async () => {
+    const controller = make();
+
+    save('review.md', 'Review $ARGUMENTS');
+    await controller.runCommand('review a.ts');
+    answers(reply);
+    await controller.takeTurn();
+    select.mock.mockImplementationOnce(async () => 0 as never);
+    await controller.runCommand(Command.Undo);
+
+    assert.equal(controller.takePrefill(), '/review a.ts');
   });
 });
 

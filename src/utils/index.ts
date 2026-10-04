@@ -126,6 +126,10 @@ export const getTokenString = (value: number, limit: number) =>
 // session id keep the slug and its uuid separable
 export const slugFor = (cwd: string) => cwd.replace(/[^A-Za-z0-9]/g, '-');
 
+// skills and custom commands both open with yaml frontmatter. it has to open
+// the file - a --- further down is a horizontal rule in the body, not metadata
+export const frontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+
 // a rough average that holds well enough across prose and code. it sizes the
 // budgets below, and stands in for a tokenizer when none is configured
 export const charsPerToken = 3.33;

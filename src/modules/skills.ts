@@ -5,7 +5,12 @@ import { parse } from 'yaml';
 
 import { home, saveSetting, skills as config } from './config';
 import { getLogger } from './logging';
-import { describeError, getContentBudget, truncate } from '../utils';
+import {
+  describeError,
+  frontmatterPattern,
+  getContentBudget,
+  truncate
+} from '../utils';
 import type { Skill } from '../types';
 
 const log = getLogger('skills');
@@ -15,9 +20,6 @@ const log = getLogger('skills');
 export const skillsDir = resolve(home, 'skills');
 
 const skillFile = 'SKILL.md';
-// the frontmatter has to open the file - a --- further down is a horizontal
-// rule in the body, not metadata
-const frontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 // resent on every turn like the roadmap, so it gets the same small share
 const promptBudget = getContentBudget(0.05);
 

@@ -410,6 +410,15 @@ export type Skill = {
   directory: string;
 };
 
+// a prompt saved as a markdown file, sent by typing /<name>
+export type CustomCommand = {
+  name: string;
+  description?: string;
+  // the prompt itself, placeholders and all - the frontmatter is not part of it
+  body: string;
+  path: string;
+};
+
 export type TokenStats = {
   tools: number;
   // the share of tools that came from MCP servers - already counted in tools

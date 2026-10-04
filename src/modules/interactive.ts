@@ -9,7 +9,7 @@ import { cycleMode, describeMode } from './approval';
 import { describeCheck } from './check';
 import { pruneSessions, sessionId, startSession } from './session';
 import { complete, createPathIndex, shortCompletions } from './completion';
-import { Command, createController, systemColor } from './repl';
+import { Command, createController, customCommands, systemColor } from './repl';
 import { getTokenString } from '../utils';
 import { getLogger } from './logging';
 
@@ -137,7 +137,7 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
       InquirerCommandPrompt.addToHistory(historyContext, line)
   });
 
-  const commands = Object.values(Command);
+  const builtins = Object.values(Command);
   const paths = createPathIndex();
 
   pruneSessions();
@@ -154,6 +154,12 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
     if (controller.needsUserInput) {
       // whatever the last turn wrote or deleted should be offered, or not
       paths.invalidate();
+
+      // read again for every prompt, so a command saved mid-session completes
+      const commands = [
+        ...builtins,
+        ...customCommands().map(({ name }) => name)
+      ];
 
       //@ts-expect-error inquirer has a context of its own that means something
       // else entirely, so its type rejects the history key the command prompt
