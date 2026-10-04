@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { anthropic, logging } from '../modules/config';
 import { getLogger } from '../modules/logging';
 import {
+  PromptCache,
   Provider,
   type ChatChunk,
   type ChatMessage,
@@ -172,6 +173,46 @@ const toParams = (request: ChatRequest) => {
   };
 };
 
+export const toCacheControl = (
+  cache = anthropic.promptCache
+): Anthropic.CacheControlEphemeral | undefined => {
+  if (cache === PromptCache.Off) {
+    return;
+  }
+
+  return cache === PromptCache.OneHour
+    ? { type: 'ephemeral', ttl: '1h' }
+    : { type: 'ephemeral' };
+};
+
+// tools, then the system prompt, then the conversation is the order the API
+// reads a request in, and a cached prefix is reused only up to the first byte
+// that differs. the marker on the system prompt keeps tools and prompt cached
+// whatever happens after them, and the one on the request follows the end of
+// the conversation, so each turn reads what the last one wrote. both share one
+// lifetime, since a longer one may not come after a shorter
+const withCaching = (params: ReturnType<typeof toParams>) => {
+  const cacheControl = toCacheControl();
+
+  if (!cacheControl) {
+    return params;
+  }
+
+  const { system, ...rest } = params;
+
+  return {
+    ...rest,
+    ...(system
+      ? {
+          system: [
+            { type: 'text' as const, text: system, cache_control: cacheControl }
+          ]
+        }
+      : {}),
+    cache_control: cacheControl
+  };
+};
+
 // the reply in the shape the rest of agentiq speaks, with the original blocks
 // kept so the next request can send them back untouched
 export const toReply = (message: Anthropic.Message): ChatMessage => {
@@ -234,7 +275,13 @@ const toUsage = ({ usage }: Anthropic.Message) => ({
     usage.input_tokens +
     (usage.cache_creation_input_tokens ?? 0) +
     (usage.cache_read_input_tokens ?? 0),
-  outputTokens: usage.output_tokens
+  outputTokens: usage.output_tokens,
+  // a server that only speaks the messages API - sglang, say - may leave
+  // these out altogether, and saying 0 would claim a miss nobody measured
+  cache: {
+    readTokens: usage.cache_read_input_tokens ?? undefined,
+    writeTokens: usage.cache_creation_input_tokens ?? undefined
+  }
 });
 
 export class AnthropicProvider implements ChatProvider {
@@ -264,7 +311,7 @@ export class AnthropicProvider implements ChatProvider {
 
   async stream(request: ChatRequest): Promise<ChatStream> {
     const stream = this.client.messages.stream({
-      ...toParams(request),
+      ...withCaching(toParams(request)),
       max_tokens: streamMaxTokens
     });
     // a stream brings its own controller, so there is nothing to make here
@@ -328,7 +375,7 @@ export class AnthropicProvider implements ChatProvider {
     try {
       return toReply(
         await this.client.messages.create(
-          { ...toParams(request), max_tokens: completeMaxTokens },
+          { ...withCaching(toParams(request)), max_tokens: completeMaxTokens },
           { signal: controller.signal }
         )
       );

@@ -87,7 +87,7 @@ mock.module('../tools', {
   exports: { tools } satisfies ModuleMock<typeof import('../tools')>
 });
 
-const { makeThinker, replayable } = await import('./thinker');
+const { describeCache, makeThinker, replayable } = await import('./thinker');
 const { chatProvider } = await import('../providers');
 const { isElided } = await import('./compaction');
 const { estimateTokens } = await import('./tokenizer');
@@ -1314,5 +1314,29 @@ describe('the spinner', () => {
 
     assert.equal(spinner.start.mock.callCount(), 0);
     assert.equal(spinner.stop.mock.callCount(), 0);
+  });
+});
+
+describe('describeCache', () => {
+  test('gives both figures when the server sends them', () => {
+    assert.equal(
+      describeCache({ readTokens: 300, writeTokens: 20 }),
+      'Prompt cache: 300 read, 20 written'
+    );
+  });
+
+  test('keeps a real zero', () => {
+    assert.equal(
+      describeCache({ readTokens: 0, writeTokens: 0 }),
+      'Prompt cache: 0 read, 0 written'
+    );
+  });
+
+  test('gives only the figure that was sent', () => {
+    assert.equal(describeCache({ readTokens: 512 }), 'Prompt cache: 512 read');
+  });
+
+  test('says so rather than claiming a miss when nothing was sent', () => {
+    assert.equal(describeCache({}), 'Prompt cache: not reported by the server');
   });
 });

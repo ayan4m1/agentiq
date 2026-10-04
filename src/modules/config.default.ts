@@ -72,6 +72,12 @@ anthropic:
   # it, such as sglang. leave it empty to fall back to the ANTHROPIC_BASE_URL
   # environment variable, then the Anthropic API (AQ_ANTHROPIC_BASE_URL)
   baseUrl: ''
+  # how long the repeated start of each request - tools, system prompt and the
+  # conversation so far - stays cached, which bills it at a tenth of the input
+  # price. 5m, or 1h if you often pause longer between prompts (writing the
+  # cache costs 2x instead of 1.25x). off for a server that refuses
+  # cache_control (AQ_ANTHROPIC_PROMPT_CACHE)
+  promptCache: 5m
 
 session:
   # how many saved sessions to keep in ~/.agentiq/sessions; older ones are

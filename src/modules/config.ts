@@ -25,7 +25,8 @@ import {
   type TokenizerConfig,
   type AnthropicConfig,
   type ProviderConfig,
-  Provider
+  Provider,
+  PromptCache
 } from '../types';
 
 const truthy = ['true', 'yes', '1'];
@@ -86,6 +87,28 @@ export const toThink = (value?: string): ThinkSetting | undefined => {
   console.warn(
     `Ignoring provider.think (AQ_THINK) "${value}" - expected true, false, or one of ${levels.join(', ')}`
   );
+};
+
+// one of the cache lifetimes, or off. anything else keeps the default rather
+// than turning caching off, since a typo should not quietly cost more
+export const toPromptCache = (value?: string) => {
+  if (!value) {
+    return PromptCache.FiveMinutes;
+  }
+
+  const spelled = value.trim().toLowerCase();
+  const lifetimes = Object.values(PromptCache);
+  const found = lifetimes.find((lifetime) => lifetime === spelled);
+
+  if (!found) {
+    console.warn(
+      `Ignoring anthropic.promptCache (AQ_ANTHROPIC_PROMPT_CACHE) "${value}" - expected one of ${lifetimes.join(', ')}`
+    );
+
+    return PromptCache.FiveMinutes;
+  }
+
+  return found;
 };
 
 // the same spellings toThink accepts, for a setting that is only ever on or
@@ -287,7 +310,10 @@ export const provider: ProviderConfig = {
 
 export const anthropic: AnthropicConfig = {
   apiKey: setting('AQ_ANTHROPIC_API_KEY', 'anthropic', 'apiKey') || '',
-  baseUrl: setting('AQ_ANTHROPIC_BASE_URL', 'anthropic', 'baseUrl') || ''
+  baseUrl: setting('AQ_ANTHROPIC_BASE_URL', 'anthropic', 'baseUrl') || '',
+  promptCache: toPromptCache(
+    setting('AQ_ANTHROPIC_PROMPT_CACHE', 'anthropic', 'promptCache')
+  )
 };
 
 export const ollama: OllamaConfig = {

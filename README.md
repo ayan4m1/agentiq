@@ -78,6 +78,9 @@ anthropic:
   # ANTHROPIC_BASE_URL environment variable, then the Anthropic API
   # (AQ_ANTHROPIC_BASE_URL)
   baseUrl: ''
+  # how long the repeated start of each request stays cached - 5m, 1h, or off
+  # for a server that refuses cache_control (AQ_ANTHROPIC_PROMPT_CACHE)
+  promptCache: 5m
 
 session:
   # saved sessions to keep in ~/.agentiq/sessions; 0 keeps them all
@@ -166,6 +169,11 @@ The choices are:
 >   `http://localhost:30000/v1` would end up requesting `/v1/v1/messages`.
 > - Set `anthropic.apiKey` to any non-empty value. sglang ignores it, but the client will not start
 >   without a key.
+> - If the server rejects `cache_control`, set `anthropic.promptCache` (or
+>   `AQ_ANTHROPIC_PROMPT_CACHE`) to `off`.
+> - sglang caches repeated prompt prefixes on its own and ignores `anthropic.promptCache`. It only
+>   reports cache reads when launched with `--enable-cache-report` - without it, the debug log
+>   shows the prompt cache as not reported by the server.
 
 ## Commands
 

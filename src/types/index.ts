@@ -33,9 +33,20 @@ export type ProviderConfig = {
   think?: ThinkSetting;
 };
 
+// how long a cached prompt prefix lives on the Anthropic API, or off for a
+// server that speaks the Messages API but refuses cache_control
+export const PromptCache = {
+  Off: 'off',
+  FiveMinutes: '5m',
+  OneHour: '1h'
+} as const;
+
+export type PromptCache = (typeof PromptCache)[keyof typeof PromptCache];
+
 export type AnthropicConfig = {
   apiKey: string;
   baseUrl: string;
+  promptCache: PromptCache;
 };
 
 export type LoggingConfig = {
@@ -275,6 +286,9 @@ export type ChatUsage = {
   promptTokens?: number;
   outputTokens?: number;
   outputDurationNs?: number;
+  // set only by a provider that caches prompts. a figure the server left out
+  // stays undefined, which is not the same as a cache that missed
+  cache?: { readTokens?: number; writeTokens?: number };
 };
 
 // one piece of a streamed reply. the last one carries the usage

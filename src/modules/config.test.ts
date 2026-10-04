@@ -11,11 +11,12 @@ import {
   saveSetting,
   toBoolean,
   toLogLevel,
+  toPromptCache,
   toSkillNames,
   toThink
 } from './config';
 import { defaultConfig } from './config.default';
-import { ApprovalMode, LogLevel } from '../types';
+import { ApprovalMode, LogLevel, PromptCache } from '../types';
 
 // both parsers warn on the console when they reject something, which these
 // tests do on purpose
@@ -56,6 +57,30 @@ describe('toLogLevel', () => {
     assert.equal(
       quietly(() => toLogLevel('warning')),
       LogLevel.Info
+    );
+  });
+});
+
+describe('toPromptCache', () => {
+  for (const lifetime of Object.values(PromptCache)) {
+    test(`accepts ${lifetime}`, () => {
+      assert.equal(toPromptCache(lifetime), lifetime);
+    });
+  }
+
+  test('reads a spelling in another case', () => {
+    assert.equal(toPromptCache(' OFF '), PromptCache.Off);
+  });
+
+  test('caches for five minutes when nothing is set', () => {
+    assert.equal(toPromptCache(undefined), PromptCache.FiveMinutes);
+    assert.equal(toPromptCache(''), PromptCache.FiveMinutes);
+  });
+
+  test('keeps caching on rather than reading a typo as off', () => {
+    assert.equal(
+      quietly(() => toPromptCache('of')),
+      PromptCache.FiveMinutes
     );
   });
 });

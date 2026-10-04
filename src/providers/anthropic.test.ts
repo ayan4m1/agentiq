@@ -5,12 +5,18 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, logging } from '../modules/config';
 import {
   AnthropicProvider,
+  toCacheControl,
   toMessages,
   toReply,
   toThinking,
   toTool
 } from './anthropic';
-import { Provider, type ChatChunk, type ChatMessage } from '../types';
+import {
+  PromptCache,
+  Provider,
+  type ChatChunk,
+  type ChatMessage
+} from '../types';
 
 // a reply as the messages API would send it, with only what a test cares
 // about filled in
@@ -410,7 +416,32 @@ describe('toReply', () => {
   });
 });
 
+describe('toCacheControl', () => {
+  test('caches for five minutes by default', () => {
+    assert.deepEqual(toCacheControl(PromptCache.FiveMinutes), {
+      type: 'ephemeral'
+    });
+  });
+
+  test('caches for an hour when asked', () => {
+    assert.deepEqual(toCacheControl(PromptCache.OneHour), {
+      type: 'ephemeral',
+      ttl: '1h'
+    });
+  });
+
+  test('caches nothing when off', () => {
+    assert.equal(toCacheControl(PromptCache.Off), undefined);
+  });
+});
+
 describe('stream', () => {
+  const { promptCache } = anthropic;
+
+  afterEach(() => {
+    anthropic.promptCache = promptCache;
+  });
+
   const request = {
     model: 'claude-opus-5',
     messages: [
@@ -424,6 +455,54 @@ describe('stream', () => {
   test('sends the whole conversation, the tools and the thinking setting', async () => {
     const { client, provider } = fakeClient();
 
+    anthropic.promptCache = PromptCache.FiveMinutes;
+    client.messages.stream.mock.mockImplementation(() =>
+      fakeStream([], reply([]))
+    );
+    await collect(await provider.stream(request));
+
+    assert.deepEqual(client.messages.stream.mock.calls[0].arguments[0], {
+      model: 'claude-opus-5',
+      // marked so tools and prompt stay cached, with the request's own marker
+      // following the end of the conversation
+      system: [
+        {
+          type: 'text',
+          text: 'be brief',
+          cache_control: { type: 'ephemeral' }
+        }
+      ],
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [{ name: 'read', input_schema: { type: 'object' } }],
+      thinking: { type: 'adaptive' },
+      cache_control: { type: 'ephemeral' },
+      max_tokens: 64000
+    });
+  });
+
+  test('gives both markers the hour-long lifetime when asked', async () => {
+    const { client, provider } = fakeClient();
+    const hour = { type: 'ephemeral', ttl: '1h' };
+
+    anthropic.promptCache = PromptCache.OneHour;
+    client.messages.stream.mock.mockImplementation(() =>
+      fakeStream([], reply([]))
+    );
+    await collect(await provider.stream(request));
+
+    const params = client.messages.stream.mock.calls[0].arguments[0] as {
+      system: { cache_control: unknown }[];
+      cache_control: unknown;
+    };
+
+    assert.deepEqual(params.system[0].cache_control, hour);
+    assert.deepEqual(params.cache_control, hour);
+  });
+
+  test('sends the prompt as plain text with caching off', async () => {
+    const { client, provider } = fakeClient();
+
+    anthropic.promptCache = PromptCache.Off;
     client.messages.stream.mock.mockImplementation(() =>
       fakeStream([], reply([]))
     );
@@ -481,9 +560,33 @@ describe('stream', () => {
         },
         done: true,
         // cached input is still input the window had to hold
-        usage: { promptTokens: 420, outputTokens: 40 }
+        usage: {
+          promptTokens: 420,
+          outputTokens: 40,
+          cache: { readTokens: 300, writeTokens: 20 }
+        }
       }
     ]);
+  });
+
+  test('leaves out cache figures the server did not send', async () => {
+    const { client, provider } = fakeClient();
+
+    // what sglang sends: no cache fields at all
+    client.messages.stream.mock.mockImplementation(() =>
+      fakeStream(
+        [],
+        reply([], { usage: { input_tokens: 100, output_tokens: 40 } })
+      )
+    );
+
+    const chunks = await collect(await provider.stream(request));
+
+    assert.deepEqual(chunks.at(-1)?.usage, {
+      promptTokens: 100,
+      outputTokens: 40,
+      cache: { readTokens: undefined, writeTokens: undefined }
+    });
   });
 
   test('is cut off by abort()', async () => {
@@ -553,6 +656,12 @@ describe('stream', () => {
 });
 
 describe('complete', () => {
+  const { promptCache } = anthropic;
+
+  afterEach(() => {
+    anthropic.promptCache = promptCache;
+  });
+
   const request = {
     model: 'claude-opus-5',
     messages: [{ role: 'user', content: 'summarize' }]
@@ -561,6 +670,7 @@ describe('complete', () => {
   test('asks once, with a smaller cap, and returns the reply', async () => {
     const { client, provider } = fakeClient();
 
+    anthropic.promptCache = PromptCache.FiveMinutes;
     client.messages.create.mock.mockImplementation(async () =>
       reply([{ type: 'text', text: 'notes' }])
     );
@@ -568,9 +678,11 @@ describe('complete', () => {
     const result: ChatMessage = await provider.complete(request);
 
     assert.equal(result.content, 'notes');
+    // no system prompt to mark, so only the request's own marker is sent
     assert.deepEqual(client.messages.create.mock.calls[0].arguments[0], {
       model: 'claude-opus-5',
       messages: [{ role: 'user', content: 'summarize' }],
+      cache_control: { type: 'ephemeral' },
       max_tokens: 16000
     });
     assert.deepEqual(controllersOf(provider), []);

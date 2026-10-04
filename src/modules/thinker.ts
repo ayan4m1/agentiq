@@ -18,6 +18,7 @@ import type {
   AgentMessage,
   ChatChunk,
   ChatMessage,
+  ChatUsage,
   ThoughtState,
   TokenStats
 } from '../types';
@@ -54,6 +55,20 @@ export const replayable = (message: ChatMessage, replayPreamble: boolean) => {
   }
 
   return message.content?.trim() ? message : undefined;
+};
+
+// only the figures the server sent. one that sends none - sglang unless it was
+// started with --enable-cache-report - is not the same as a cache that missed
+export const describeCache = ({
+  readTokens,
+  writeTokens
+}: NonNullable<ChatUsage['cache']>) => {
+  const parts = [
+    ...(readTokens === undefined ? [] : [`${readTokens} read`]),
+    ...(writeTokens === undefined ? [] : [`${writeTokens} written`])
+  ];
+
+  return `Prompt cache: ${parts.length ? parts.join(', ') : 'not reported by the server'}`;
 };
 
 const summaryPrompt =
@@ -393,6 +408,12 @@ export const makeThinker = () => {
       );
 
       log.debug(`Generated ${usage.outputTokens} tokens at ${rate} tok/s`);
+    }
+
+    // logged here rather than by the provider, which would land it on the end
+    // of whatever line the reply left the cursor on
+    if (usage?.cache) {
+      log.debug(describeCache(usage.cache));
     }
 
     // a model served with a template that does not know its tool call format
