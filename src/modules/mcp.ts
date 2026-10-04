@@ -244,9 +244,57 @@ export const toToolCall = (
   return { definition, handler };
 };
 
+// close() is still asked for, for a server that is reached over http
+const stop = (connection: McpConnection) => {
+  connection.kill?.();
+  connection.close().catch(() => {});
+};
+
+// one server's tools, or none if it fails - the failure is recorded on its
+// status and goes no further, so it cannot cost the other servers theirs
+const connectServer = async (
+  name: string,
+  server: McpServerConfig,
+  connect: Connect,
+  timeout: number,
+  status: McpServerStatus
+): Promise<ToolCall[]> => {
+  const connecting = connect(name, server);
+
+  try {
+    const [connection, tools] = await withTimeout(
+      connecting.then(async (connection) => {
+        const tools = await listAll(connection);
+
+        return [connection, tools] as const;
+      }),
+      timeout,
+      `Connecting to ${name}`
+    );
+
+    connections.set(name, connection);
+    status.tools = tools.length;
+    log.info(
+      chalk.gray(`Connected to MCP server ${name} (${tools.length} tools)`)
+    );
+
+    return tools.map((tool) => toToolCall(name, tool, connection));
+  } catch (error) {
+    status.error = describeError(error);
+    log.warn(`Could not use MCP server ${name} - ${status.error}`);
+
+    // a server that came up - before the failure, or only after the time ran
+    // out - is still running, and nothing else will stop it
+    connecting.then(stop, () => {});
+
+    return [];
+  }
+};
+
 // connects to every configured server at once, so a slow one costs its own
 // timeout rather than everyone's. a server that fails is reported and left
-// out - the built-in tools are still a working agent without it
+// out - the rest are still offered, and the built-in tools are still a
+// working agent without any of them
 export const connectServers = async (
   servers: Record<string, McpServerConfig> = config.enabled
     ? config.servers
@@ -257,7 +305,7 @@ export const connectServers = async (
   statuses.length = 0;
 
   const results = await Promise.all(
-    Object.entries(servers).map(async ([name, server]) => {
+    Object.entries(servers).map(([name, server]) => {
       const status: McpServerStatus = {
         name,
         transport: server.url ? 'http' : 'stdio',
@@ -266,49 +314,17 @@ export const connectServers = async (
 
       statuses.push(status);
 
-      let connection: McpConnection | undefined;
-
-      try {
-        const tools = await withTimeout(
-          (async () => {
-            connection = await connect(name, server);
-
-            return listAll(connection);
-          })(),
-          timeout,
-          `Connecting to ${name}`
-        );
-
-        connections.set(name, connection!);
-        status.tools = tools.length;
-        log.info(
-          chalk.gray(`Connected to MCP server ${name} (${tools.length} tools)`)
-        );
-
-        return tools.map((tool) => toToolCall(name, tool, connection!));
-      } catch (error) {
-        status.error = describeError(error);
-        log.warn(`Could not use MCP server ${name} - ${status.error}`);
-
-        // one that connected but then failed or ran out of time is still
-        // running, and nothing else will stop it
-        connection?.kill?.();
-        connection?.close().catch(() => {});
-
-        return [];
-      }
+      return connectServer(name, server, connect, timeout, status);
     })
   );
 
   return results.flat();
 };
 
-// synchronous, since it runs from the exit handler alongside killAllJobs -
-// close() is still asked for, for a server that is reached over http
+// synchronous, since it runs from the exit handler alongside killAllJobs
 export const closeServers = () => {
   for (const connection of connections.values()) {
-    connection.kill?.();
-    connection.close().catch(() => {});
+    stop(connection);
   }
 
   connections.clear();

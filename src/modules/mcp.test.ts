@@ -210,6 +210,24 @@ describe('connectServers', () => {
     assert.equal(connection.kill.mock.callCount(), 1);
   });
 
+  test('stops a server that connects only after the timeout', async () => {
+    const connection = fakeConnection([tool('a')]);
+
+    const tools = await connectServers(
+      { late: stdio },
+      () => new Promise((resolve) => setTimeout(() => resolve(connection), 30)),
+      10
+    );
+
+    assert.deepEqual(tools, []);
+    assert.match(listServers()[0].error ?? '', /took longer than 10ms/);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(connection.kill.mock.callCount(), 1);
+    assert.equal(connection.close.mock.callCount(), 1);
+  });
+
   test('stops every server it connected to on the way out', async () => {
     const connection = fakeConnection([tool('a')]);
 
