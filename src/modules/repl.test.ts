@@ -89,15 +89,27 @@ mock.module('./tokenizer', {
 
 // check mode is tested on its own - here it only matters when the controller
 // reaches for it, and with what
-const check: { command?: string } = {};
+const check: {
+  command?: string;
+  status?: 'pass' | 'fail';
+  diagnostics?: string;
+} = {};
+const diagnosticsMarker = '(diagnostics attached)';
+const fixPrompt = (command: string) =>
+  `Fix the failing check "${command}" ${diagnosticsMarker}`;
 const setCheck = mock.fn<(value?: string) => Promise<void>>(async () => {});
 const restoreCheck = mock.fn<(command?: string) => void>();
 const runCheck = mock.fn<() => Promise<void>>(async () => {});
 
 mock.module('./check', {
-  exports: { check, setCheck, restoreCheck, runCheck } satisfies ModuleMock<
-    typeof import('./check')
-  >
+  exports: {
+    check,
+    diagnosticsMarker,
+    fixPrompt,
+    setCheck,
+    restoreCheck,
+    runCheck
+  } satisfies ModuleMock<typeof import('./check')>
 });
 
 const { Command, createController, previewOf } = await import('./repl');
@@ -235,9 +247,12 @@ beforeEach(() => {
   discardCheckpoints();
   takeYield();
   check.command = undefined;
+  check.status = undefined;
+  check.diagnostics = undefined;
   setCheck.mock.resetCalls();
   restoreCheck.mock.resetCalls();
   runCheck.mock.resetCalls();
+  runCheck.mock.restore();
 });
 
 after(() => {
@@ -708,6 +723,109 @@ describe('/check', () => {
     await make().clear();
 
     assert.equal(sessionCheck(), 'yarn lint');
+  });
+});
+
+describe('failed check diagnostics', () => {
+  const diagnostics = 'yarn test exited with code 1\nnot ok 1 - adds';
+  const line = 'Fix the failing check "yarn test" (diagnostics attached)';
+  const attachment = `Output of the failing check "yarn test":\n${diagnostics}`;
+
+  // a writing turn whose check fails the way runCheck leaves it
+  const failCheck = async (controller: ReturnType<typeof make>) => {
+    check.command = 'yarn test';
+    runCheck.mock.mockImplementation(async () => {
+      check.status = 'fail';
+      check.diagnostics = diagnostics;
+    });
+    controller.addUserMessage('hello');
+    record('a.txt');
+    answers(reply);
+    await controller.takeTurn();
+  };
+
+  test('offers a fix prompt after the check fails', async () => {
+    const controller = make();
+
+    await failCheck(controller);
+
+    assert.equal(controller.takePrefill(), line);
+  });
+
+  test('offers nothing after the check passes', async () => {
+    const controller = make();
+
+    check.command = 'yarn test';
+    runCheck.mock.mockImplementation(async () => {
+      check.status = 'pass';
+    });
+    controller.addUserMessage('hello');
+    record('a.txt');
+    answers(reply);
+    await controller.takeTurn();
+
+    assert.equal(controller.takePrefill(), undefined);
+  });
+
+  test('attaches the diagnostics when the fix prompt is sent', async () => {
+    const controller = make();
+
+    await failCheck(controller);
+    controller.addUserMessage(controller.takePrefill()!);
+
+    assert.deepEqual(controller.messages.at(-1), {
+      role: 'user',
+      content: `${line}\n\n${attachment}`,
+      typed: line
+    });
+    assert.equal(check.diagnostics, undefined);
+  });
+
+  test('attaches them to an edited prompt that keeps the marker', async () => {
+    const controller = make();
+
+    await failCheck(controller);
+    controller.addUserMessage(`${line} - only the first test`);
+
+    assert.equal(
+      controller.messages.at(-1)?.content,
+      `${line} - only the first test\n\n${attachment}`
+    );
+  });
+
+  test('drops them when the prompt no longer asks for them', async () => {
+    const controller = make();
+
+    await failCheck(controller);
+    controller.addUserMessage('never mind');
+    controller.addUserMessage(`try again ${diagnosticsMarker}`);
+
+    assert.deepEqual(controller.messages.slice(-2), [
+      { role: 'user', content: 'never mind' },
+      { role: 'user', content: `try again ${diagnosticsMarker}` }
+    ]);
+  });
+
+  test('attaches them after any mentioned files', async () => {
+    const controller = make();
+
+    writeFileSync('notes.txt', 'alpha');
+    await failCheck(controller);
+    controller.addUserMessage(`${line} @notes.txt`);
+
+    assert.equal(
+      controller.messages.at(-1)?.content,
+      `${line} @notes.txt\n\nContents of notes.txt:\n     1\talpha\n\n${attachment}`
+    );
+  });
+
+  test('are forgotten by /clear', async () => {
+    const controller = make();
+
+    await failCheck(controller);
+    await controller.clear();
+
+    assert.equal(check.diagnostics, undefined);
   });
 });
 

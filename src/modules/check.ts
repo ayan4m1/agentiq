@@ -10,7 +10,13 @@ import { showElapsed } from './elapsed';
 import { refusePlanning } from './approval';
 import { setSessionCheck } from './session';
 import { takeYield } from './turn';
-import { askModel, describeError, getContentBudget, truncate } from '../utils';
+import {
+  askModel,
+  commandOutputBudget,
+  describeError,
+  getContentBudget,
+  truncate
+} from '../utils';
 
 const log = getLogger('check');
 
@@ -52,8 +58,20 @@ export const checkPrompt =
   'Below are the files at the root of a project and the contents of its build manifests. Reply with exactly one shell command, run from the project root, that tests, lints or type-checks the project and exits non-zero when something is wrong. It must not install dependencies, start a server or watcher, prompt for input, or change any source file. Reply with only the command - no explanation and no code fence. If no such command exists, reply with NONE.';
 
 // the one piece of check state, read by the prompt line on every redraw. no
-// command means check mode is off, which is how every session starts
-export const check: { command?: string; status?: 'pass' | 'fail' } = {};
+// command means check mode is off, which is how every session starts. a failed
+// run keeps what it printed, for the next prompt to hand to the model
+export const check: {
+  command?: string;
+  status?: 'pass' | 'fail';
+  diagnostics?: string;
+} = {};
+
+// left in a sent prompt, it says the stored diagnostics should go along with it
+export const diagnosticsMarker = '(diagnostics attached)';
+
+// the prompt offered after a failed check, ready to send as it is
+export const fixPrompt = (command: string) =>
+  `Fix the failing check "${command}" ${diagnosticsMarker}`;
 
 export const describeCheck = () => {
   if (!check.command) {
@@ -141,6 +159,7 @@ export const findCheckCommand = async () => {
 export const restoreCheck = (command?: string) => {
   check.command = command;
   check.status = undefined;
+  check.diagnostics = undefined;
 
   if (command) {
     log.info(chalk.green(`Check mode on: ${command}`));
@@ -150,6 +169,7 @@ export const restoreCheck = (command?: string) => {
 const enable = (command: string) => {
   check.command = command;
   check.status = undefined;
+  check.diagnostics = undefined;
   setSessionCheck(command);
   log.info(chalk.green(`Check mode on: ${command}`));
 };
@@ -170,6 +190,7 @@ export const setCheck = async (value?: string) => {
   if (value === 'off') {
     check.command = undefined;
     check.status = undefined;
+    check.diagnostics = undefined;
     setSessionCheck(undefined);
     log.info(chalk.green('Check mode off'));
 
@@ -231,6 +252,9 @@ export const runCheck = async () => {
   if (!command) {
     return;
   }
+
+  // output from an earlier run would describe code that has since changed
+  check.diagnostics = undefined;
 
   if (refusePlanning('no commands can be run')) {
     log.info(chalk.gray('Check skipped: plan mode is active'));
@@ -307,6 +331,13 @@ export const runCheck = async () => {
   if (tail) {
     console.log(chalk.gray(tail));
   }
+
+  // the reason leads, so a command that printed nothing - one that could not
+  // be started, say - still has something to attach
+  check.diagnostics = truncate(
+    `${command} ${failure}\n${tail}`.trimEnd(),
+    commandOutputBudget
+  );
 
   log.warn(chalk.red(`Check ${failure}: ${command}`));
 };

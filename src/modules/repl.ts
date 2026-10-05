@@ -43,7 +43,14 @@ import {
   startSession
 } from './session';
 import { takeYield } from './turn';
-import { check, restoreCheck, runCheck, setCheck } from './check';
+import {
+  check,
+  diagnosticsMarker,
+  fixPrompt,
+  restoreCheck,
+  runCheck,
+  setCheck
+} from './check';
 import type { makeThinker } from './thinker';
 import { readFile } from '../tools/read';
 import type {
@@ -154,7 +161,7 @@ const trailingPunctuation = /[.,;:!?)\]}'"]+$/;
 // would have returned it, numbered and cut to the same budget, so the model
 // gets the contents without spending a round asking for them. anything that
 // is not a file is left as the text it was typed as
-const expandMentions = (content: string) => {
+const attachMentions = (content: string) => {
   const isFile = (path: string) => existsSync(path) && statSync(path).isFile();
   const paths = new Set<string>();
 
@@ -170,11 +177,9 @@ const expandMentions = (content: string) => {
     }
   }
 
-  const attached = [...paths].map(
+  return [...paths].map(
     (path) => `Contents of ${path}:\n${readFile({ path })}`
   );
-
-  return attached.length ? [content, ...attached].join('\n\n') : undefined;
 };
 
 // everything the run loop keeps between turns, and everything it does to it -
@@ -331,6 +336,7 @@ export const createController = ({
     nextThought.lastResponse = undefined;
     nextThought.messages = [];
     compactionStalled = false;
+    check.diagnostics = undefined;
     // a new file rather than an emptied one - starting over should not
     // destroy the conversation being walked away from
     startSession(check.command);
@@ -469,6 +475,8 @@ export const createController = ({
       thinker.load(nextThought.messages);
       await thinker.count(nextThought.messages);
       rewrite(nextThought.messages);
+      // the failure was in files that have just been put back
+      check.diagnostics = undefined;
       // a pasted prompt would corrupt the single-line prompt it was put back
       // into, so it comes back as its preview and is edited in the editor
       prefill = recallable(typedText(prompt));
@@ -953,7 +961,22 @@ export const createController = ({
       thinker.rebuild(nextThought.messages);
     }
 
-    const expanded = expandMentions(content);
+    const attached = attachMentions(content);
+
+    // a failed check's output goes along for as long as the prompt still says
+    // it does. either way it is offered to this message alone - the next check
+    // will have output of its own
+    if (check.diagnostics && content.includes(diagnosticsMarker)) {
+      attached.push(
+        `Output of the failing check "${check.command}":\n${check.diagnostics}`
+      );
+    }
+
+    check.diagnostics = undefined;
+
+    const expanded = attached.length
+      ? [content, ...attached].join('\n\n')
+      : undefined;
     const message: AgentMessage =
       expanded || typed !== undefined
         ? {
@@ -1027,6 +1050,11 @@ export const createController = ({
       }
 
       await runCheck();
+
+      // the next prompt offers to send the failure straight back to the model
+      if (check.status === 'fail' && check.diagnostics && check.command) {
+        prefill = fixPrompt(check.command);
+      }
     }
   };
 

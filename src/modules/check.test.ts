@@ -77,6 +77,8 @@ const {
   check,
   checkPrompt,
   describeCheck,
+  diagnosticsMarker,
+  fixPrompt,
   parseCommand,
   restoreCheck,
   runCheck,
@@ -115,6 +117,7 @@ describe('check', () => {
   beforeEach(() => {
     check.command = undefined;
     check.status = undefined;
+    check.diagnostics = undefined;
     planning = false;
     reply = 'yarn test';
     output = '';
@@ -220,11 +223,13 @@ describe('check', () => {
     test('turns off and clears the session', async () => {
       check.command = 'yarn test';
       check.status = 'pass';
+      check.diagnostics = 'stale';
 
       await setCheck('off');
 
       assert.equal(check.command, undefined);
       assert.equal(check.status, undefined);
+      assert.equal(check.diagnostics, undefined);
       assert.deepEqual(setSessionCheck.mock.calls[0].arguments, [undefined]);
     });
 
@@ -256,11 +261,13 @@ describe('check', () => {
   describe('restoreCheck', () => {
     test('takes the command back without asking the model', () => {
       check.status = 'fail';
+      check.diagnostics = 'stale';
 
       restoreCheck('make check');
 
       assert.equal(check.command, 'make check');
       assert.equal(check.status, undefined);
+      assert.equal(check.diagnostics, undefined);
       assert.equal(complete.mock.callCount(), 0);
       assert.equal(setSessionCheck.mock.callCount(), 0);
     });
@@ -271,6 +278,16 @@ describe('check', () => {
       restoreCheck(undefined);
 
       assert.equal(check.command, undefined);
+    });
+  });
+
+  describe('fixPrompt', () => {
+    test('names the command and carries the marker', () => {
+      assert.equal(
+        fixPrompt('yarn test'),
+        'Fix the failing check "yarn test" (diagnostics attached)'
+      );
+      assert.ok(fixPrompt('yarn test').includes(diagnosticsMarker));
     });
   });
 
@@ -302,6 +319,24 @@ describe('check', () => {
       await runCheck();
 
       assert.equal(check.status, 'fail');
+      assert.equal(
+        check.diagnostics,
+        'yarn test exited with code 1\nnot ok 1 - adds'
+      );
+    });
+
+    test('keeps only the tail of a long failure', async () => {
+      check.command = 'yarn test';
+      output = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n');
+      outcome = { code: 1 };
+
+      await runCheck();
+
+      const lines = check.diagnostics!.split('\n');
+
+      assert.equal(lines.length, 21);
+      assert.equal(lines[1], 'line 11');
+      assert.equal(lines.at(-1), 'line 30');
     });
 
     test('fails when the command cannot be started', async () => {
@@ -311,6 +346,19 @@ describe('check', () => {
       await runCheck();
 
       assert.equal(check.status, 'fail');
+      assert.equal(
+        check.diagnostics,
+        'nope could not be started: spawn ENOENT'
+      );
+    });
+
+    test('forgets an earlier failure once it passes', async () => {
+      check.command = 'yarn test';
+      check.diagnostics = 'stale';
+
+      await runCheck();
+
+      assert.equal(check.diagnostics, undefined);
     });
 
     test('fails and kills the command when escape is pressed', async () => {
@@ -333,9 +381,12 @@ describe('check', () => {
       check.status = 'pass';
       planning = true;
 
+      check.diagnostics = 'stale';
+
       await runCheck();
 
       assert.equal(check.status, undefined);
+      assert.equal(check.diagnostics, undefined);
       assert.equal(spawnCommand.mock.callCount(), 0);
     });
 
