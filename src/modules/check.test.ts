@@ -84,6 +84,7 @@ const {
   runCheck,
   setCheck
 } = await import('./check');
+const { shell } = await import('./config');
 
 // the server, as far as check mode can tell. each test says what it answers
 let reply: string | Error = 'yarn test';
@@ -374,6 +375,34 @@ describe('check', () => {
 
       assert.equal(killTree.mock.callCount(), 1);
       assert.equal(check.status, 'fail');
+    });
+
+    test('fails and kills the command once it runs past the timeout', async () => {
+      const { timeout } = shell;
+
+      check.command = 'yarn test';
+      hangs = true;
+      shell.timeout = 10;
+
+      try {
+        await runCheck();
+      } finally {
+        shell.timeout = timeout;
+      }
+
+      assert.equal(killTree.mock.callCount(), 1);
+      assert.equal(check.status, 'fail');
+      assert.equal(check.diagnostics, 'yarn test timed out after 10ms');
+    });
+
+    test('fails when something else kills the command', async () => {
+      check.command = 'yarn test';
+      outcome = { signal: 'SIGKILL' };
+
+      await runCheck();
+
+      assert.equal(check.status, 'fail');
+      assert.equal(check.diagnostics, 'yarn test was killed by SIGKILL');
     });
 
     test('is skipped in plan mode', async () => {

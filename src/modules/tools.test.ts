@@ -196,6 +196,39 @@ true
 
     assert.equal(remainder, 'Before.\n\nAfter.');
   });
+
+  test('takes nothing from a function tag that never closes', () => {
+    assert.deepEqual(recover('Reading.\n<function=read'), {
+      calls: [],
+      remainder: 'Reading.\n<function=read'
+    });
+  });
+
+  test('takes the call, without the parameter, when a parameter tag never closes', () => {
+    const { calls } = recover('<function=read>\n<parameter=path');
+
+    assert.deepEqual(calls, [{ function: { name: 'read', arguments: {} } }]);
+  });
+
+  test('skips stray text between parameters', () => {
+    const { calls } = recover(
+      '<function=read>\n<parameter=path>\na.ts\n</parameter>\nhmm\n<parameter=offset>\n10\n</parameter>\n</function>'
+    );
+
+    assert.deepEqual(calls[0].function.arguments, {
+      path: 'a.ts',
+      offset: '10'
+    });
+  });
+
+  test('ends the call at its closing tag even after stray text', () => {
+    const { calls, remainder } = recover(
+      '<function=read>\n<parameter=path>\na.ts\n</parameter>\nhmm\n</function>\nAfter.'
+    );
+
+    assert.deepEqual(calls[0].function.arguments, { path: 'a.ts' });
+    assert.equal(remainder, 'After.');
+  });
 });
 
 describe('recovering JSON calls', () => {

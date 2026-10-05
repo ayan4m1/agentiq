@@ -101,6 +101,24 @@ describe('list', () => {
     );
   });
 
+  test('stops at a limit rather than listing everything', async () => {
+    const crowded = resolve(root, 'crowded');
+
+    mkdirSync(crowded);
+
+    for (let index = 0; index < 301; index++) {
+      writeFileSync(resolve(crowded, `file-${index}.txt`), '');
+    }
+
+    const output = String(await handler({ path: crowded }));
+    const listed = output
+      .split('\n')
+      .filter((line) => line.startsWith('file-'));
+
+    assert.equal(listed.length, 300);
+    assert.match(output, /\[truncated at 300 entries/);
+  });
+
   test('defaults to the working directory', async () => {
     const output = String(await handler({}));
 

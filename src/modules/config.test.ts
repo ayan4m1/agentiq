@@ -177,6 +177,42 @@ describe('toMcpServers', () => {
       { fine: { command: 'fine' } }
     );
   });
+
+  test('reads nothing set as no servers', () => {
+    assert.deepEqual(toMcpServers(undefined, 'mcp.servers'), {});
+    assert.deepEqual(toMcpServers(null, 'mcp.servers'), {});
+  });
+
+  test('ignores something that is not a mapping', () => {
+    assert.deepEqual(
+      quietly(() => toMcpServers(['docs'], 'mcp.servers')),
+      {}
+    );
+  });
+
+  const broken: [string, unknown][] = [
+    ['not a mapping', 'npx docs'],
+    ['both a command and a url', { command: 'docs', url: 'https://x.test' }],
+    ['neither a command nor a url', { args: ['--stdio'] }],
+    ['args that are not strings', { command: 'docs', args: [1] }],
+    ['env that is not strings', { command: 'docs', env: { A: 1 } }],
+    ['headers that are not strings', { url: 'https://x.test', headers: [] }],
+    ['a cwd that is not a string', { command: 'docs', cwd: 3 }]
+  ];
+
+  for (const [problem, entry] of broken) {
+    test(`drops a server with ${problem}`, () => {
+      assert.deepEqual(
+        quietly(() =>
+          toMcpServers(
+            { docs: entry, fine: { command: 'fine' } },
+            'mcp.servers'
+          )
+        ),
+        { fine: { command: 'fine' } }
+      );
+    });
+  }
 });
 
 describe('toSkillNames', () => {

@@ -194,6 +194,39 @@ describe('explore', () => {
     assert.match(result?.content ?? '', /the answer is 42/);
   });
 
+  test('tells the model what was wrong with the arguments it gave', async () => {
+    answer(call('read', {}), { content: 'done' });
+
+    assert.equal(await explore('read something'), 'done');
+
+    const result = requests()[1].messages.find(
+      (message) => message.role === 'tool'
+    );
+
+    assert.match(result?.content ?? '', /path/);
+    assert.doesNotMatch(result?.content ?? '', /the answer is 42/);
+  });
+
+  test('hands a tool that fails back to the model as its result', async (t) => {
+    t.mock.method(globalThis, 'fetch', async () => {
+      throw new Error('getaddrinfo ENOTFOUND example.invalid');
+    });
+    answer(call('fetch', { url: 'https://example.invalid' }), {
+      content: 'done'
+    });
+
+    assert.equal(await explore('look it up'), 'done');
+
+    const result = requests()[1].messages.find(
+      (message) => message.role === 'tool'
+    );
+
+    assert.equal(
+      result?.content,
+      'The fetch tool failed: getaddrinfo ENOTFOUND example.invalid'
+    );
+  });
+
   test('says so when the model reports nothing', async () => {
     answer({ content: '   ' });
 

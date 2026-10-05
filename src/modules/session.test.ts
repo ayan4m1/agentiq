@@ -32,9 +32,11 @@ const {
   pruneSessions,
   rewrite,
   sessionCheck,
+  sessionId,
   setSessionCheck,
   startSession
 } = await import('./session');
+const { session } = await import('./config');
 const { slugFor } = await import('../utils');
 
 const projectA = resolve(root, 'project-a');
@@ -168,6 +170,22 @@ describe('loadSession', () => {
       loaded?.map((message) => message.content),
       ['before', 'after']
     );
+  });
+
+  test('resumes a file that has no meta record under its own id', () => {
+    const id = `${slugFor(process.cwd())}_headless`;
+
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(
+      resolve(sessionDir, `${id}.jsonl`),
+      `${JSON.stringify({ type: 'message', message: user('orphaned') })}\n`
+    );
+
+    assert.deepEqual(
+      loadSession(id)?.map((message) => message.content),
+      ['orphaned']
+    );
+    assert.equal(sessionId(), id);
   });
 
   test('keeps writing to the same file after resuming it', () => {
@@ -350,6 +368,33 @@ describe('listing and pruning per directory', () => {
 
     // a busy project must not delete the history of one that has been quiet
     assert.equal(filesHere().length, elsewhere);
+  });
+
+  test('lists no more than it is asked for', () => {
+    // projectC holds two sessions once the pruning above has run
+    process.chdir(projectC);
+
+    assert.equal(listSessions(1).length, 1);
+  });
+
+  test('keeps everything when the limit is turned off', () => {
+    process.chdir(projectC);
+
+    const before = filesHere().length;
+
+    for (const limit of [0, Infinity]) {
+      session.limit = limit;
+
+      try {
+        startSession();
+        append([user('one more')]);
+        pruneSessions();
+      } finally {
+        session.limit = 2;
+      }
+    }
+
+    assert.equal(filesHere().length, before + 2);
   });
 
   test('ignores files that are not sessions', () => {

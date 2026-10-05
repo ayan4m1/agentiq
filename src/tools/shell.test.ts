@@ -6,6 +6,7 @@ import { mkdtempSync } from 'node:fs';
 
 import { ApprovalAnswer, ApprovalMode } from '../types';
 import { fakeInquirerCore, fakePrompts } from '../../test/fakes/inquirer';
+import { fakeInterrupt } from '../../test/fakes/interrupt';
 
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-shell-'));
 
@@ -16,6 +17,10 @@ const { input, exports: prompts } = fakePrompts({
 
 mock.module('@inquirer/core', { exports: core });
 mock.module('@inquirer/prompts', { exports: prompts });
+
+const interrupt = fakeInterrupt();
+
+mock.module('../modules/interrupt', { exports: interrupt.exports });
 
 const { handler } = await import('./shell');
 const { approval } = await import('../modules/approval');
@@ -31,6 +36,7 @@ const run = (command: string, where = cwd) => handler({ command, cwd: where });
 afterEach(() => {
   approval.mode = ApprovalMode.Manual;
   shell.timeout = timeout;
+  interrupt.reset();
 });
 
 describe('shell', () => {
@@ -78,6 +84,32 @@ describe('shell', () => {
       await run(`node -e "console.log('partial'); process.exit(3)"`),
       'The command exited with code 3.\n\nOutput:\npartial'
     );
+  });
+
+  test('stops a command when escape is pressed', async () => {
+    approval.mode = ApprovalMode.Auto;
+
+    const pending = run(
+      `node -e "console.log('started'); setInterval(() => {}, 1000)"`
+    );
+
+    // escape only means something once the command is being watched
+    while (!interrupt.watchForInterrupt.mock.callCount()) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    interrupt.pressEscape();
+
+    assert.match(
+      await pending,
+      /^The user interrupted the command after \d+ms\./
+    );
+  });
+
+  test('ends output that did not finish its line', async () => {
+    approval.mode = ApprovalMode.Auto;
+
+    assert.equal(await run(`node -e "process.stdout.write('x')"`), 'x');
   });
 
   test('kills a command that runs past the timeout', async () => {

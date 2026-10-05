@@ -2,6 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { provider } from './config';
+import { getLogger } from './logging';
 import {
   matchesModel,
   preflight,
@@ -241,5 +242,23 @@ describe('resolveThink', () => {
     await quietly(() => preflight(reporting('tools')));
 
     withSetting(true, () => assert.equal(resolveThink(), true));
+  });
+
+  test('warns when the setting asks a model that cannot reason to', async (t) => {
+    const warn = t.mock.method(getLogger('preflight'), 'warn', () => {});
+
+    provider.think = true;
+
+    try {
+      await quietly(() => preflight(reporting('tools')));
+    } finally {
+      provider.think = undefined;
+    }
+
+    assert.ok(
+      warn.mock.calls.some((call) =>
+        /does not report a thinking capability/.test(String(call.arguments[0]))
+      )
+    );
   });
 });

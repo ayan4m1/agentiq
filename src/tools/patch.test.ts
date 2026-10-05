@@ -12,6 +12,7 @@ import {
   resolveEdit
 } from './patch';
 import { approval } from '../modules/approval';
+import { terminal } from '../modules/turn';
 import { ApprovalMode } from '../types';
 
 const root = mkdtempSync(resolve(tmpdir(), 'agentiq-patch-'));
@@ -44,6 +45,7 @@ const quietly = async <T>(work: () => Promise<T>) => {
 
 afterEach(() => {
   approval.mode = ApprovalMode.Manual;
+  terminal.interactive = true;
 });
 
 describe('countOccurrences', () => {
@@ -132,6 +134,21 @@ describe('handler', () => {
 
     assert.match(String(result), /Replaced 1 occurrence/);
     assert.equal(read(path), 'keep changed keep');
+  });
+
+  test('reports a denial and changes nothing when nobody can approve', async () => {
+    const path = fileWith('keep original keep');
+
+    // manual mode with nobody at the keyboard is refused rather than prompted
+    terminal.interactive = false;
+
+    const result = await quietly(() =>
+      handler({ path, oldText: 'original', newText: 'changed' })
+    );
+
+    assert.match(String(result), /declined to change/);
+    assert.match(String(result), /non-interactively/);
+    assert.equal(read(path), 'keep original keep');
   });
 
   test('replaces every occurrence when asked to', async () => {

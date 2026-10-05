@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type Anthropic from '@anthropic-ai/sdk';
 
 import { anthropic, logging } from '../modules/config';
+import { getLogger } from '../modules/logging';
 import {
   AnthropicProvider,
   toCacheControl,
@@ -112,6 +113,12 @@ const collect = async (chunks: AsyncIterable<ChatChunk>) => {
 
   return all;
 };
+
+describe('label', () => {
+  test('names the API it talks to', () => {
+    assert.equal(fakeClient().provider.label, 'Anthropic API');
+  });
+});
 
 describe('the client it builds', () => {
   const { apiKey, baseUrl } = anthropic;
@@ -413,6 +420,15 @@ describe('toReply', () => {
 
     assert.equal(result.native, undefined);
     assert.equal(result.content, '');
+  });
+
+  test('keeps what was said when the model declines without calling anything', (t) => {
+    const warn = t.mock.method(getLogger('anthropic'), 'warn', () => {});
+    const said = { type: 'text', text: 'I cannot help with that.' };
+    const result = toReply(reply([said], { stop_reason: 'refusal' }));
+
+    assert.equal(result.content, 'I cannot help with that.');
+    assert.match(String(warn.mock.calls[0]?.arguments[0]), /declined/);
   });
 });
 

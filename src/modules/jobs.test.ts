@@ -1,7 +1,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
 
-import { appendOutput, listJobs, readJob, stopJob } from './jobs';
+import { appendOutput, listJobs, readJob, startJob, stopJob } from './jobs';
 import type { OutputBuffer } from './jobs';
 
 const empty = (): OutputBuffer => ({ buffer: '', cursor: 0, dropped: 0 });
@@ -81,5 +82,25 @@ describe('looking up a job that is not there', () => {
 
   test('listJobs reports an empty registry', () => {
     assert.match(listJobs(), /No background jobs have been started/);
+  });
+});
+
+// after the lookups above, which count on nothing having been started
+describe('a job that cannot be started', () => {
+  test('says why when it is read', async () => {
+    const id = startJob(
+      'node -e "1"',
+      resolve(process.cwd(), 'no-such-directory')
+    );
+
+    for (let tries = 0; tries < 100; tries++) {
+      if (!readJob(id).includes('running')) {
+        break;
+      }
+
+      await new Promise((done) => setTimeout(done, 10));
+    }
+
+    assert.match(readJob(id), /failed to start: /);
   });
 });
