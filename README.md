@@ -4,6 +4,20 @@
 
 Agentiq is an agentic coding assistant for use with Ollama, the Anthropic API, or any OpenAI-compatible server (vLLM, llama.cpp, or the OpenAI API itself).
 
+## Features
+
+- [Support](#providers) for Ollama, Anthropic API, and OpenAI Chat Completions API - a local server that speaks one of the latter two protocols can be used
+- Three command/access approval modes - manual, automatic, and planning
+- Saves sessions so they can be resumed later on
+- Allowlisting for paths, commands, and tools
+- Automatic and manual conversation compaction/summarization
+- Get a recap of a resumed session
+- Run a check command when files are modified, and prefill the prompt with diagnostic logs if the check fails
+- [Supports](#skills) Agent Skills
+- [Supports](#mcp-servers) MCP
+- [Custom commands](#custom-commands) (slash command that turns into a prompt, with arguments interpolated)
+- [Support](#the-decide-tool) for System One decision models with Ollama (base model hands a set of questions to decision model)
+
 ## Installation
 
 > npm install -g @ayan4m1/agentiq
