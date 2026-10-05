@@ -187,6 +187,9 @@ export type McpServerConfig = {
   cwd?: string;
   url?: string;
   headers?: Record<string, string>;
+  // false to leave the server out without losing its settings - /mcp edits
+  // it. unset is on, so a newly added server starts out connected
+  enabled?: boolean;
 };
 
 export type McpConfig = {

@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { existsSync, statSync } from 'node:fs';
 import { confirm, editor, select } from '@inquirer/prompts';
 
-import { provider, saveSetting, session } from './config';
+import { mcp, provider, saveSetting, session } from './config';
 import { getLogger } from './logging';
 import {
   cycleMode,
@@ -11,8 +11,8 @@ import {
   remember,
   type RuleKind
 } from './approval';
-import { pickModel, pickSkills } from './picker';
-import { listServers } from './mcp';
+import { pickModel, pickServers, pickSkills } from './picker';
+import { listServers, mcpTools, retryServer, setServerEnabled } from './mcp';
 import {
   isEnabled,
   listSkills,
@@ -25,6 +25,7 @@ import { expandCommand, loadCommands } from './commands';
 import { modelContextLength, preflight } from './preflight';
 import { beginTurn, changes, countSince, rewind } from './checkpoints';
 import { chatProvider } from '../providers';
+import { setMcpTools } from '../tools';
 import { ensureTokenizer, usesHfTokenizer } from './tokenizer';
 import {
   applyEntry,
@@ -818,23 +819,64 @@ export const createController = ({
   };
 
   // the configured MCP servers, and what became of each at startup - a server
-  // that failed is otherwise only mentioned once, scrolled well out of view
-  const showServers = () => {
-    const servers = listServers();
+  // that failed is otherwise only mentioned once, scrolled well out of view.
+  // each can be turned on and off, and one that failed started over, and the
+  // tools offered are rebuilt in place for the next turn
+  const servers = async () => {
+    if (!mcp.enabled) {
+      log.info(systemColor('MCP is turned off (mcp.enabled / AQ_MCP)'));
 
-    if (!servers.length) {
+      return;
+    }
+
+    const configured = listServers();
+
+    if (!configured.length) {
       log.info(systemColor('No MCP servers are configured in config.yml'));
 
       return;
     }
 
-    for (const { name, transport, tools, error } of servers) {
-      console.log(
-        `${systemColor('*')} ${name} ${chalk.gray(`(${transport})`)} - ${
-          error ? chalk.red(`failed: ${error}`) : `${tools} tools`
-        }`
-      );
+    // a connection still under way when the picker closes is waited for, so
+    // the tools it brings are there for the next turn
+    const pending: Promise<unknown>[] = [];
+    const track = <T>(work: Promise<T>) => {
+      pending.push(work);
+
+      return work;
+    };
+
+    try {
+      await pickServers({
+        message: 'MCP servers',
+        choices: configured.map((server) => ({ ...server })),
+        toggle: (name, enabled) =>
+          track(setServerEnabled(name, enabled)).then((status) => ({
+            ...status
+          })),
+        retry: (name) =>
+          track(retryServer(name)).then((status) => ({ ...status }))
+      });
+    } catch (error) {
+      // log but swallow an error (if the user cancelled the prompt) -
+      // whatever was toggled before then has already been saved, so it still
+      // applies
+      if (error instanceof Error) {
+        log.error(error.message);
+      }
     }
+
+    if (!pending.length) {
+      return;
+    }
+
+    await Promise.allSettled(pending);
+
+    setMcpTools(mcpTools());
+    thinker.rebuild(nextThought.messages);
+    await thinker.count(nextThought.messages);
+
+    log.info(chalk.green(`MCP tools now use ${thinker.tokens.mcp} tokens`));
   };
 
   // a saved command, without its slash, sent as its prompt with whatever was
@@ -911,7 +953,7 @@ export const createController = ({
         await skills();
         break;
       case Command.Mcp:
-        showServers();
+        await servers();
         break;
       case Command.Help:
         console.log(systemColor('\n--- Available Commands ---'));

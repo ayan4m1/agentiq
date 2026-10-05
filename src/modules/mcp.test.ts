@@ -2,7 +2,7 @@ import { test, describe, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 
 import type { McpConnection, McpResult, McpTool } from './mcp';
 import type { McpServerConfig } from '../types';
@@ -13,9 +13,13 @@ const {
   describeResult,
   isMcpTool,
   listServers,
+  mcpTools,
+  retryServer,
+  setServerEnabled,
   toolName,
   toToolCall
 } = await import('./mcp');
+const { home } = await import('./config');
 const { approval, remember } = await import('./approval');
 const { terminal } = await import('./turn');
 const { ApprovalMode } = await import('../types');
@@ -136,8 +140,8 @@ describe('connectServers', () => {
       ['mcp__one__a', 'mcp__one__b', 'mcp__two__c']
     );
     assert.deepEqual(listServers(), [
-      { name: 'one', transport: 'stdio', tools: 2 },
-      { name: 'two', transport: 'http', tools: 1 }
+      { name: 'one', transport: 'stdio', tools: 2, enabled: true },
+      { name: 'two', transport: 'http', tools: 1, enabled: true }
     ]);
   });
 
@@ -312,5 +316,125 @@ describe('an MCP tool', () => {
 
     assert.ok(result.length < 5_000_000);
     assert.match(result, /\[truncated: showing \d+ of 5000000 characters\]/);
+  });
+});
+
+describe('turning servers on and off', () => {
+  // what /mcp last saved for a server, read back out of config.yml
+  const savedEnabled = (name: string) =>
+    readFileSync(resolve(home, 'config.yml'), 'utf8').match(
+      new RegExp(`\n {4}${name}:\n {6}enabled: (true|false)`)
+    )?.[1];
+
+  test('lists a disabled server without starting it', async () => {
+    const connect = mock.fn(async () => fakeConnection([tool('a')]));
+
+    const tools = await connectServers(
+      { off: { ...stdio, enabled: false } },
+      connect,
+      1000
+    );
+
+    assert.deepEqual(tools, []);
+    assert.equal(connect.mock.callCount(), 0);
+    assert.deepEqual(listServers(), [
+      { name: 'off', transport: 'stdio', tools: 0, enabled: false }
+    ]);
+  });
+
+  test('retries a server that failed and offers its tools', async () => {
+    let attempts = 0;
+
+    await connectServers(
+      { flaky: stdio },
+      async () => {
+        attempts += 1;
+
+        if (attempts === 1) {
+          throw new Error('spawn fake-server ENOENT');
+        }
+
+        return fakeConnection([tool('a')]);
+      },
+      1000
+    );
+
+    assert.deepEqual(mcpTools(), []);
+
+    const status = await retryServer('flaky');
+
+    assert.equal(status.error, undefined);
+    assert.equal(status.tools, 1);
+    assert.deepEqual(
+      mcpTools().map((entry) => entry.definition.function.name),
+      ['mcp__flaky__a']
+    );
+  });
+
+  test('stops whatever was running before a retry', async () => {
+    const first = fakeConnection([tool('a')]);
+    const second = fakeConnection([tool('b')]);
+    const connections = [first, second];
+
+    await connectServers(
+      { one: stdio },
+      async () => connections.shift()!,
+      1000
+    );
+    await retryServer('one');
+
+    assert.equal(first.kill.mock.callCount(), 1);
+    assert.deepEqual(
+      mcpTools().map((entry) => entry.definition.function.name),
+      ['mcp__one__b']
+    );
+  });
+
+  test('stops a server turned off and drops its tools', async () => {
+    const one = fakeConnection([tool('a')]);
+    const two = fakeConnection([tool('a')]);
+
+    await connectServers(
+      { one: { ...stdio }, two: { ...stdio } },
+      async (name) => (name === 'one' ? one : two),
+      1000
+    );
+
+    const status = await setServerEnabled('one', false);
+
+    assert.deepEqual(status, {
+      name: 'one',
+      transport: 'stdio',
+      tools: 0,
+      enabled: false
+    });
+    assert.equal(one.kill.mock.callCount(), 1);
+    assert.equal(two.kill.mock.callCount(), 0);
+    assert.deepEqual(
+      mcpTools().map((entry) => entry.definition.function.name),
+      ['mcp__two__a']
+    );
+    assert.equal(savedEnabled('one'), 'false');
+  });
+
+  test('connects a server turned on', async () => {
+    await connectServers(
+      { three: { ...stdio, enabled: false } },
+      async () => fakeConnection([tool('a')]),
+      1000
+    );
+
+    const status = await setServerEnabled('three', true);
+
+    assert.equal(status.enabled, true);
+    assert.equal(status.tools, 1);
+    assert.equal(mcpTools().length, 1);
+    assert.equal(savedEnabled('three'), 'true');
+  });
+
+  test('refuses a server that is not configured', async () => {
+    await connectServers({}, async () => fakeConnection(), 1000);
+
+    await assert.rejects(retryServer('nope'), /no MCP server called nope/);
   });
 });

@@ -12,6 +12,7 @@ import {
   toBoolean,
   toLogLevel,
   toPromptCache,
+  toMcpServers,
   toSkillNames,
   toThink
 } from './config';
@@ -147,6 +148,33 @@ describe('toBoolean', () => {
     assert.equal(
       quietly(() => toBoolean('ture', 'AQ_TEST', true)),
       true
+    );
+  });
+});
+
+describe('toMcpServers', () => {
+  test('keeps whether a server is enabled', () => {
+    assert.deepEqual(
+      toMcpServers(
+        { docs: { url: 'https://example.com/mcp', enabled: false } },
+        'mcp.servers'
+      ),
+      { docs: { url: 'https://example.com/mcp', enabled: false } }
+    );
+  });
+
+  test('drops a server whose enabled is not true or false', () => {
+    assert.deepEqual(
+      quietly(() =>
+        toMcpServers(
+          {
+            docs: { url: 'https://example.com/mcp', enabled: 'no' },
+            fine: { command: 'fine' }
+          },
+          'mcp.servers'
+        )
+      ),
+      { fine: { command: 'fine' } }
     );
   });
 });
@@ -311,6 +339,32 @@ describe('saveSetting', () => {
     saveSetting('provider', 'contextLimit', 32768, dir);
 
     assert.deepEqual(parse(read(dir)), { provider: { contextLimit: 32768 } });
+  });
+
+  test('reaches a setting nested below the section', () => {
+    const dir = seed(
+      'nested',
+      'mcp:\n  # a comment to keep\n  servers:\n    docs:\n      url: https://example.com/mcp\n'
+    );
+
+    saveSetting('mcp', ['servers', 'docs', 'enabled'], false, dir);
+
+    assert.match(read(dir), /# a comment to keep/);
+    assert.deepEqual(parse(read(dir)), {
+      mcp: {
+        servers: { docs: { url: 'https://example.com/mcp', enabled: false } }
+      }
+    });
+  });
+
+  test('fills an empty section along a nested path', () => {
+    const dir = seed('nested-comments', 'mcp:\n  # nothing yet\n');
+
+    saveSetting('mcp', ['servers', 'docs', 'enabled'], false, dir);
+
+    assert.deepEqual(parse(read(dir)), {
+      mcp: { servers: { docs: { enabled: false } } }
+    });
   });
 
   test('refuses to overwrite a file that is not valid yaml', () => {

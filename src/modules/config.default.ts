@@ -126,6 +126,9 @@ mcp:
   # speaks streamable HTTP. their tools are offered as mcp__<server>__<tool>
   # servers:
   #   everything:
+  #     # false leaves the server out without losing its settings - /mcp
+  #     # edits this
+  #     enabled: true
   #     command: npx
   #     args: ['-y', '@modelcontextprotocol/server-everything']
   #     env:

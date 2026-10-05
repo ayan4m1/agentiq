@@ -1151,6 +1151,33 @@ describe('counting the tools from mcp servers', () => {
       tokens.system + tokens.skills + tokens.tools + tokens.messages
     );
   });
+
+  test('offers a server turned on from /mcp once rebuilt', async () => {
+    const thinker = makeThinker();
+    const countTokens = mock.fn<NonNullable<ChatProvider['countTokens']>>(
+      async () => 5000
+    );
+
+    tools.push(remote);
+    thinker.rebuild([]);
+    chatProvider.countTokens = countTokens;
+
+    try {
+      await thinker.count([]);
+    } finally {
+      delete chatProvider.countTokens;
+    }
+
+    const [request] = countTokens.mock.calls[0].arguments;
+
+    assert.equal(
+      thinker.tokens.mcp,
+      estimateTokens(JSON.stringify(remote.definition))
+    );
+    assert.ok(
+      request.tools?.some((tool) => tool.function.name === 'mcp__docs__search')
+    );
+  });
 });
 
 describe('rebuilding onto a model with no system prompt', () => {

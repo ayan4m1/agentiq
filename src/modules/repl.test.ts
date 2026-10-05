@@ -1,4 +1,12 @@
-import { test, describe, before, beforeEach, after, mock } from 'node:test';
+import {
+  test,
+  describe,
+  before,
+  beforeEach,
+  after,
+  afterEach,
+  mock
+} from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -61,12 +69,13 @@ const preflight = mock.fn(async () => preflightPasses);
 let contextLength: number | undefined;
 const ensureTokenizer = mock.fn(async () => true);
 
-// /model picks from a prompt of its own, and /skills toggles in another
+// /model picks from a prompt of its own, and /skills and /mcp toggle in others
 const pickModel = mock.fn<(config: unknown) => Promise<string>>();
 const pickSkills = mock.fn<(config: unknown) => Promise<void>>(async () => {});
+const pickServers = mock.fn<(config: unknown) => Promise<void>>(async () => {});
 
 mock.module('./picker', {
-  exports: { pickModel, pickSkills } satisfies ModuleMock<
+  exports: { pickModel, pickServers, pickSkills } satisfies ModuleMock<
     typeof import('./picker')
   >
 });
@@ -114,7 +123,9 @@ mock.module('./check', {
 
 const { Command, createController, previewOf } = await import('./repl');
 const { approval, loadRules, remember } = await import('./approval');
-const { provider, session, skills, tokenizer } = await import('./config');
+const { mcp, provider, session, skills, tokenizer } = await import('./config');
+const { closeServers, connectServers } = await import('./mcp');
+const { tools } = await import('../tools');
 const { loadStore, saveStore } = await import('./models');
 const { yieldToUser, takeYield } = await import('./turn');
 const {
@@ -242,6 +253,7 @@ beforeEach(() => {
   select.mock.resetCalls();
   pickModel.mock.resetCalls();
   pickSkills.mock.resetCalls();
+  pickServers.mock.resetCalls();
   confirm.mock.resetCalls();
   editor.mock.resetCalls();
   discardCheckpoints();
@@ -1979,6 +1991,131 @@ describe('/skills', () => {
 
     controller.addUserMessage('third');
 
+    assert.equal(thinker.rebuild.mock.callCount(), 1);
+  });
+});
+
+describe('/mcp', () => {
+  type ServersRequest = {
+    choices: { name: string; enabled: boolean; error?: string }[];
+    toggle: (name: string, enabled: boolean) => Promise<unknown>;
+    retry: (name: string) => Promise<unknown>;
+  };
+
+  const request = () =>
+    pickServers.mock.calls[0].arguments[0] as ServersRequest;
+
+  const offered = () =>
+    tools
+      .map((tool) => tool.definition.function.name)
+      .filter((name) => name.startsWith('mcp__'));
+
+  const fakeConnection = (names: string[]) => ({
+    listTools: async () => ({
+      tools: names.map((name) => ({ name, inputSchema: { type: 'object' } }))
+    }),
+    callTool: async () => ({}),
+    close: async () => {}
+  });
+
+  // one server that came up and one that did not, the first time
+  const connectBoth = async () => {
+    let attempts = 0;
+
+    await connectServers(
+      { fine: { command: 'fine' }, flaky: { command: 'flaky' } },
+      async (name) => {
+        if (name === 'flaky' && attempts++ === 0) {
+          throw new Error('spawn flaky ENOENT');
+        }
+
+        return fakeConnection([name === 'fine' ? 'a' : 'b']);
+      },
+      1000
+    );
+  };
+
+  afterEach(() => {
+    mcp.enabled = true;
+    closeServers();
+    // what the next test starts from is the built-in tools alone
+    tools.splice(
+      0,
+      tools.length,
+      ...tools.filter(
+        (tool) => !tool.definition.function.name.startsWith('mcp__')
+      )
+    );
+  });
+
+  test('says so when MCP is turned off', async (t) => {
+    const info = t.mock.method(getLogger('run'), 'info', () => {});
+
+    mcp.enabled = false;
+    await make().runCommand(Command.Mcp);
+
+    assert.equal(pickServers.mock.callCount(), 0);
+    assert.match(String(info.mock.calls[0]?.arguments[0]), /MCP is turned off/);
+  });
+
+  test('says so instead of opening an empty list', async (t) => {
+    const info = t.mock.method(getLogger('run'), 'info', () => {});
+
+    await connectServers({}, async () => fakeConnection([]), 1000);
+    await make().runCommand(Command.Mcp);
+
+    assert.equal(pickServers.mock.callCount(), 0);
+    assert.match(
+      String(info.mock.calls[0]?.arguments[0]),
+      /No MCP servers are configured/
+    );
+  });
+
+  test('lists every server with what became of it', async () => {
+    await connectBoth();
+    await make().runCommand(Command.Mcp);
+
+    assert.deepEqual(
+      request().choices.map(({ name, enabled, error }) => ({
+        name,
+        enabled,
+        error
+      })),
+      [
+        { name: 'fine', enabled: true, error: undefined },
+        { name: 'flaky', enabled: true, error: 'spawn flaky ENOENT' }
+      ]
+    );
+    assert.equal(thinker.rebuild.mock.callCount(), 0);
+  });
+
+  test('takes the tools of a server turned off away', async () => {
+    await connectBoth();
+    pickServers.mock.mockImplementationOnce(async (config) => {
+      void (config as ServersRequest).toggle('fine', false);
+    });
+
+    await make().runCommand(Command.Mcp);
+
+    assert.deepEqual(offered(), []);
+    assert.match(
+      readFileSync(resolve(process.env.AQ_HOME!, 'config.yml'), 'utf8'),
+      /fine:\s*\n\s*enabled: false/
+    );
+    assert.equal(thinker.rebuild.mock.callCount(), 1);
+    assert.equal(thinker.count.mock.callCount(), 1);
+  });
+
+  test('offers the tools of a server retried once the picker closes', async () => {
+    await connectBoth();
+    // the retry is still under way when the picker closes, and is waited for
+    pickServers.mock.mockImplementationOnce(async (config) => {
+      void (config as ServersRequest).retry('flaky');
+    });
+
+    await make().runCommand(Command.Mcp);
+
+    assert.deepEqual(offered(), ['mcp__fine__a', 'mcp__flaky__b']);
     assert.equal(thinker.rebuild.mock.callCount(), 1);
   });
 });

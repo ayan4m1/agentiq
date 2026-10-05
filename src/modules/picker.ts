@@ -8,6 +8,7 @@ import {
   usePagination,
   usePrefix,
   useKeypress,
+  useRef,
   useState,
   type Status
 } from '@inquirer/core';
@@ -311,3 +312,169 @@ export const pickSkills = createPrompt<void, SkillsRequest>((config, done) => {
     .filter(Boolean)
     .join('\n')}${hideCursor}`;
 });
+
+export type ServerChoice = {
+  name: string;
+  transport: 'stdio' | 'http';
+  tools: number;
+  error?: string;
+  enabled: boolean;
+  // waiting on a connection started from this list - its row takes no keys
+  // until that settles
+  connecting?: boolean;
+};
+
+// what a server's row reads as once a toggle or retry has settled
+type ServerUpdate = Omit<ServerChoice, 'connecting'>;
+
+type ServersRequest = {
+  message: string;
+  choices: ServerChoice[];
+  // called on every change, so it has already happened by the time the
+  // prompt closes. turning a server on connects it, which is what is awaited
+  toggle: (name: string, enabled: boolean) => Promise<ServerUpdate>;
+  retry: (name: string) => Promise<ServerUpdate>;
+};
+
+const serversHelp = describeKeys([
+  ['esc/⏎', 'close'],
+  ['↑↓', 'navigate'],
+  ['space', 'toggle'],
+  ['r', 'retry']
+]);
+
+const describeServer = (item: ServerChoice) => {
+  if (!item.enabled) {
+    return chalk.gray('off');
+  }
+
+  if (item.connecting) {
+    return chalk.gray('connecting…');
+  }
+
+  return item.error ? chalk.red('failed') : `${item.tools} tools`;
+};
+
+// the same list as pickSkills, except that a change has to connect or stop a
+// server - so a row waits on that, and r starts a failed one over again
+export const pickServers = createPrompt<void, ServersRequest>(
+  (config, done) => {
+    const theme = makeTheme();
+    const [status, setStatus] = useState<Status>('idle');
+    const [items, setItems] = useState(config.choices);
+    const [active, setActive] = useState(0);
+    const [error, setError] = useState<string>();
+    // a connection can settle after the prompt has closed, when there is
+    // nothing left to draw it on
+    const closed = useRef(false);
+    const prefix = usePrefix({ status, theme });
+    const selected = items[active];
+
+    // the reducer form, since the list may have changed while this waited
+    const update = (name: string, changes: Partial<ServerChoice>) => {
+      if (closed.current) {
+        return;
+      }
+
+      setItems((current: ServerChoice[]) =>
+        current.map((item) =>
+          item.name === name ? { ...item, ...changes } : item
+        )
+      );
+    };
+
+    const settle = (name: string, work: Promise<ServerUpdate>) => {
+      update(name, { connecting: true });
+      work.then(
+        // a server that came up has no error, rather than the old one
+        (result) =>
+          update(name, { error: undefined, ...result, connecting: false }),
+        (failure: unknown) =>
+          update(name, {
+            connecting: false,
+            error: failure instanceof Error ? failure.message : String(failure)
+          })
+      );
+    };
+
+    useKeypress((key, rl) => {
+      if (status !== 'idle') {
+        return;
+      }
+
+      // readline has already echoed whatever was typed into the line, and
+      // none of it is meant to be kept
+      rl.clearLine(0);
+      setError(undefined);
+
+      if (key.name === 'escape' || isEnterKey(key)) {
+        setStatus('done');
+        closed.current = true;
+        finish(rl, done, undefined);
+      } else if (!selected) {
+        return;
+      } else if (isUpKey(key, theme.keybindings)) {
+        setActive((active - 1 + items.length) % items.length);
+      } else if (isDownKey(key, theme.keybindings)) {
+        setActive((active + 1) % items.length);
+      } else if (selected.connecting) {
+        // the row is not settled enough to change again
+        return;
+      } else if (key.name === 'space') {
+        const enabled = !selected.enabled;
+
+        update(selected.name, { enabled, tools: 0, error: undefined });
+        settle(selected.name, config.toggle(selected.name, enabled));
+      } else if (key.name === 'r') {
+        if (!selected.enabled || !selected.error) {
+          setError('Only a server that failed can be retried');
+        } else {
+          settle(selected.name, config.retry(selected.name));
+        }
+      }
+    });
+
+    const page = usePagination({
+      items,
+      active,
+      renderItem: ({ item, isActive }) => {
+        const mark = item.enabled ? '◉' : '◯';
+        const line = `${mark} ${item.name} ${chalk.gray(`(${item.transport})`)}`;
+        const state = describeServer(item);
+
+        return isActive
+          ? `${theme.style.highlight(pointer)} ${theme.style.highlight(line)} - ${state}`
+          : `  ${item.enabled ? line : chalk.gray(line)} - ${state}`;
+      },
+      pageSize: 7
+    });
+    const message = theme.style.message(config.message, status);
+
+    // hooks are matched up by call order, so this comes after every one of them
+    if (status === 'done') {
+      const count = items.filter((item) => item.enabled).length;
+
+      return `${prefix} ${message} ${theme.style.answer(`${count} of ${items.length} enabled`)}`;
+    }
+
+    // one line of it, since an error can run on
+    const reason =
+      selected?.enabled && !selected.connecting && selected.error
+        ? selected.error.replace(/\s+/g, ' ').trim()
+        : '';
+    const columns = process.stdout.columns || 80;
+    const shown =
+      reason.length > columns - 2 ? `${reason.slice(0, columns - 3)}…` : reason;
+
+    return `${[
+      `${prefix} ${message}`,
+      page,
+      ' ',
+      shown ? chalk.red(shown) : '',
+      error ? theme.style.error(error) : '',
+      serversHelp
+    ]
+      .filter(Boolean)
+      .join('\n')}${hideCursor}`;
+  }
+);

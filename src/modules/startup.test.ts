@@ -25,15 +25,16 @@ const makeThinker = mock.fn(() => thinker);
 const killAllJobs = mock.fn();
 const discardCheckpoints = mock.fn();
 const info = mock.fn();
-const mcpTools = [{ definition: { type: 'function', function: {} } }];
-const connectServers = mock.fn(async () => mcpTools);
+const tools = [{ definition: { type: 'function', function: {} } }];
+const connectServers = mock.fn(async () => tools);
+const mcpTools = mock.fn(() => tools);
 const closeServers = mock.fn();
 // whether the tools were registered by the time the thinker was made
 let registeredBeforeThinker = false;
-const registerTools = mock.fn();
+const setMcpTools = mock.fn();
 
 makeThinker.mock.mockImplementation(() => {
-  registeredBeforeThinker = registerTools.mock.callCount() > 0;
+  registeredBeforeThinker = setMcpTools.mock.callCount() > 0;
 
   return thinker;
 });
@@ -87,12 +88,12 @@ mock.module('./checkpoints', {
 });
 
 mock.module('./mcp', {
-  exports: { connectServers, closeServers } as ModuleMock<
+  exports: { connectServers, closeServers, mcpTools } as ModuleMock<
     typeof import('./mcp')
   >
 });
 mock.module('../tools', {
-  exports: { registerTools } as ModuleMock<typeof import('../tools')>
+  exports: { setMcpTools } as ModuleMock<typeof import('../tools')>
 });
 
 const { startAgent } = await import('./startup');
@@ -123,7 +124,7 @@ beforeEach(() => {
     info,
     connectServers,
     closeServers,
-    registerTools
+    setMcpTools
   ]) {
     fn.mock.resetCalls();
   }
@@ -184,7 +185,7 @@ describe('startAgent', () => {
     await startAgent();
 
     assert.equal(connectServers.mock.callCount(), 1);
-    assert.deepEqual(registerTools.mock.calls[0].arguments, [mcpTools]);
+    assert.deepEqual(setMcpTools.mock.calls[0].arguments, [tools]);
     assert.equal(registeredBeforeThinker, true);
   });
 

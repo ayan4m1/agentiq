@@ -25,6 +25,7 @@ import {
   provider as providerConfig,
   roadmap as roadmapConfig
 } from '../modules/config';
+import { isMcpTool } from '../modules/mcp';
 import { Provider, type ToolCall } from '../types';
 
 // offered only when AQ_ENABLE_ROADMAP is set - a model that cannot see them has
@@ -60,9 +61,14 @@ export const tools: ToolCall[] = [
 ];
 
 // tools that only exist once agentiq is running - those of the MCP servers it
-// connected to. added to the same list rather than kept apart, so that dispatch
-// and token counting find them without knowing where they came from. it has
-// to happen before makeThinker(), which reads the list once
-export const registerTools = (extra: ToolCall[]) => {
-  tools.push(...extra);
+// is connected to. kept in the same list rather than apart, so that dispatch
+// and token counting find them without knowing where they came from. the list
+// is changed in place, since the thinker holds on to it - and reads it again
+// in rebuild(), which has to follow any change after makeThinker()
+export const setMcpTools = (extra: ToolCall[]) => {
+  const builtIn = tools.filter(
+    (tool) => !isMcpTool(tool.definition.function.name)
+  );
+
+  tools.splice(0, tools.length, ...builtIn, ...extra);
 };

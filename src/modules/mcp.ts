@@ -8,7 +8,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 /* eslint-enable import-x/no-unresolved */
 
-import { mcp as config } from './config';
+import { mcp as config, saveSetting } from './config';
 import { getLogger } from './logging';
 import { describeDenial, refusePlanning, requestApproval } from './approval';
 import type { McpServerConfig, ToolCall, ToolDefinition } from '../types';
@@ -53,6 +53,9 @@ export type McpServerStatus = {
   transport: 'stdio' | 'http';
   tools: number;
   error?: string;
+  // false for a server turned off in config.yml or from /mcp - it is listed,
+  // but nothing is started for it
+  enabled: boolean;
 };
 
 export type Connect = (
@@ -63,7 +66,15 @@ export type Connect = (
 const prefix = 'mcp__';
 
 const connections = new Map<string, McpConnection>();
+// each connected server's tools, so one can be taken away or replaced without
+// touching the others
+const serverTools = new Map<string, ToolCall[]>();
 const statuses: McpServerStatus[] = [];
+// what connectServers() was given, so a server connected again from /mcp is
+// connected the same way
+let configured: Record<string, McpServerConfig> = {};
+let connector: Connect = (name, server) => connectClient(name, server);
+let connectTimeout = config.timeout;
 
 // what /mcp lists - every configured server, whether it came up or not
 export const listServers = (): readonly McpServerStatus[] => statuses;
@@ -259,6 +270,9 @@ const connectServer = async (
   timeout: number,
   status: McpServerStatus
 ): Promise<ToolCall[]> => {
+  status.tools = 0;
+  delete status.error;
+
   const connecting = connect(name, server);
 
   try {
@@ -272,13 +286,16 @@ const connectServer = async (
       `Connecting to ${name}`
     );
 
+    const calls = tools.map((tool) => toToolCall(name, tool, connection));
+
     connections.set(name, connection);
+    serverTools.set(name, calls);
     status.tools = tools.length;
     log.info(
       chalk.gray(`Connected to MCP server ${name} (${tools.length} tools)`)
     );
 
-    return tools.map((tool) => toToolCall(name, tool, connection));
+    return calls;
   } catch (error) {
     status.error = describeError(error);
     log.warn(`Could not use MCP server ${name} - ${status.error}`);
@@ -303,22 +320,97 @@ export const connectServers = async (
   timeout = config.timeout
 ): Promise<ToolCall[]> => {
   statuses.length = 0;
+  configured = servers;
+  connector = connect;
+  connectTimeout = timeout;
 
   const results = await Promise.all(
     Object.entries(servers).map(([name, server]) => {
       const status: McpServerStatus = {
         name,
         transport: server.url ? 'http' : 'stdio',
-        tools: 0
+        tools: 0,
+        enabled: server.enabled !== false
       };
 
       statuses.push(status);
 
-      return connectServer(name, server, connect, timeout, status);
+      return status.enabled
+        ? connectServer(name, server, connect, timeout, status)
+        : [];
     })
   );
 
   return results.flat();
+};
+
+// the tools of every server that is connected now - what the model is offered
+export const mcpTools = () => [...serverTools.values()].flat();
+
+const findStatus = (name: string) => {
+  const status = statuses.find((candidate) => candidate.name === name);
+
+  if (!status || !configured[name]) {
+    throw new Error(`There is no MCP server called ${name}`);
+  }
+
+  return status;
+};
+
+const disconnect = (name: string) => {
+  const connection = connections.get(name);
+
+  if (connection) {
+    stop(connection);
+  }
+
+  connections.delete(name);
+  serverTools.delete(name);
+};
+
+// starts one server over again - for one that failed, or timed out while it
+// was still starting. whatever was running for it before is stopped first
+export const retryServer = async (name: string) => {
+  const status = findStatus(name);
+
+  disconnect(name);
+  await connectServer(
+    name,
+    configured[name],
+    connector,
+    connectTimeout,
+    status
+  );
+
+  return status;
+};
+
+// turns a server on or off for this session, and saves that to config.yml so
+// the runs that follow start the same way. a save that fails still leaves the
+// change in place for this session, as /skills does
+export const setServerEnabled = async (name: string, enabled: boolean) => {
+  const status = findStatus(name);
+
+  configured[name].enabled = enabled;
+  status.enabled = enabled;
+
+  try {
+    saveSetting('mcp', ['servers', name, 'enabled'], enabled);
+  } catch (error) {
+    log.warn(
+      `Could not save whether ${name} is enabled to config.yml - ${describeError(error)}`
+    );
+  }
+
+  if (enabled) {
+    return retryServer(name);
+  }
+
+  disconnect(name);
+  status.tools = 0;
+  delete status.error;
+
+  return status;
 };
 
 // synchronous, since it runs from the exit handler alongside killAllJobs
@@ -328,4 +420,5 @@ export const closeServers = () => {
   }
 
   connections.clear();
+  serverTools.clear();
 };

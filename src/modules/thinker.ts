@@ -77,9 +77,10 @@ const summaryPrompt =
 export const makeThinker = () => {
   let systemPrompt = buildSystemPrompt();
   let tokenizer = makeTokenizer();
-  const toolDefs = tools.map((tool) => tool.definition);
-  const toolNameList = toolDefs.map((toolDef) => toolDef.function.name!);
-  const toolNames = toolNameList.join(', ');
+  // read again by rebuild(), since /mcp can change which tools there are
+  let toolDefs = tools.map((tool) => tool.definition);
+  let toolNameList = toolDefs.map((toolDef) => toolDef.function.name!);
+  let toolNames = toolNameList.join(', ');
   const tokens: TokenStats = {
     messages: 0,
     system: 0,
@@ -724,6 +725,9 @@ export const makeThinker = () => {
   // tokenizer belongs to it, so both are built again and everything they
   // measured is counted again from scratch
   const rebuild = (messages: ChatMessage[]) => {
+    toolDefs = tools.map((tool) => tool.definition);
+    toolNameList = toolDefs.map((toolDef) => toolDef.function.name!);
+    toolNames = toolNameList.join(', ');
     tokenizer = makeTokenizer();
     systemPrompt = buildSystemPrompt();
 

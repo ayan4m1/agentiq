@@ -124,6 +124,9 @@ mcp:
   timeout: 30000
   # servers:
   #   everything:
+  #     # false leaves the server out without losing its settings - /mcp
+  #     # edits this
+  #     enabled: true
   #     command: npx
   #     args: ['-y', '@modelcontextprotocol/server-everything']
   #   docs:
@@ -190,7 +193,7 @@ The choices are:
 | `/check [on\|off\|command]` | After each turn that writes files, runs a test/lint/type-check command (chosen by the model with `on`, or the one given) and shows `✔`/`✘` above the prompt. On a failure, the next prompt is pre-filled with a fix request that sends the check's output along. Alone, shows the current setting. |
 | `/rules`                    | Lists saved approval rules (↑↓ to move, `r` then `y` to remove). `/rules add command\|path\|tool <pattern>` saves one; `*` matches within a path segment, `**` across them.                                                                                                                        |
 | `/skills`                   | Lists installed skills to turn on or off (↑↓ to move, space to toggle, `a` for all/none, esc or ⏎ to close). Only enabled skills go into the system prompt; the choice is saved to `skills.disabled` in `config.yml`.                                                                              |
-| `/mcp`                      | Lists the configured MCP servers, whether each connected, and how many tools it offers. See [MCP servers](#mcp-servers).                                                                                                                                                                           |
+| `/mcp`                      | Lists the configured MCP servers, whether each connected, and how many tools it offers (↑↓ to move, space to turn a server on or off, `r` to retry one that failed, esc or ⏎ to close). The choice is saved to `mcp.servers.<name>.enabled` in `config.yml`. See [MCP servers](#mcp-servers).      |
 | `/help`                     | Lists the available commands, including [custom commands](#custom-commands).                                                                                                                                                                                                                       |
 | `/quit`                     | Exits agentiq.                                                                                                                                                                                                                                                                                     |
 
@@ -296,7 +299,9 @@ mcp:
 
 Servers are started once, at startup, all at the same time. A server that fails to start, or does
 not list its tools within `mcp.timeout`, is reported and left out, and `/mcp` shows what became of
-each. Their tools are offered to the model as `mcp__<server>__<tool>`, and `/context` shows what
+each. From `/mcp`, `r` starts a failed server over again, and space turns a server off - stopping
+it and taking its tools away - or back on. That is saved as `enabled: false` under the server in
+`config.yml`, so it stays off on the next run without losing its settings. Their tools are offered to the model as `mcp__<server>__<tool>`, and `/context` shows what
 they cost on its `MCP` line.
 
 Calling an MCP tool always needs approval, like running a command does. Answering "always" saves a

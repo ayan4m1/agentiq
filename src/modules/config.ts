@@ -191,14 +191,17 @@ export const loadConfigFile = (dir: string): ConfigFile => {
 // is edited in place rather than written out again, so the comments and
 // anything else the user put there survive. throws if the file cannot be read
 // or parsed - overwriting one that is broken would lose whatever was in it
+// a key can also be a path below the section, for a setting nested deeper -
+// one server's flag under mcp.servers
 export const saveSetting = (
   section: string,
-  key: string,
+  key: string | string[],
   value: unknown,
   dir = home
 ) => {
   const path = resolve(dir, 'config.yml');
   const document = parseDocument(readFileSync(path, 'utf8'));
+  const keys = Array.isArray(key) ? key : [key];
 
   if (document.errors.length) {
     throw document.errors[0];
@@ -207,9 +210,14 @@ export const saveSetting = (
   // a section holding nothing but comments parses as null, which setIn
   // cannot reach into
   if (document.has(section) && !isCollection(document.get(section, true))) {
-    document.set(section, document.createNode({ [key]: value }));
+    document.set(
+      section,
+      document.createNode(
+        keys.reduceRight<unknown>((inner, name) => ({ [name]: inner }), value)
+      )
+    );
   } else {
-    document.setIn([section, key], value);
+    document.setIn([section, ...keys], value);
   }
 
   writeFileSync(path, document.toString());
@@ -439,7 +447,10 @@ export const toMcpServers = (value: unknown, name: string) => {
               ? 'expected headers to be a mapping of strings'
               : entry.cwd !== undefined && typeof entry.cwd !== 'string'
                 ? 'expected cwd to be a string'
-                : undefined;
+                : entry.enabled !== undefined &&
+                    typeof entry.enabled !== 'boolean'
+                  ? 'expected enabled to be true or false'
+                  : undefined;
 
     if (problem) {
       console.warn(`Ignoring ${name}.${server} - ${problem}`);

@@ -23,8 +23,10 @@ general instructions about how to be an agent.
   choosing what to elide; `client.ts` is the shared Ollama client.
 - `src/modules/mcp.ts` - connects to the MCP servers in `config.yml` at
   startup and wraps each of their tools as a `ToolCall` named
-  `mcp__<server>__<tool>`, which `registerTools()` in `src/tools/index.ts`
-  adds to the registry before the thinker is made. Their arguments skip
+  `mcp__<server>__<tool>`, which `setMcpTools()` in `src/tools/index.ts`
+  puts in the registry before the thinker is made. `/mcp` (`pickServers` in
+  `picker.ts`) turns servers on and off and retries failed ones, after which
+  the registry is replaced and the thinker rebuilt. Their arguments skip
   `validateArgs()`'s filtering, since they never went through `makeParameter()`.
 - `src/modules/tools.ts` - argument validation and recovery of tool calls the
   model wrote as text instead of emitting properly.

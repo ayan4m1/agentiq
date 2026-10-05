@@ -6,9 +6,11 @@ import chalk from 'chalk';
 
 import {
   pickModel,
+  pickServers,
   pickSkills,
   toggleAll,
   type PickerChoice,
+  type ServerChoice,
   type SkillChoice
 } from './picker';
 
@@ -463,5 +465,199 @@ describe('toggleAll', () => {
       toggleAll(toggleAll(skillChoices)).map(({ enabled }) => enabled),
       [false, false]
     );
+  });
+});
+
+const serverChoices: ServerChoice[] = [
+  { name: 'docs', transport: 'http', tools: 3, enabled: true },
+  {
+    name: 'broken',
+    transport: 'stdio',
+    tools: 0,
+    enabled: true,
+    error: 'spawn fake-server ENOENT'
+  },
+  { name: 'idle', transport: 'stdio', tools: 0, enabled: false }
+];
+
+// a promise the test settles by hand, to see the row while it waits
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+
+  return { promise, resolve };
+};
+
+type ServerUpdate = Omit<ServerChoice, 'connecting'>;
+
+const openServers = async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const toggle =
+    mock.fn<(name: string, enabled: boolean) => Promise<ServerUpdate>>();
+  const retry = mock.fn<(name: string) => Promise<ServerUpdate>>();
+  let written = '';
+
+  output.on('data', (chunk: Buffer) => {
+    written += chunk.toString();
+  });
+
+  const answer = pickServers(
+    { message: 'MCP servers', choices: serverChoices, toggle, retry },
+    { input, output }
+  );
+
+  await new Promise(setImmediate);
+
+  return {
+    answer,
+    toggle,
+    retry,
+    screen: () => stripVTControlCharacters(written),
+    press: (name: string) => {
+      written = '';
+      input.emit('keypress', null, { name, ctrl: false, meta: false });
+    },
+    // lets a settled toggle or retry draw itself
+    settle: async () => {
+      written = '';
+      await new Promise(setImmediate);
+    }
+  };
+};
+
+describe('pickServers', { timeout: 2000 }, () => {
+  test('lists each server with what became of it', async () => {
+    const picker = await openServers();
+    const screen = picker.screen();
+
+    assert.match(screen, /◉ docs \(http\) - 3 tools/);
+    assert.match(screen, /◉ broken \(stdio\) - failed/);
+    assert.match(screen, /◯ idle \(stdio\) - off/);
+
+    picker.press('down');
+
+    assert.match(picker.screen(), /spawn fake-server ENOENT/);
+
+    picker.press('escape');
+    await picker.answer;
+  });
+
+  test('turns a server off with space', async () => {
+    const picker = await openServers();
+    const off = deferred<ServerUpdate>();
+
+    picker.toggle.mock.mockImplementationOnce(() => off.promise);
+    picker.press('space');
+
+    assert.deepEqual(picker.toggle.mock.calls[0].arguments, ['docs', false]);
+    assert.match(picker.screen(), /◯ docs/);
+
+    off.resolve({ ...serverChoices[0], enabled: false, tools: 0 });
+    await picker.settle();
+
+    assert.match(picker.screen(), /◯ docs \(http\) - off/);
+
+    picker.press('enter');
+    await picker.answer;
+
+    assert.match(picker.screen(), /1 of 3 enabled/);
+  });
+
+  test('waits on a server turned on before it takes another key', async () => {
+    const picker = await openServers();
+    const on = deferred<ServerUpdate>();
+
+    picker.toggle.mock.mockImplementationOnce(() => on.promise);
+    picker.press('up');
+    picker.press('space');
+
+    assert.deepEqual(picker.toggle.mock.calls[0].arguments, ['idle', true]);
+    assert.match(picker.screen(), /◉ idle \(stdio\) - connecting…/);
+
+    picker.press('space');
+
+    assert.equal(picker.toggle.mock.callCount(), 1);
+
+    on.resolve({ ...serverChoices[2], enabled: true, tools: 4 });
+    await picker.settle();
+
+    assert.match(picker.screen(), /◉ idle \(stdio\) - 4 tools/);
+
+    picker.press('escape');
+    await picker.answer;
+  });
+
+  test('retries a failed server with r', async () => {
+    const picker = await openServers();
+    const retried = deferred<ServerUpdate>();
+
+    picker.retry.mock.mockImplementationOnce(() => retried.promise);
+    picker.press('down');
+    picker.press('r');
+
+    assert.deepEqual(picker.retry.mock.calls[0].arguments, ['broken']);
+    assert.match(picker.screen(), /broken \(stdio\) - connecting…/);
+
+    retried.resolve({
+      name: 'broken',
+      transport: 'stdio',
+      tools: 2,
+      enabled: true
+    });
+    await picker.settle();
+
+    assert.match(picker.screen(), /broken \(stdio\) - 2 tools/);
+    assert.doesNotMatch(picker.screen(), /ENOENT/);
+
+    picker.press('escape');
+    await picker.answer;
+  });
+
+  test('keeps the row failed when the retry itself throws', async () => {
+    const picker = await openServers();
+
+    picker.retry.mock.mockImplementationOnce(async () => {
+      throw new Error('still broken');
+    });
+    picker.press('down');
+    picker.press('r');
+    await picker.settle();
+
+    assert.match(picker.screen(), /broken \(stdio\) - failed/);
+    assert.match(picker.screen(), /still broken/);
+
+    picker.press('escape');
+    await picker.answer;
+  });
+
+  test('says why r does nothing on a server that is working', async () => {
+    const picker = await openServers();
+
+    picker.press('r');
+
+    assert.equal(picker.retry.mock.callCount(), 0);
+    assert.match(picker.screen(), /Only a server that failed can be retried/);
+
+    picker.press('escape');
+    await picker.answer;
+  });
+
+  test('closes without drawing a connection that settles later', async () => {
+    const picker = await openServers();
+    const on = deferred<ServerUpdate>();
+
+    picker.toggle.mock.mockImplementationOnce(() => on.promise);
+    picker.press('up');
+    picker.press('space');
+    picker.press('escape');
+    await picker.answer;
+
+    on.resolve({ ...serverChoices[2], enabled: true, tools: 4 });
+    await picker.settle();
+
+    assert.equal(picker.screen(), '');
   });
 });
