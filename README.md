@@ -184,7 +184,7 @@ The choices are:
 > and `AQ_REPLAY_PREAMBLE` / `AQ_RECOVER_TOOL_CALLS` win over the old variables. As with every
 > setting, an environment variable of either name wins over `config.yml`.
 
-- `anthropic` - talks to the Anthropic API. No tokenizer is needed, since the API counts tokens
+- `anthropic` - talks to the Anthropic Messages API. No tokenizer is needed, since the API counts tokens
   itself, and the `ollama.*` settings are ignored.
 
 > [!NOTE]
@@ -211,10 +211,6 @@ The choices are:
   or to the OpenAI API itself. No tokenizer is needed: the context is estimated until the first
   reply reports how many tokens the server counted, and the `ollama.*` settings are ignored.
 
-`provider.replayPreamble` and `provider.recoverToolCalls` matter most for local models served by
-`ollama` or an OpenAI-compatible server, whose chat templates are the usual reason a tool call
-ends up written into a reply as text.
-
 > [!NOTE]
 > The `openai` provider talks to the OpenAI API unless `openai.baseUrl` (or `AQ_OPENAI_BASE_URL`)
 > points it somewhere else. Against the OpenAI API it needs a key: set `openai.apiKey` (or
@@ -235,6 +231,10 @@ ends up written into a reply as text.
 >   the transcript, like any other provider's.
 > - The context length is read from the model list when the server reports it (vLLM's
 >   `max_model_len`, llama.cpp's `n_ctx_train`), so `provider.contextLimit` can be checked against it.
+
+`provider.replayPreamble` and `provider.recoverToolCalls` matter most for local models served by
+`ollama` or an OpenAI-compatible server, whose chat templates are the usual reason a tool call
+ends up written into a reply as text.
 
 ## Commands
 
