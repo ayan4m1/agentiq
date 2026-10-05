@@ -1,6 +1,7 @@
 import {
   Ollama,
   type ChatResponse,
+  type Message,
   type ShowResponse,
   type SystemOneNoulQuestion
 } from 'ollama';
@@ -8,6 +9,7 @@ import {
 import { ollama, provider } from '../modules/config';
 import type {
   ChatChunk,
+  ChatMessage,
   ChatProvider,
   ChatRequest,
   ChatStream,
@@ -61,13 +63,28 @@ export const readContextLength = (info: ShowResponse['model_info']) => {
   return typeof any === 'number' ? any : undefined;
 };
 
+// ollama's own type allows images as raw bytes - a session file can
+// only hold them as base64
+const toMessage = ({ images, ...message }: Message): ChatMessage => ({
+  ...message,
+  ...(images?.length
+    ? {
+        images: images.map((image) =>
+          typeof image === 'string'
+            ? image
+            : Buffer.from(image).toString('base64')
+        )
+      }
+    : {})
+});
+
 // ollama reports its counts on the final chunk only, so the rest carry none
 const toChunk = (response: ChatResponse): ChatChunk => {
   const counted =
     response.prompt_eval_count || response.eval_count || response.eval_duration;
 
   return {
-    message: response.message,
+    message: toMessage(response.message),
     done: response.done,
     ...(counted
       ? {
@@ -128,7 +145,7 @@ export class OllamaProvider implements ChatProvider {
       stream: false
     });
 
-    return response.message;
+    return toMessage(response.message);
   }
 
   // only reaches a request once its response has started to arrive

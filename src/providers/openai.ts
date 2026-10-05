@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 
 import { openai } from '../modules/config';
 import { getLogger } from '../modules/logging';
+import { mediaTypeOf } from '../modules/images';
 import type {
   ChatChunk,
   ChatMessage,
@@ -74,25 +75,65 @@ const toAssistant = (
   };
 };
 
+// an image part for each of a message's images, as the data URL the API takes
+const imageParts = (
+  message: ChatMessage
+): OpenAI.ChatCompletionContentPartImage[] =>
+  (message.images ?? []).map((data) => ({
+    type: 'image_url',
+    image_url: { url: `data:${mediaTypeOf(data)};base64,${data}` }
+  }));
+
+// what a user message says, as a plain string when it has nothing else to say
+// and as parts when it carries images
+const withImages = (message: ChatMessage) => {
+  const images = imageParts(message);
+
+  return images.length
+    ? [
+        ...(message.content
+          ? [{ type: 'text' as const, text: message.content }]
+          : []),
+        ...images
+      ]
+    : message.content;
+};
+
 // the conversation as the Chat Completions API wants it. every tool message
 // has to follow the assistant turn whose call it answers with nothing between
 // them, so a result that cannot be paired with a call is held back and passed
-// on as text once the paired ones are done, rather than dropped
+// on as text once the paired ones are done, rather than dropped. a tool
+// message can only hold text, so any images a result carried are held back
+// the same way and follow in a user message of their own
 export const toMessages = (messages: ChatMessage[]) => {
   const converted: OpenAI.ChatCompletionMessageParam[] = [];
   let answerable = new Set<string>();
   let unpaired: string[] = [];
+  let images: OpenAI.ChatCompletionContentPart[] = [];
 
   const flushUnpaired = () => {
-    if (unpaired.length) {
+    if (images.length) {
+      converted.push({
+        role: 'user',
+        content: [
+          ...(unpaired.length
+            ? [{ type: 'text' as const, text: unpaired.join('\n\n') }]
+            : []),
+          ...images
+        ]
+      });
+    } else if (unpaired.length) {
       converted.push({ role: 'user', content: unpaired.join('\n\n') });
     }
 
     unpaired = [];
+    images = [];
   };
 
   for (const message of messages) {
     if (message.role === 'tool') {
+      const name = message.tool_name ?? 'a tool';
+
       if (message.tool_call_id && answerable.has(message.tool_call_id)) {
         converted.push({
           role: 'tool',
@@ -100,8 +141,13 @@ export const toMessages = (messages: ChatMessage[]) => {
           content: message.content
         });
       } else {
-        unpaired.push(
-          `Result of ${message.tool_name ?? 'a tool'}:\n${message.content}`
+        unpaired.push(`Result of ${name}:\n${message.content}`);
+      }
+
+      if (message.images?.length) {
+        images.push(
+          { type: 'text', text: `Images returned by ${name}:` },
+          ...imageParts(message)
         );
       }
 
@@ -121,7 +167,7 @@ export const toMessages = (messages: ChatMessage[]) => {
         converted.push(assistant);
       }
     } else {
-      converted.push({ role: 'user', content: message.content });
+      converted.push({ role: 'user', content: withImages(message) });
     }
   }
 

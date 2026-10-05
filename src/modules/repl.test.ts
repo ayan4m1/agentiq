@@ -80,11 +80,28 @@ mock.module('./picker', {
   >
 });
 
+// whether the model says it can see - undefined for a server that never said
+let vision: boolean | undefined;
+
 mock.module('./preflight', {
   exports: fakePreflight({
     preflight,
-    modelContextLength: () => contextLength
+    modelContextLength: () => contextLength,
+    supportsImages: () => vision
   }).exports
+});
+
+// /image reads the clipboard, which here holds whatever the test puts on it.
+// the rest of the module is the real one, so an @-mentioned image is read
+// from disk as it would be
+const realImages = await import('./images');
+let clipboard: string | undefined;
+const readClipboardImage = mock.fn(async () => clipboard);
+
+mock.module('./images', {
+  exports: { ...realImages, readClipboardImage } satisfies ModuleMock<
+    typeof import('./images')
+  >
 });
 mock.module('./tokenizer', {
   exports: {
@@ -246,6 +263,8 @@ beforeEach(() => {
   approval.mode = ApprovalMode.Manual;
   preflightPasses = true;
   contextLength = undefined;
+  vision = undefined;
+  clipboard = undefined;
   provider.contextLimit = 4096;
   preflight.mock.resetCalls();
   ensureTokenizer.mock.resetCalls();
@@ -468,6 +487,136 @@ describe('@ mentions', () => {
     await make(1000, remember).restore();
 
     assert.deepEqual(prompts(), ['read @notes.txt']);
+  });
+});
+
+describe('images', () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64');
+  const warned = (warn: { mock: { calls: { arguments: unknown[] }[] } }) =>
+    warn.mock.calls.map((call) => String(call.arguments[0])).join('\n');
+
+  test('attaches a mentioned image as an image, and names it in the text', () => {
+    const controller = make();
+
+    writeFileSync('shot.png', Buffer.from(png, 'base64'));
+    controller.addUserMessage('what is wrong in @shot.png?');
+
+    assert.deepEqual(controller.messages, [
+      {
+        role: 'user',
+        content: 'what is wrong in @shot.png?\n\nAttached image: shot.png',
+        typed: 'what is wrong in @shot.png?',
+        images: [png]
+      }
+    ]);
+  });
+
+  test('leaves out an image too large to send, and says so', (t) => {
+    const warn = t.mock.method(getLogger('run'), 'warn', () => {});
+    const controller = make();
+
+    writeFileSync('huge.png', Buffer.alloc(realImages.maxImageBytes + 1));
+    controller.addUserMessage('look at @huge.png');
+
+    assert.deepEqual(controller.messages, [
+      { role: 'user', content: 'look at @huge.png' }
+    ]);
+    assert.match(warned(warn), /Did not attach huge\.png is 5\.0 MB/);
+  });
+
+  test('/image with a prompt sends the clipboard along with it', async () => {
+    const controller = make();
+
+    clipboard = png;
+    await controller.runCommand(`${Command.Image} what is this?`);
+
+    assert.deepEqual(controller.messages, [
+      {
+        role: 'user',
+        content: 'what is this?',
+        typed: '/image what is this?',
+        images: [png]
+      }
+    ]);
+    assert.equal(controller.needsUserInput, false);
+  });
+
+  test('/image on its own holds the image for the next prompt, once', async (t) => {
+    const info = t.mock.method(getLogger('run'), 'info', () => {});
+    const controller = make();
+
+    clipboard = png;
+    await controller.runCommand(Command.Image);
+    await controller.runCommand(Command.Image);
+
+    assert.deepEqual(controller.messages, []);
+    assert.equal(controller.needsUserInput, true);
+    assert.match(
+      String(info.mock.calls.at(-1)?.arguments[0]),
+      /attached to your next prompt \(2 queued\)/
+    );
+
+    controller.addUserMessage('compare these');
+    controller.addUserMessage('and now?');
+
+    assert.deepEqual(controller.messages[0].images, [png, png]);
+    assert.equal(controller.messages[1].images, undefined);
+  });
+
+  test('/clear lets go of a held image', async () => {
+    const controller = make();
+
+    clipboard = png;
+    await controller.runCommand(Command.Image);
+    await controller.runCommand(Command.Clear);
+    controller.addUserMessage('hello');
+
+    assert.equal(controller.messages[0].images, undefined);
+  });
+
+  test('/image says so when the clipboard holds no image', async (t) => {
+    const warn = t.mock.method(getLogger('run'), 'warn', () => {});
+    const controller = make();
+
+    await controller.runCommand(`${Command.Image} what is this?`);
+
+    assert.deepEqual(controller.messages, []);
+    assert.match(warned(warn), /no image on the clipboard|not supported/);
+  });
+
+  test('/image refuses a clipboard image too large to send', async (t) => {
+    const warn = t.mock.method(getLogger('run'), 'warn', () => {});
+    const controller = make();
+
+    clipboard = 'A'.repeat(Math.ceil(((realImages.maxImageBytes + 3) * 4) / 3));
+    await controller.runCommand(Command.Image);
+    controller.addUserMessage('hello');
+
+    assert.equal(controller.messages[0].images, undefined);
+    assert.match(warned(warn), /over the 5 MB an image can be/);
+  });
+
+  test('warns when the model says it cannot see, and sends the image anyway', (t) => {
+    const warn = t.mock.method(getLogger('run'), 'warn', () => {});
+    const controller = make();
+
+    provider.model = 'text-only';
+    vision = false;
+    writeFileSync('shot.png', Buffer.from(png, 'base64'));
+    controller.addUserMessage('@shot.png');
+
+    assert.match(warned(warn), /text-only does not report vision support/);
+    assert.deepEqual(controller.messages[0].images, [png]);
+  });
+
+  test('says nothing when the model did not say what it can do', (t) => {
+    const warn = t.mock.method(getLogger('run'), 'warn', () => {});
+    const controller = make();
+
+    writeFileSync('shot.png', Buffer.from(png, 'base64'));
+    controller.addUserMessage('@shot.png');
+
+    assert.equal(warn.mock.callCount(), 0);
   });
 });
 
@@ -1206,6 +1355,22 @@ describe('commands', () => {
       { role: 'user', content: 'hello' }
     ]);
     assert.deepEqual(controller.messages, [{ role: 'user', content: 'hello' }]);
+  });
+
+  test('warns when the new model cannot see the images already sent', async (t) => {
+    const warn = t.mock.method(getLogger('run'), 'warn', () => {});
+    const controller = onModel(gemma);
+
+    clipboard = 'iVBORw0KGgo=';
+    await controller.runCommand(`${Command.Image} what is this?`);
+    vision = false;
+    pickModel.mock.mockImplementationOnce(async () => qwen.model);
+    await controller.runCommand(Command.Model);
+
+    assert.match(
+      String(warn.mock.calls.at(-1)?.arguments[0]),
+      /does not report vision support - the images already in this conversation/
+    );
   });
 
   test('stays where it was when the new model fails preflight', async () => {

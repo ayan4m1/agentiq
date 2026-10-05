@@ -307,6 +307,78 @@ describe('toMessages', () => {
       ]
     });
   });
+
+  // the first bytes of a png and of a jpeg, which is all the media type is
+  // read from
+  const png = 'iVBORw0KGgo=';
+  const jpeg = '/9j/4A==';
+  const image = (data: string, media_type: string) => ({
+    type: 'image',
+    source: { type: 'base64', media_type, data }
+  });
+
+  test("sends a user's images as image blocks after the text", () => {
+    const { messages } = toMessages([
+      { role: 'user', content: 'what is this?', images: [png, jpeg] }
+    ]);
+
+    assert.deepEqual(messages, [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'what is this?' },
+          image(png, 'image/png'),
+          image(jpeg, 'image/jpeg')
+        ]
+      }
+    ]);
+  });
+
+  test('sends no empty text block beside an image', () => {
+    const { messages } = toMessages([
+      { role: 'user', content: '', images: [png] }
+    ]);
+
+    assert.deepEqual(messages[0].content, [image(png, 'image/png')]);
+  });
+
+  test("puts a tool's images in its result", () => {
+    const { messages } = toMessages([
+      { role: 'assistant', content: '', native: native([toolUse('toolu_1')]) },
+      {
+        role: 'tool',
+        tool_name: 'shot',
+        tool_call_id: 'toolu_1',
+        content: '[image]',
+        images: [png]
+      }
+    ]);
+
+    assert.deepEqual(messages[1], {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'toolu_1',
+          content: [{ type: 'text', text: '[image]' }, image(png, 'image/png')]
+        }
+      ]
+    });
+  });
+
+  test('passes on the images of a result no call can be found for', () => {
+    const { messages } = toMessages([
+      { role: 'tool', tool_name: 'shot', content: '[image]', images: [png] }
+    ]);
+
+    assert.deepEqual(messages[0], {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Result of shot:\n[image]' },
+        image(png, 'image/png')
+      ]
+    });
+  });
 });
 
 describe('toTool', () => {

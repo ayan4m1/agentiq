@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 import { anthropic, logging } from '../modules/config';
 import { getLogger } from '../modules/logging';
+import { mediaTypeOf } from '../modules/images';
 import {
   PromptCache,
   Provider,
@@ -66,6 +67,35 @@ const rebuildBlocks = (message: ChatMessage): Anthropic.ContentBlockParam[] => [
   )
 ];
 
+// an image block for each of a message's images
+const imageBlocks = (message: ChatMessage): Anthropic.ImageBlockParam[] =>
+  (message.images ?? []).map((data) => ({
+    type: 'image',
+    source: {
+      type: 'base64',
+      media_type: mediaTypeOf(
+        data
+      ) as Anthropic.Base64ImageSource['media_type'],
+      data
+    }
+  }));
+
+// what a message says, as a plain string when it has nothing else to say and
+// as blocks when it carries images - the API refuses an empty text block, so
+// one is only added when there is text to put in it
+const withImages = (message: ChatMessage) => {
+  const images = imageBlocks(message);
+
+  return images.length
+    ? [
+        ...(message.content
+          ? [{ type: 'text' as const, text: message.content }]
+          : []),
+        ...images
+      ]
+    : message.content;
+};
+
 // the conversation as the messages API wants it. the system prompt goes in its
 // own field, and every result for a turn's calls goes in the one user message
 // that follows it - a result that cannot be paired with a call is passed on as
@@ -92,13 +122,16 @@ export const toMessages = (messages: ChatMessage[]) => {
         results.push({
           type: 'tool_result',
           tool_use_id: message.tool_call_id,
-          content: message.content
+          content: withImages(message)
         });
       } else {
-        unpaired.push({
-          type: 'text',
-          text: `Result of ${message.tool_name ?? 'a tool'}:\n${message.content}`
-        });
+        unpaired.push(
+          {
+            type: 'text',
+            text: `Result of ${message.tool_name ?? 'a tool'}:\n${message.content}`
+          },
+          ...imageBlocks(message)
+        );
       }
 
       continue;
@@ -118,7 +151,7 @@ export const toMessages = (messages: ChatMessage[]) => {
         converted.push({ role: 'assistant', content: blocks });
       }
     } else {
-      converted.push({ role: 'user', content: message.content });
+      converted.push({ role: 'user', content: withImages(message) });
     }
   }
 

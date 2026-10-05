@@ -112,6 +112,7 @@ const { describeCache, makeThinker, replayable } = await import('./thinker');
 const { chatProvider } = await import('../providers');
 const { isElided } = await import('./compaction');
 const { estimateTokens } = await import('./tokenizer');
+const { imageTokenEstimate } = await import('./images');
 
 // the server, as far as the thinker can tell. each test says what it answers -
 // a turn streams, while a summary or a recap is asked for whole
@@ -804,6 +805,74 @@ describe('taking a turn', () => {
     // would surface as an unhandled rejection and fail the run
     response.reject(new Error('connection reset'));
     await new Promise((done) => setImmediate(done));
+  });
+});
+
+describe('images', () => {
+  // a tool with a screenshot to show, as an MCP browser server would have
+  const shot = {
+    definition: makeTool('shot', 'Takes a screenshot'),
+    handler: mock.fn(async () => ({
+      content: 'took one\n[image]',
+      images: ['iVBORw0KGgo=']
+    }))
+  };
+
+  beforeEach(() => {
+    stream.mock.resetCalls();
+    interrupt.reset();
+    tools.push(shot);
+  });
+
+  afterEach(() => {
+    tools.splice(tools.indexOf(shot), 1);
+  });
+
+  test("puts a tool's images on its result", async () => {
+    respond(
+      chunk({ tool_calls: [{ function: { name: 'shot', arguments: {} } }] })
+    );
+
+    const { messages } = await makeThinker().think({
+      messages: [{ role: 'user', content: 'show me the page' }]
+    });
+    const [result] = toolResults(messages);
+
+    assert.equal(result.content, 'took one\n[image]');
+    assert.deepEqual(result.images, ['iVBORw0KGgo=']);
+  });
+
+  test('counts what an image costs', () => {
+    const plain = makeThinker();
+    const pictured = makeThinker();
+
+    plain.load([{ role: 'user', content: 'look' }]);
+    pictured.load([{ role: 'user', content: 'look', images: ['a', 'b'] }]);
+
+    assert.equal(
+      pictured.tokens.messages - plain.tokens.messages,
+      2 * imageTokenEstimate
+    );
+  });
+
+  test('drops the images of a result it elides', async () => {
+    const messages = conversation().map((message) =>
+      message.role === 'tool'
+        ? { ...message, images: ['iVBORw0KGgo='] }
+        : message
+    );
+    const thinker = makeThinker();
+
+    thinker.load(messages);
+    await thinker.compact(messages);
+
+    const results = toolResults(messages);
+    const elided = results.filter(isElided);
+
+    assert.ok(elided.length);
+    assert.ok(elided.every((message) => message.images === undefined));
+    // what is still current keeps what it showed
+    assert.deepEqual(results.at(-1)?.images, ['iVBORw0KGgo=']);
   });
 });
 

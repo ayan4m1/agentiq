@@ -190,6 +190,50 @@ describe('complete', () => {
       options: { num_ctx: providerConfig.contextLimit }
     });
   });
+
+  // images are kept in ollama's own shape, so they go out untouched
+  test('passes images through as they are', async () => {
+    const pictured: ChatRequest = {
+      model: 'test-model',
+      messages: [
+        { role: 'user', content: 'what is this?', images: ['iVBORw0KGgo='] },
+        {
+          role: 'tool',
+          tool_name: 'shot',
+          content: '[image]',
+          images: ['/9j/4A==']
+        }
+      ]
+    };
+    const { client, provider } = fakeClient({
+      chat: mock.fn(async () =>
+        response({ message: { role: 'assistant', content: 'a cat' } })
+      )
+    });
+
+    await provider.complete(pictured);
+
+    assert.deepEqual(
+      (client.chat.mock.calls[0].arguments[0] as ChatRequest).messages,
+      pictured.messages
+    );
+  });
+
+  test('hands back images a reply carries as base64', async () => {
+    const { provider } = fakeClient({
+      chat: mock.fn(async () =>
+        response({
+          message: {
+            role: 'assistant',
+            content: '',
+            images: [new Uint8Array([0x89, 0x50, 0x4e, 0x47])]
+          }
+        })
+      )
+    });
+
+    assert.deepEqual((await provider.complete(request)).images, ['iVBORw==']);
+  });
 });
 
 describe('abort', () => {

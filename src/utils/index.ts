@@ -2,7 +2,12 @@ import chalk from 'chalk';
 import { filesize } from 'filesize';
 import { structuredPatch } from 'diff';
 
-import type { ChatMessage, ToolDefinition, ToolParameter } from '../types';
+import type {
+  ChatMessage,
+  ToolDefinition,
+  ToolParameter,
+  ToolResult
+} from '../types';
 import { chatProvider } from '../providers';
 import { provider } from '../modules/config';
 
@@ -153,6 +158,14 @@ export const truncate = (content: string, budget = getContentBudget()) =>
 // extract error message from error object
 export const describeError = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+
+// a result with images to go along with its text, rather than a value to be
+// serialized - only a tool that means to send images returns one
+export const isToolResult = (result: unknown): result is ToolResult =>
+  typeof result === 'object' &&
+  result !== null &&
+  typeof (result as ToolResult).content === 'string' &&
+  Array.isArray((result as ToolResult).images);
 
 // only JSON-encode results that are not already strings
 export const serializeResult = (result: unknown): string => {

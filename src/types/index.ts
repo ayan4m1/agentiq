@@ -249,7 +249,9 @@ export type ChatMessage = {
   content: string;
   // reasoning, when the model separates it from the answer
   thinking?: string;
-  images?: Uint8Array[] | string[];
+  // base64, without a data: prefix - ollama's own shape, and one a session
+  // file can hold. a provider that wants a media type reads it off the bytes
+  images?: string[];
   tool_calls?: ModelToolCall[];
   // set on a tool result, naming the tool that produced it
   tool_name?: string;
@@ -389,6 +391,13 @@ export type DecisionResponse = {
 // it is the one shape every handler is assignable to regardless of variance
 // rules. Tool arguments arrive as untyped JSON from the model, so the call site
 // in modules/thinker.ts is where that gets narrowed.
+// what a tool hands back when it has images to show as well as text - an MCP
+// screenshot, say. anything else a handler returns is serialized to text
+export type ToolResult = {
+  content: string;
+  images: string[];
+};
+
 export type ToolCall = {
   definition: ToolDefinition;
   handler: (args: never) => unknown;

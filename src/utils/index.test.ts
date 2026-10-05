@@ -12,6 +12,7 @@ import {
   getContentBudget,
   getParameters,
   getTokenString,
+  isToolResult,
   makeParameter,
   makeTool,
   serializeResult,
@@ -154,6 +155,47 @@ describe('describeError', () => {
   test('stringifies anything else', () => {
     assert.equal(describeError('plain'), 'plain');
     assert.equal(describeError(404), '404');
+  });
+});
+
+describe('isToolResult', () => {
+  test('accepts content alongside a list of images', () => {
+    assert.equal(
+      isToolResult({ content: 'see attached', images: ['abc'] }),
+      true
+    );
+  });
+
+  test('accepts an empty list of images', () => {
+    assert.equal(isToolResult({ content: '', images: [] }), true);
+  });
+
+  for (const value of [undefined, null, 'text', 42, true]) {
+    test(`rejects ${JSON.stringify(value) ?? 'undefined'}`, () => {
+      assert.equal(isToolResult(value), false);
+    });
+  }
+
+  test('rejects an object missing images', () => {
+    // an ordinary result that happens to have a content field should still be
+    // serialized as-is rather than mistaken for one carrying images
+    assert.equal(isToolResult({ content: 'text' }), false);
+  });
+
+  test('rejects an object missing content', () => {
+    assert.equal(isToolResult({ images: [] }), false);
+  });
+
+  test('rejects content that is not a string', () => {
+    assert.equal(isToolResult({ content: 1, images: [] }), false);
+  });
+
+  test('rejects images that are not an array', () => {
+    assert.equal(isToolResult({ content: 'text', images: 'abc' }), false);
+  });
+
+  test('rejects an array', () => {
+    assert.equal(isToolResult([]), false);
   });
 });
 

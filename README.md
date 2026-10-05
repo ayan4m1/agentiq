@@ -13,6 +13,7 @@ Agentiq is an agentic coding assistant with support for local and cloud LLM prov
 - Allowlisting for paths, commands, and tools
 - Automatic and manual conversation compaction/summarization
 - Get a recap of a resumed session
+- [Show the model images](#images) - `@screenshot.png`, the clipboard, or a screenshot from an MCP server
 - Run a check command when files are modified, and prefill the prompt with diagnostic logs if the check fails
 - [Supports](#skills) Agent Skills
 - [Supports](#mcp-servers) MCP
@@ -284,6 +285,7 @@ The model gets things done with the tools below - and with those of any connecte
 | `/compact`                  | Summarizes the conversation to free up context.                                                                                                                                                                                                                                                    |
 | `/recap [turns]`            | Prints a short recap of the last `session.recapTurns` turns, or of `turns` turns. The recap is never added to the conversation.                                                                                                                                                                    |
 | `/paste`                    | Opens `$VISUAL` or `$EDITOR` (notepad or vim when neither is set) for a multi-line prompt, and sends it when the editor closes.                                                                                                                                                                    |
+| `/image [prompt]`           | Attaches the image on the clipboard. With a prompt, sends the two together; alone, holds the image for the next prompt. See [Images](#images).                                                                                                                                                     |
 | `/clear`, `/reset`          | Starts a new conversation. The old one stays saved as a session.                                                                                                                                                                                                                                   |
 | `/resume`                   | Picks a saved session to continue.                                                                                                                                                                                                                                                                 |
 | `/undo`                     | Takes the conversation back to before the most recent prompt, restoring every file written since.                                                                                                                                                                                                  |
@@ -294,6 +296,23 @@ The model gets things done with the tools below - and with those of any connecte
 | `/mcp`                      | Lists the configured MCP servers, whether each connected, and how many tools it offers (↑↓ to move, space to turn a server on or off, `r` to retry one that failed, esc or ⏎ to close). The choice is saved to `mcp.servers.<name>.enabled` in `config.yml`. See [MCP servers](#mcp-servers).      |
 | `/help`                     | Lists the available commands, including [custom commands](#custom-commands).                                                                                                                                                                                                                       |
 | `/quit`                     | Exits agentiq.                                                                                                                                                                                                                                                                                     |
+
+## Images
+
+For models that can see images as well as text:
+
+- Mention an image with `@`, as in `what is wrong in @shot.png?`, to attach the image itself rather
+  than its bytes as text. `.png`, `.jpg`, `.jpeg` and `.webp` files are attached this way.
+- `/image` attaches a screenshot straight from the clipboard. It is read with PowerShell on Windows,
+  `osascript` on macOS, and `wl-paste` or `xclip` on Linux.
+- An image an [MCP server](#mcp-servers) returns, such as a browser's screenshot, goes to the model
+  along with the text of the result.
+
+Each provider is sent images in its own format. An image over 5 MB is not attached. When the model
+reports that it cannot take images, agentiq warns you but still sends them. That covers an Ollama
+model without the `vision` capability, an Anthropic model without image input; an OpenAI-compatible
+server says nothing about its models. Older tool results are dropped from context along with their
+images, since an image costs far more than the text beside it.
 
 ## Approving changes
 
@@ -436,6 +455,9 @@ they cost on its `MCP` line.
 Calling an MCP tool always needs approval, like running a command does. Answering "always" saves a
 `tool` rule, and `/rules add tool mcp__<server>__*` allows every tool for one server at once. In plan
 mode, only tools that their server marks as read-only can be called.
+
+A PNG, JPEG, WebP or GIF image in a tool's result is passed to the model as an image. Any other
+content that is not text, such as audio, is named in the result rather than shown.
 
 ## The decide tool
 

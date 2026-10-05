@@ -7,6 +7,7 @@ import {
   matchesModel,
   preflight,
   resolveThink,
+  supportsImages,
   supportsThinking
 } from './preflight';
 import type { ModelDetails, ModelSummary } from '../types';
@@ -201,6 +202,30 @@ describe('supportsThinking', () => {
     );
 
     assert.equal(supportsThinking(), false);
+  });
+});
+
+describe('supportsImages', () => {
+  const reporting = (...reported: string[]) =>
+    api({ show: () => Promise.resolve(showing({ capabilities: reported })) });
+
+  test('is true for a model that reports vision', async () => {
+    await quietly(() => preflight(reporting('tools', 'vision')));
+
+    assert.equal(supportsImages(), true);
+  });
+
+  test('is false for a model that reports what it can do but not vision', async () => {
+    await quietly(() => preflight(reporting('tools')));
+
+    assert.equal(supportsImages(), false);
+  });
+
+  // an OpenAI-compatible server says nothing, and that is not a no
+  test('is unknown when the server reported nothing', async () => {
+    await quietly(() => preflight(reporting()));
+
+    assert.equal(supportsImages(), undefined);
   });
 });
 

@@ -15,6 +15,7 @@ import { watchForInterrupt } from './interrupt';
 import { showElapsed } from './elapsed';
 import { isMcpTool } from './mcp';
 import { createMarkdownStream } from './markdown';
+import { imageTokenEstimate } from './images';
 import type {
   AgentMessage,
   ChatChunk,
@@ -28,6 +29,7 @@ import {
   askModel,
   describeElapsed,
   describeError,
+  isToolResult,
   serializeResult
 } from '../utils';
 
@@ -100,9 +102,11 @@ export const makeThinker = () => {
   // messages have already been counted
   let counted = new WeakSet<ChatMessage>();
 
-  // a tool call's arguments are part of what gets sent back every turn
+  // a tool call's arguments are part of what gets sent back every turn, and so
+  // is every image, whose cost is only guessed at until the provider counts it
   const measure = (message: ChatMessage) =>
     tokenizer(message.content ?? '') +
+    (message.images?.length ?? 0) * imageTokenEstimate +
     (message.tool_name ? tokenizer(message.tool_name) : 0) +
     (message.tool_calls?.length
       ? tokenizer(JSON.stringify(message.tool_calls))
@@ -476,6 +480,7 @@ export const makeThinker = () => {
         (candidate) => candidate.definition.function.name === name
       );
       let content: string;
+      let images: string[] = [];
 
       if (!tool) {
         log.warn(`Asked to use an unknown tool called ${name}`);
@@ -494,9 +499,13 @@ export const makeThinker = () => {
             validation.message ?? 'An unknown validation error occurred';
         } else {
           try {
-            content = serializeResult(
-              await tool.handler(validation.args as never)
-            );
+            const result = await tool.handler(validation.args as never);
+
+            if (isToolResult(result)) {
+              ({ content, images } = result);
+            } else {
+              content = serializeResult(result);
+            }
           } catch (error) {
             const message = describeError(error);
 
@@ -515,7 +524,8 @@ export const makeThinker = () => {
         role: 'tool',
         tool_name: name,
         ...(toolCall.id ? { tool_call_id: toolCall.id } : {}),
-        content
+        content,
+        ...(images.length ? { images } : {})
       });
     }
 
@@ -568,6 +578,8 @@ export const makeThinker = () => {
         message.tool_name,
         calls.get(index)
       );
+      // an old screenshot is worth as little as old text, and costs far more
+      delete message.images;
       projected -= was - measure(message);
       count++;
     }

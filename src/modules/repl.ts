@@ -22,7 +22,14 @@ import {
   skillsDir
 } from './skills';
 import { expandCommand, loadCommands } from './commands';
-import { modelContextLength, preflight } from './preflight';
+import { modelContextLength, preflight, supportsImages } from './preflight';
+import {
+  clipboardTools,
+  isImagePath,
+  maxImageBytes,
+  readClipboardImage,
+  readImage
+} from './images';
 import { beginTurn, changes, countSince, rewind } from './checkpoints';
 import { chatProvider } from '../providers';
 import { setMcpTools } from '../tools';
@@ -78,6 +85,7 @@ export const Command = {
   Compact: 'compact',
   Recap: 'recap',
   Paste: 'paste',
+  Image: 'image',
   Clear: 'clear',
   Reset: 'reset',
   Resume: 'resume',
@@ -160,8 +168,9 @@ const trailingPunctuation = /[.,;:!?)\]}'"]+$/;
 
 // each file mentioned with @ is attached below the prompt as the read tool
 // would have returned it, numbered and cut to the same budget, so the model
-// gets the contents without spending a round asking for them. anything that
-// is not a file is left as the text it was typed as
+// gets the contents without spending a round asking for them. an image goes
+// along as an image instead, named in the text so the model can tell several
+// apart. anything that is not a file is left as the text it was typed as
 const attachMentions = (content: string) => {
   const isFile = (path: string) => existsSync(path) && statSync(path).isFile();
   const paths = new Set<string>();
@@ -178,9 +187,40 @@ const attachMentions = (content: string) => {
     }
   }
 
-  return [...paths].map(
-    (path) => `Contents of ${path}:\n${readFile({ path })}`
-  );
+  const texts: string[] = [];
+  const images: string[] = [];
+
+  for (const path of paths) {
+    if (!isImagePath(path)) {
+      texts.push(`Contents of ${path}:\n${readFile({ path })}`);
+      continue;
+    }
+
+    const read = readImage(path);
+
+    if ('error' in read) {
+      log.warn(chalk.red(`Did not attach ${read.error}`));
+      continue;
+    }
+
+    texts.push(`Attached image: ${path}`);
+    images.push(read.image);
+  }
+
+  return { texts, images };
+};
+
+// the model is still sent the image - the server may know better than what
+// it reported, and the user asked for it - but a refusal or a reply that
+// ignores it should not come as a surprise
+const warnIfBlind = (reason: string) => {
+  if (supportsImages() === false) {
+    log.warn(
+      chalk.red(
+        `${provider.model} does not report vision support - ${reason} will likely be ignored or rejected`
+      )
+    );
+  }
 };
 
 // everything the run loop keeps between turns, and everything it does to it -
@@ -251,6 +291,9 @@ export const createController = ({
   // what the next prompt should start out holding - the prompt /undo took back,
   // so it can be edited and sent again
   let prefill: string | undefined;
+  // images taken from the clipboard by /image, waiting for the prompt that
+  // asks about them
+  let pendingImages: string[] = [];
 
   // loading an earlier conversation also hands the session file back to it, so
   // the resumed history keeps growing where it left off
@@ -338,6 +381,7 @@ export const createController = ({
     nextThought.messages = [];
     compactionStalled = false;
     check.diagnostics = undefined;
+    pendingImages = [];
     // a new file rather than an emptied one - starting over should not
     // destroy the conversation being walked away from
     startSession(check.command);
@@ -473,6 +517,7 @@ export const createController = ({
       nextThought = { messages: messages.slice(0, index) };
       needsUserInput = true;
       compactionStalled = false;
+      pendingImages = [];
       thinker.load(nextThought.messages);
       await thinker.count(nextThought.messages);
       rewrite(nextThought.messages);
@@ -568,6 +613,10 @@ export const createController = ({
       }
 
       return;
+    }
+
+    if (nextThought.messages.some((message) => message.images?.length)) {
+      warnIfBlind('the images already in this conversation');
     }
 
     log.info(
@@ -667,6 +716,55 @@ export const createController = ({
         log.error(error.message);
       }
     }
+  };
+
+  // a screenshot that was never saved, from the clipboard. with a prompt after
+  // it, the two are sent together - on its own it waits for the next prompt,
+  // since an image with no question about it is rarely what the user meant
+  const image = async (prompt?: string) => {
+    const taken = await readClipboardImage();
+
+    if (!taken) {
+      const tried = clipboardTools();
+
+      log.warn(
+        systemColor(
+          tried.length
+            ? `There is no image on the clipboard (read with ${tried.join(' or ')})`
+            : `Reading the clipboard is not supported on ${process.platform}`
+        )
+      );
+
+      return;
+    }
+
+    // base64 holds three bytes in every four characters
+    const bytes = Math.floor((taken.length * 3) / 4);
+
+    if (bytes > maxImageBytes) {
+      log.warn(
+        chalk.red(
+          `The clipboard image is ${(bytes / 1024 / 1024).toFixed(1)} MB, over the ${maxImageBytes / 1024 / 1024} MB an image can be`
+        )
+      );
+
+      return;
+    }
+
+    pendingImages.push(taken);
+
+    if (prompt) {
+      addUserMessage(prompt, `/${Command.Image} ${prompt}`);
+
+      return;
+    }
+
+    warnIfBlind('the image');
+    log.info(
+      systemColor(
+        `Image attached to your next prompt (${pendingImages.length} queued)`
+      )
+    );
   };
 
   // what the last few turns were about, only when asked for since it costs a
@@ -926,6 +1024,11 @@ export const createController = ({
       case Command.Paste:
         await paste();
         break;
+      case Command.Image:
+        // the prompt is split into words above, and has to be sent exactly as
+        // it was typed
+        await image(input.trim().slice(name.length).trim() || undefined);
+        break;
       case Command.Clear:
       case Command.Reset:
         await clear();
@@ -1003,7 +1106,14 @@ export const createController = ({
       thinker.rebuild(nextThought.messages);
     }
 
-    const attached = attachMentions(content);
+    const { texts: attached, images: mentioned } = attachMentions(content);
+    const images = [...pendingImages, ...mentioned];
+
+    pendingImages = [];
+
+    if (images.length) {
+      warnIfBlind(images.length === 1 ? 'the image' : 'the images');
+    }
 
     // a failed check's output goes along for as long as the prompt still says
     // it does. either way it is offered to this message alone - the next check
@@ -1019,14 +1129,12 @@ export const createController = ({
     const expanded = attached.length
       ? [content, ...attached].join('\n\n')
       : undefined;
-    const message: AgentMessage =
-      expanded || typed !== undefined
-        ? {
-            role: 'user',
-            content: expanded ?? content,
-            typed: typed ?? content
-          }
-        : { role: 'user', content };
+    const message: AgentMessage = {
+      role: 'user',
+      content: expanded ?? content,
+      ...(expanded || typed !== undefined ? { typed: typed ?? content } : {}),
+      ...(images.length ? { images } : {})
+    };
 
     nextThought.messages.push(message);
     currentTurn = beginTurn();

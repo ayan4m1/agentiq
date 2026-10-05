@@ -13,7 +13,12 @@ import { mcp as config, saveSetting } from './config';
 import { getLogger } from './logging';
 import { showElapsed } from './elapsed';
 import { describeDenial, refusePlanning, requestApproval } from './approval';
-import type { McpServerConfig, ToolCall, ToolDefinition } from '../types';
+import type {
+  McpServerConfig,
+  ToolCall,
+  ToolDefinition,
+  ToolResult
+} from '../types';
 import { commandOutputBudget, describeError, truncate } from '../utils';
 
 const log = getLogger('mcp');
@@ -30,7 +35,14 @@ export type McpTool = {
 // the part of a tool result agentiq reads. content is a list of parts, only
 // some of which are text a model can be shown
 export type McpResult = {
-  content?: { type: string; text?: string; resource?: { text?: string } }[];
+  content?: {
+    type: string;
+    text?: string;
+    // an image part's base64 bytes, and what kind of image they are
+    data?: string;
+    mimeType?: string;
+    resource?: { text?: string };
+  }[];
   structuredContent?: unknown;
   isError?: boolean;
 };
@@ -177,8 +189,25 @@ const withTimeout = <T>(work: Promise<T>, ms: number, what: string) =>
     );
   });
 
-// the text parts, joined. anything else - an image, a binary resource - is
-// named rather than dropped, so the model knows there was more than it sees
+// the kinds of image every provider can be handed - an svg or a tiff from a
+// server is named like any other part nobody can be shown
+const passableImages = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
+const isPassableImage = (part: NonNullable<McpResult['content']>[number]) =>
+  part.type === 'image' &&
+  typeof part.data === 'string' &&
+  Boolean(part.data) &&
+  passableImages.includes(part.mimeType ?? '');
+
+// the images a result carries, as base64, to go to the model beside its text
+export const imagesOf = (result: McpResult) =>
+  (result.content ?? []).flatMap((part) =>
+    isPassableImage(part) ? [part.data as string] : []
+  );
+
+// the text parts, joined. an image that goes along with them is marked where it
+// was, and anything else - audio, a binary resource - is named rather than
+// dropped, so the model knows there was more than it sees
 export const describeResult = (result: McpResult) => {
   const parts = (result.content ?? []).map((part) => {
     if (part.type === 'text' && typeof part.text === 'string') {
@@ -187,6 +216,10 @@ export const describeResult = (result: McpResult) => {
 
     if (typeof part.resource?.text === 'string') {
       return part.resource.text;
+    }
+
+    if (isPassableImage(part)) {
+      return '[image]';
     }
 
     return `[${part.type} content omitted]`;
@@ -251,7 +284,12 @@ export const toToolCall = (
       arguments: args
     });
 
-    return truncate(describeResult(result), commandOutputBudget);
+    const content = truncate(describeResult(result), commandOutputBudget);
+    const images = imagesOf(result);
+
+    // a browser's screenshot is the point of having asked for it, so it goes
+    // to the model rather than being named and dropped
+    return images.length ? ({ content, images } satisfies ToolResult) : content;
   };
 
   return { definition, handler };

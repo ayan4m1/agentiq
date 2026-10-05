@@ -327,6 +327,83 @@ describe('toMessages', () => {
     );
   });
 
+  // the first bytes of a png and of a webp, which is all the media type is
+  // read from
+  const png = 'iVBORw0KGgo=';
+  const webp = 'UklGRgAAAABXRUJQ';
+  const imageUrl = (url: string) => ({ type: 'image_url', image_url: { url } });
+
+  test("sends a user's images as data URLs after the text", () => {
+    assert.deepEqual(
+      toMessages([
+        { role: 'user', content: 'what is this?', images: [png, webp] }
+      ]),
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'what is this?' },
+            imageUrl(`data:image/png;base64,${png}`),
+            imageUrl(`data:image/webp;base64,${webp}`)
+          ]
+        }
+      ]
+    );
+  });
+
+  test("sends a tool's images after every tool message of the turn", () => {
+    const messages: ChatMessage[] = [
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          { id: 'call_1', function: { name: 'shot', arguments: {} } },
+          { id: 'call_2', function: { name: 'read', arguments: {} } }
+        ]
+      },
+      {
+        role: 'tool',
+        content: '[image]',
+        tool_name: 'shot',
+        tool_call_id: 'call_1',
+        images: [png]
+      },
+      { role: 'tool', content: 'file a', tool_call_id: 'call_2' },
+      { role: 'user', content: 'next' }
+    ];
+
+    assert.deepEqual(toMessages(messages).slice(1), [
+      { role: 'tool', tool_call_id: 'call_1', content: '[image]' },
+      { role: 'tool', tool_call_id: 'call_2', content: 'file a' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Images returned by shot:' },
+          imageUrl(`data:image/png;base64,${png}`)
+        ]
+      },
+      { role: 'user', content: 'next' }
+    ]);
+  });
+
+  test('sends the images of an unpaired result along with its text', () => {
+    assert.deepEqual(
+      toMessages([
+        { role: 'tool', content: '[image]', tool_name: 'shot', images: [png] }
+      ]),
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Result of shot:\n[image]' },
+            { type: 'text', text: 'Images returned by shot:' },
+            imageUrl(`data:image/png;base64,${png}`)
+          ]
+        }
+      ]
+    );
+  });
+
   test('only pairs results with the turn just before them', () => {
     const call = { id: 'call_1', function: { name: 'read', arguments: {} } };
     const converted = toMessages([

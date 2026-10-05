@@ -15,6 +15,12 @@ const capabilities = new Set<string>();
 
 export const supportsThinking = () => capabilities.has('thinking');
 
+// whether the model can be shown images, or undefined when the server said
+// nothing about what it can do - an OpenAI-compatible one never does, and a
+// warning about every image sent to it would be a false alarm
+export const supportsImages = () =>
+  capabilities.size ? capabilities.has('vision') : undefined;
+
 // the most context the model says it can take, for /context-limit to check a
 // new value against. undefined when the server did not say
 let contextLength: number | undefined;

@@ -16,6 +16,7 @@ const {
   closeServers,
   connectServers,
   describeResult,
+  imagesOf,
   isMcpTool,
   listServers,
   mcpTools,
@@ -105,6 +106,24 @@ describe('describeResult', () => {
     );
   });
 
+  test('marks an image that goes along with the text', () => {
+    assert.equal(
+      describeResult({
+        content: [{ type: 'image', data: 'abc', mimeType: 'image/png' }]
+      }),
+      '[image]'
+    );
+  });
+
+  test('names an image no provider could be shown', () => {
+    assert.equal(
+      describeResult({
+        content: [{ type: 'image', data: 'abc', mimeType: 'image/svg+xml' }]
+      }),
+      '[image content omitted]'
+    );
+  });
+
   test('falls back to structured content', () => {
     assert.equal(
       describeResult({ content: [], structuredContent: { n: 1 } }),
@@ -123,6 +142,23 @@ describe('describeResult', () => {
         isError: true
       }),
       'The tool reported an error: bad'
+    );
+  });
+});
+
+describe('imagesOf', () => {
+  test('takes the data of every image a provider can be shown', () => {
+    assert.deepEqual(
+      imagesOf({
+        content: [
+          { type: 'text', text: 'two shots' },
+          { type: 'image', data: 'one', mimeType: 'image/png' },
+          { type: 'image', data: 'svg', mimeType: 'image/svg+xml' },
+          { type: 'audio', data: 'sound', mimeType: 'audio/wav' },
+          { type: 'image', data: 'two', mimeType: 'image/jpeg' }
+        ]
+      }),
+      ['one', 'two']
     );
   });
 });
@@ -321,6 +357,20 @@ describe('an MCP tool', () => {
 
     assert.ok(result.length < 5_000_000);
     assert.match(result, /\[truncated: showing \d+ of 5000000 characters\]/);
+  });
+
+  test('hands back the images it was sent along with its text', async () => {
+    const connection = fakeConnection([], {
+      content: [
+        { type: 'text', text: 'took a screenshot' },
+        { type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' }
+      ]
+    });
+
+    assert.deepEqual(await call(connection, {}), {
+      content: 'took a screenshot\n[image]',
+      images: ['iVBORw0KGgo=']
+    });
   });
 });
 
