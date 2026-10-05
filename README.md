@@ -175,7 +175,7 @@ startup, and decides:
 The choices are:
 
 - `ollama` (the default) - talks to an Ollama server at `ollama.host`. Each model needs a matching
-  tokenizer, and the other `ollama.*` settings apply.
+  tokenizer.
 
 > [!NOTE]
 > `replayPreamble` and `recoverToolCalls` used to live under `ollama`. A `config.yml` that still
@@ -185,7 +185,7 @@ The choices are:
 > setting, an environment variable of either name wins over `config.yml`.
 
 - `anthropic` - talks to the Anthropic Messages API. No tokenizer is needed, since the API counts tokens
-  itself, and the `ollama.*` settings are ignored.
+  itself.
 
 > [!NOTE]
 > The `anthropic` provider needs an API key. Set `anthropic.apiKey` in `config.yml` (or
@@ -208,8 +208,8 @@ The choices are:
 
 - `openai` - talks to any server that speaks the OpenAI Chat Completions API, such as
   [vLLM](https://github.com/vllm-project/vllm) or [llama.cpp](https://github.com/ggml-org/llama.cpp),
-  or to the OpenAI API itself. No tokenizer is needed: the context is estimated until the first
-  reply reports how many tokens the server counted, and the `ollama.*` settings are ignored.
+  or to the OpenAI API itself. No tokenizer is needed, since the API counts tokens
+  itself.
 
 > [!NOTE]
 > The `openai` provider talks to the OpenAI API unless `openai.baseUrl` (or `AQ_OPENAI_BASE_URL`)
