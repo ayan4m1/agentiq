@@ -1,3 +1,4 @@
+import { extname } from 'node:path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { record } from '../modules/checkpoints';
@@ -8,7 +9,7 @@ import {
   requestApproval
 } from '../modules/approval';
 import { makeParameter, makeTool, renderDiff } from '../utils';
-import { unescapeContent } from './write';
+import { describeEdit, unescapeContent } from './write';
 
 const log = getLogger('patch');
 
@@ -250,12 +251,19 @@ export const handler = async ({
   );
 
   // one diff and one prompt for the whole batch: approving five edits one at a
-  // time is what makes a five-part change cost five round trips
-  renderDiff(path, contents, applied.text);
+  // time is what makes a five-part change cost five round trips. after an
+  // edit the diff is still against the file on disk, since that is the change
+  // the user is approving
+  const show = (text: string) => {
+    renderDiff(path, contents, text);
 
-  const { approved, reason } = await requestApproval(
-    `OK to write ${applied.text.length} bytes to ${path}?`,
-    { kind: 'path', value: path }
+    return `OK to write ${text.length} bytes to ${path}?`;
+  };
+
+  const { approved, reason, edited } = await requestApproval(
+    show(applied.text),
+    { kind: 'path', value: path },
+    { content: applied.text, extension: extname(path) || '.txt', show }
   );
 
   if (!approved) {
@@ -263,10 +271,14 @@ export const handler = async ({
   }
 
   record(path);
-  writeFileSync(path, applied.text);
+  writeFileSync(path, edited ?? applied.text);
   log.info(`Wrote to ${path}!`);
 
   // returning the file bodies here would hand the model the whole document
   // twice over - it already knows what it asked for
-  return `Replaced ${applied.replacements} occurrence(s) in ${path}`;
+  const result = `Replaced ${applied.replacements} occurrence(s) in ${path}`;
+
+  return edited === undefined
+    ? result
+    : `${result}. ${describeEdit(path, applied.text, edited)}`;
 };

@@ -7,7 +7,8 @@ Agentiq is an agentic coding assistant with support for local and cloud LLM prov
 ## Features
 
 - [Support](#providers) for Ollama, Anthropic Messages API, and OpenAI Chat Completions API - a local server that speaks one of the latter two protocols can be used
-- Three command/access approval modes - manual, automatic, and planning
+- Three command/access approval modes - manual, automatic, and planning - with the option to
+  [edit](#approving-changes) a proposed change or command in your own editor before approving it
 - Saves sessions so they can be resumed later on
 - Allowlisting for paths, commands, and tools
 - Automatic and manual conversation compaction/summarization
@@ -291,6 +292,35 @@ The model gets things done with the tools below - and with those of any connecte
 | `/mcp`                      | Lists the configured MCP servers, whether each connected, and how many tools it offers (↑↓ to move, space to turn a server on or off, `r` to retry one that failed, esc or ⏎ to close). The choice is saved to `mcp.servers.<name>.enabled` in `config.yml`. See [MCP servers](#mcp-servers).      |
 | `/help`                     | Lists the available commands, including [custom commands](#custom-commands).                                                                                                                                                                                                                       |
 | `/quit`                     | Exits agentiq.                                                                                                                                                                                                                                                                                     |
+
+## Approving changes
+
+In manual mode, every file change, command and MCP tool call waits for an answer:
+
+| Answer        | Effect                                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| `y`, `yes`    | Go ahead, this once.                                                                      |
+| `n` or enter  | Refuse. You are asked why, and whatever you type is passed on to the model.               |
+| `a`, `always` | Go ahead, and save a rule so the same command, path or tool is not asked about again.     |
+| `s`, `stop`   | Refuse and hand the keyboard back to you instead of letting the model try something else. |
+| `e`, `edit`   | Open the proposal in your editor first (`write`, `patch`, `shell` and `start_job` only).  |
+
+shift+tab cycles the [approval mode](#configuration) from any of these prompts; landing on auto
+approves the change on screen.
+
+`e` opens `$VISUAL` or `$EDITOR` (notepad or vim when neither is set, as with `/paste`) on the
+whole file as it would be written - for `patch`, with the patch already applied - or on the command
+line. A file opens under its own extension, so the editor highlights it. When you save and close
+it, the diff (or the command) is shown again and you are asked again: saving is not approval, so
+`n` still backs out, and `e` edits your edit.
+
+- What you approve is what is written or run, and the model is told: after a file edit it gets a
+  diff of your changes to what it proposed, and after a command edit it is told which command
+  actually ran.
+- Line endings are kept: a CRLF file stays CRLF, and a final newline the editor adds to a file
+  that had none is dropped.
+- `a` after editing a command saves the edited command as the rule, since that is what ran.
+- An edited file can be rolled back with `/undo` like any other write.
 
 ## Choosing a model
 

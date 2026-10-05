@@ -1,16 +1,36 @@
-import { test, describe, afterEach, beforeEach } from 'node:test';
+import { test, describe, afterEach, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 
-import { ApprovalMode } from '../types';
+import { ApprovalAnswer, ApprovalMode } from '../types';
+import {
+  fakeInquirerCore,
+  fakePrompts,
+  queue
+} from '../../test/fakes/inquirer';
 
 const root = mkdtempSync(resolve(tmpdir(), 'agentiq-write-'));
 
 // checkpoints and approval rules live under the home directory, which has to
 // point somewhere disposable before either module is evaluated
 process.env.AQ_HOME = resolve(root, 'state');
+
+// the approval prompt and the editor both read the real terminal, so each is
+// replaced by one that answers whatever a test says to
+const { answer, exports: core } = fakeInquirerCore();
+const {
+  editor,
+  input,
+  exports: prompts
+} = fakePrompts({
+  editor: mock.fn<(config: Record<string, unknown>) => Promise<string>>(),
+  input: mock.fn<() => Promise<string>>(async () => '')
+});
+
+mock.module('@inquirer/core', { exports: core });
+mock.module('@inquirer/prompts', { exports: prompts });
 
 const { definition, handler, unescapeContent } = await import('./write');
 const { approval } = await import('../modules/approval');
@@ -196,6 +216,90 @@ describe('handler', () => {
     await handler({ path, content: 'changed' });
 
     assert.equal(countSince(turn), 0);
+  });
+});
+
+describe('editing before approval', () => {
+  beforeEach(() => {
+    answer.mock.resetCalls();
+    editor.mock.resetCalls();
+    input.mock.resetCalls();
+  });
+
+  test('offers the content in the editor under the file extension', async () => {
+    const path = resolve(root, `edited-${seq++}.ts`);
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, ['const a = 2;\n']);
+
+    await quietly(() => handler({ path, content: 'const a = 1;\n' }));
+
+    const [config] = editor.mock.calls[0].arguments;
+
+    assert.equal(config.default, 'const a = 1;\n');
+    assert.equal(config.postfix, '.ts');
+  });
+
+  test('writes what the user wrote instead of the proposal', async () => {
+    const path = freshPath();
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, ['one\n2\nthree\n']);
+
+    await quietly(() => handler({ path, content: 'one\ntwo\nthree\n' }));
+
+    assert.equal(read(path), 'one\n2\nthree\n');
+  });
+
+  test('tells the model what the user changed', async () => {
+    const path = freshPath();
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, ['one\n2\nthree\n']);
+
+    const result = await quietly(() =>
+      handler({ path, content: 'one\ntwo\nthree\n' })
+    );
+
+    assert.match(String(result), /^Wrote 12 bytes to .*\. The user edited it/);
+    assert.match(String(result), /-two\n\+2/);
+  });
+
+  test('says nothing about an edit that changed nothing', async () => {
+    const path = freshPath();
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, ['same\n']);
+
+    const result = await quietly(() => handler({ path, content: 'same\n' }));
+
+    assert.equal(result, `Wrote 5 bytes to ${path}`);
+  });
+
+  test('can be undone back to what was there before', async () => {
+    const path = fileWith('original');
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, ['edited']);
+
+    const turn = beginTurn();
+
+    await quietly(() => handler({ path, content: 'proposed' }));
+    rewind(turn);
+
+    assert.equal(read(path), 'original');
+  });
+
+  test('writes nothing when refused after an edit', async () => {
+    const path = fileWith('original');
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.No]);
+    queue(editor, ['edited']);
+
+    const result = await quietly(() => handler({ path, content: 'proposed' }));
+
+    assert.match(String(result), /declined to write/);
+    assert.equal(read(path), 'original');
   });
 });
 

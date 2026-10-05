@@ -1,19 +1,36 @@
-import { test, describe, afterEach } from 'node:test';
+import { test, describe, afterEach, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 
+import { ApprovalAnswer, ApprovalMode } from '../types';
 import {
-  applyEdits,
-  collectEdits,
-  countOccurrences,
-  handler,
-  resolveEdit
-} from './patch';
-import { approval } from '../modules/approval';
-import { terminal } from '../modules/turn';
-import { ApprovalMode } from '../types';
+  fakeInquirerCore,
+  fakePrompts,
+  queue
+} from '../../test/fakes/inquirer';
+
+// the approval prompt and the editor both read the real terminal, so each is
+// replaced by one that answers whatever a test says to - before the tool is
+// imported, or it would hold the real ones
+const { answer, exports: core } = fakeInquirerCore();
+const {
+  editor,
+  input,
+  exports: prompts
+} = fakePrompts({
+  editor: mock.fn<(config: Record<string, unknown>) => Promise<string>>(),
+  input: mock.fn<() => Promise<string>>(async () => '')
+});
+
+mock.module('@inquirer/core', { exports: core });
+mock.module('@inquirer/prompts', { exports: prompts });
+
+const { applyEdits, collectEdits, countOccurrences, handler, resolveEdit } =
+  await import('./patch');
+const { approval } = await import('../modules/approval');
+const { terminal } = await import('../modules/turn');
 
 const root = mkdtempSync(resolve(tmpdir(), 'agentiq-patch-'));
 let seq = 0;
@@ -452,5 +469,68 @@ describe('handler with a batch', () => {
 
     // the missing-arguments message, not the missing-file one
     assert.match(String(result), /oldText and newText/);
+  });
+});
+
+describe('editing before approval', () => {
+  beforeEach(() => {
+    answer.mock.resetCalls();
+    editor.mock.resetCalls();
+    input.mock.resetCalls();
+  });
+
+  test('offers the whole patched file in the editor', async () => {
+    const path = fileWith('one\ntwo\nthree\n');
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, ['one\n2\nthree\n']);
+
+    await quietly(() => handler({ path, oldText: 'two', newText: 'TWO' }));
+
+    const [config] = editor.mock.calls[0].arguments;
+
+    assert.equal(config.default, 'one\nTWO\nthree\n');
+    assert.equal(config.postfix, '.txt');
+  });
+
+  test('writes what the user wrote instead of the patch', async () => {
+    const path = fileWith('one\ntwo\nthree\n');
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, ['one\n2\nthree\n']);
+
+    await quietly(() => handler({ path, oldText: 'two', newText: 'TWO' }));
+
+    assert.equal(read(path), 'one\n2\nthree\n');
+  });
+
+  test('tells the model only what the user changed of its patch', async () => {
+    const path = fileWith('one\ntwo\nthree\n');
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, ['one\n2\nthree\n']);
+
+    const result = await quietly(() =>
+      handler({ path, oldText: 'two', newText: 'TWO' })
+    );
+
+    assert.match(String(result), /^Replaced 1 occurrence.*The user edited it/s);
+    // against what the model proposed, not the file as it was
+    assert.match(String(result), /-TWO\n\+2/);
+    assert.doesNotMatch(String(result), /-two/);
+  });
+
+  test('changes nothing when refused after an edit', async () => {
+    const path = fileWith('one\ntwo\nthree\n');
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.No]);
+    queue(editor, ['one\n2\nthree\n']);
+
+    const result = await quietly(() =>
+      handler({ path, oldText: 'two', newText: 'TWO' })
+    );
+
+    assert.match(String(result), /declined to change/);
+    assert.equal(read(path), 'one\ntwo\nthree\n');
   });
 });

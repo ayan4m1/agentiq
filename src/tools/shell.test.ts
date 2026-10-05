@@ -5,13 +5,22 @@ import { resolve } from 'node:path';
 import { mkdtempSync } from 'node:fs';
 
 import { ApprovalAnswer, ApprovalMode } from '../types';
-import { fakeInquirerCore, fakePrompts } from '../../test/fakes/inquirer';
+import {
+  fakeInquirerCore,
+  fakePrompts,
+  queue
+} from '../../test/fakes/inquirer';
 import { fakeInterrupt } from '../../test/fakes/interrupt';
 
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-shell-'));
 
 const { answer, exports: core } = fakeInquirerCore();
-const { input, exports: prompts } = fakePrompts({
+const {
+  editor,
+  input,
+  exports: prompts
+} = fakePrompts({
+  editor: mock.fn<(config: Record<string, unknown>) => Promise<string>>(),
   input: mock.fn<() => Promise<string>>()
 });
 
@@ -130,6 +139,38 @@ describe('shell', () => {
     assert.match(
       await run('node -e "1"', resolve(cwd, 'no-such-directory')),
       /^The command could not be started: /
+    );
+  });
+
+  test('runs the command as the user edited it', async () => {
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    // the editor's own final newline is not part of the command
+    queue(editor, ['node -e "console.log(\'edited\')"\n']);
+
+    const result = await run('node -e "console.log(\'proposed\')"');
+
+    assert.ok(result.endsWith('\n\nedited'));
+  });
+
+  test('tells the model the command was changed', async () => {
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, ['node -e "console.log(2)"']);
+
+    assert.equal(
+      await run('node -e "console.log(1)"'),
+      'The user changed the command to "node -e "console.log(2)"" before running it.\n\n2'
+    );
+  });
+
+  test('asks about the edited command before running it', async () => {
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, ['node -e "2"']);
+
+    await run('node -e "1"');
+
+    assert.equal(
+      answer.mock.calls.at(-1)?.arguments[0].message,
+      'OK to run command "node -e "2""?'
     );
   });
 });

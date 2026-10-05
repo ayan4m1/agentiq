@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { extname } from 'node:path';
 import { existsSync, writeFileSync } from 'node:fs';
 
 import { record } from '../modules/checkpoints';
@@ -8,7 +9,7 @@ import {
   refusePlanning,
   requestApproval
 } from '../modules/approval';
-import { makeParameter, makeTool } from '../utils';
+import { describeDiff, makeParameter, makeTool, truncate } from '../utils';
 
 const log = getLogger('write');
 
@@ -49,6 +50,14 @@ export const unescapeContent = (content: string) => {
     .replace(/\\t/g, '\t');
 };
 
+// what the model is told when the user rewrote its proposal: only the changes,
+// since it already knows what it sent. it has to hear about them, or its next
+// patch will be aimed at text that is no longer there
+export const describeEdit = (path: string, proposed: string, edited: string) =>
+  `The user edited it before approving - their changes to what you proposed:\n${truncate(
+    describeDiff(path, proposed, edited)
+  )}`;
+
 export const handler = async ({ path, content: raw }: Args) => {
   const refusal = refusePlanning('no files can be written');
 
@@ -57,23 +66,36 @@ export const handler = async ({ path, content: raw }: Args) => {
   }
 
   const content = unescapeContent(raw);
+  const verb = existsSync(path) ? 'OVERWRITE' : 'write';
 
-  console.log(`\n${chalk.green(content.replace(/\n{2,}/g, '\n'))}\n`);
+  // the preview and the question both come round again after an edit
+  const show = (text: string) => {
+    console.log(`\n${chalk.green(text.replace(/\n{2,}/g, '\n'))}\n`);
 
-  const { approved, reason } = await requestApproval(
-    `OK to ${existsSync(path) ? 'OVERWRITE' : 'write'} ${content.length} bytes to ${path}?`,
-    { kind: 'path', value: path }
+    return `OK to ${verb} ${text.length} bytes to ${path}?`;
+  };
+
+  const { approved, reason, edited } = await requestApproval(
+    show(content),
+    { kind: 'path', value: path },
+    { content, extension: extname(path) || '.txt', show }
   );
 
   if (!approved) {
     return describeDenial(`write ${path}`, reason);
   }
 
+  const written = edited ?? content;
+
   // after approval and before the write, so /undo can put back whatever was
   // there - including nothing, when this is a new file
   record(path);
-  writeFileSync(path, content);
+  writeFileSync(path, written);
   log.info('Wrote file!');
 
-  return `Wrote ${content.length} bytes to ${path}`;
+  const result = `Wrote ${written.length} bytes to ${path}`;
+
+  return edited === undefined
+    ? result
+    : `${result}. ${describeEdit(path, content, edited)}`;
 };

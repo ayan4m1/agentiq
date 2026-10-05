@@ -5,12 +5,21 @@ import { resolve } from 'node:path';
 import { mkdtempSync } from 'node:fs';
 
 import { ApprovalAnswer, ApprovalMode } from '../types';
-import { fakeInquirerCore, fakePrompts } from '../../test/fakes/inquirer';
+import {
+  fakeInquirerCore,
+  fakePrompts,
+  queue
+} from '../../test/fakes/inquirer';
 
 process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-background-'));
 
 const { answer, exports: core } = fakeInquirerCore();
-const { input, exports: prompts } = fakePrompts({
+const {
+  editor,
+  input,
+  exports: prompts
+} = fakePrompts({
+  editor: mock.fn<(config: Record<string, unknown>) => Promise<string>>(),
   input: mock.fn<() => Promise<string>>()
 });
 
@@ -76,5 +85,25 @@ describe('start_job', () => {
       `Started job ${id}. Call read_job with id ${id} to see what it prints.`
     );
     assert.match(listJobs(), new RegExp(`${id} \\[running`));
+  });
+
+  test('starts the command as the user edited it', async () => {
+    const edited = 'node -e "setInterval(() => {}, 2000)"';
+
+    queue(answer, [ApprovalAnswer.Edit, ApprovalAnswer.Once]);
+    queue(editor, [edited]);
+
+    const output = await handler({ command, cwd });
+    const id = Number(/Started job (\d+)\./.exec(output)?.[1]);
+
+    assert.equal(
+      output,
+      `The user changed the command to "${edited}" before running it. Started job ${id}. Call read_job with id ${id} to see what it prints.`
+    );
+    const job = listJobs()
+      .split('\n')
+      .find((line) => line.startsWith(`${id} [running`));
+
+    assert.ok(job?.endsWith(edited));
   });
 });

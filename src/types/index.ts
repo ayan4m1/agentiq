@@ -94,7 +94,9 @@ export const ApprovalAnswer = {
   Once: 'once',
   Always: 'always',
   No: 'no',
-  Stop: 'stop'
+  Stop: 'stop',
+  // fixing a near miss by hand beats explaining it and waiting for a retry
+  Edit: 'edit'
 } as const;
 
 export type ApprovalAnswer =
@@ -114,6 +116,21 @@ export type ApprovalResult = {
   reason?: string;
   // the user wants the keyboard back rather than another attempt
   stopped?: boolean;
+  // what the user rewrote the proposal into - only set when it differs, so a
+  // tool can tell the model its version is not the one that landed
+  edited?: string;
+};
+
+// content the user may rewrite in their editor before approving it
+export type Editable = {
+  // what the model proposed
+  content: string;
+  // given to the temp file so the editor highlights it - files only, since a
+  // command has no extension worth guessing at
+  extension?: string;
+  // reprints the preview for the edited content, and returns the question to
+  // ask about it
+  show: (edited: string) => string;
 };
 
 export type ShellConfig = {

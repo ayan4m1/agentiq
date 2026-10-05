@@ -5,6 +5,7 @@ import { watchForInterrupt } from '../modules/interrupt';
 import { killTree, spawnCommand } from '../modules/jobs';
 import {
   describeDenial,
+  describeEditedCommand,
   refusePlanning,
   requestApproval
 } from '../modules/approval';
@@ -28,22 +29,7 @@ type Args = {
   cwd: string;
 };
 
-export const handler = async ({ command, cwd }: Args) => {
-  const refusal = refusePlanning('no commands can be run');
-
-  if (refusal) {
-    return refusal;
-  }
-
-  const { approved, reason } = await requestApproval(
-    `OK to run command "${command}"?`,
-    { kind: 'command', value: command }
-  );
-
-  if (!approved) {
-    return describeDenial(`run "${command}"`, reason);
-  }
-
+const run = async (command: string, cwd: string) => {
   const startedAt = Date.now();
   let output = '';
 
@@ -116,4 +102,30 @@ export const handler = async ({ command, cwd }: Args) => {
   }
 
   return body || 'The command produced no output.';
+};
+
+export const handler = async ({ command, cwd }: Args) => {
+  const refusal = refusePlanning('no commands can be run');
+
+  if (refusal) {
+    return refusal;
+  }
+
+  const ask = (text: string) => `OK to run command "${text}"?`;
+
+  const { approved, reason, edited } = await requestApproval(
+    ask(command),
+    { kind: 'command', value: command },
+    { content: command, show: ask }
+  );
+
+  if (!approved) {
+    return describeDenial(`run "${command}"`, reason);
+  }
+
+  const result = await run(edited ?? command, cwd);
+
+  return edited === undefined
+    ? result
+    : `${describeEditedCommand(edited)}\n\n${result}`;
 };

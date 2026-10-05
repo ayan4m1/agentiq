@@ -6,6 +6,7 @@ import { provider } from '../modules/config';
 import {
   askModel,
   describeAge,
+  describeDiff,
   describeElapsed,
   describeError,
   getContentBudget,
@@ -33,6 +34,23 @@ describe('truncate', () => {
     // the model has no record of the call that produced a tool result, so a
     // silent cut would read as the whole thing
     assert.match(result, /truncated: showing 4 of 10 characters/);
+  });
+});
+
+describe('describeDiff', () => {
+  test('gives the changed hunk as plain text', () => {
+    assert.equal(
+      describeDiff('a.txt', 'one\ntwo\nthree\n', 'one\n2\nthree\n'),
+      '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three'
+    );
+  });
+
+  test('carries no color codes for the model to read', () => {
+    assert.doesNotMatch(describeDiff('a.txt', 'a\n', 'b\n'), /\u001b\[/);
+  });
+
+  test('is empty when nothing changed', () => {
+    assert.equal(describeDiff('a.txt', 'same\n', 'same\n'), '');
   });
 });
 

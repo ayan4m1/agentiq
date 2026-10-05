@@ -79,7 +79,11 @@ If it is appropriate to add a new tool, follow this process each time to get it 
    first and then `requestApproval()`, and return `describeDenial()` when the
    answer is no. Read-only tools do neither.
 5. Pass a subject to `requestApproval()` - `{ kind: 'command' | 'path', value }`
-   - so that "always" can be remembered by `src/modules/approval.ts`.
+   - so that "always" can be remembered by `src/modules/approval.ts`. When the user
+     could reasonably fix the proposal by hand (file contents, a command line), pass an
+     `Editable` as the third argument as well, and act on `result.edited ?? proposed` -
+     telling the model when they differ (`describeEdit()` in `src/tools/write.ts`,
+     `describeEditedCommand()` in `src/modules/approval.ts`).
 6. State the tool keeps for itself (like the plan) belongs under `home` from
    `src/modules/config.ts`, never in the project - writing there without
    approval is exactly what step 4 exists to prevent.

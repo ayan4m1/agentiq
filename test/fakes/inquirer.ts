@@ -1,4 +1,4 @@
-import { mock } from 'node:test';
+import { mock, type Mock } from 'node:test';
 
 import type { ModuleMock } from './module';
 
@@ -23,7 +23,10 @@ export const fakePrompts = <O extends ModuleMock<Prompts>>(
 // a prompt of our own is built on @inquirer/core and reads the real terminal,
 // so it is replaced by one that answers whatever the test says to
 export const fakeInquirerCore = () => {
-  const answer = mock.fn<(config: { message: string }) => Promise<string>>();
+  const answer =
+    mock.fn<
+      (config: { message: string; editable?: boolean }) => Promise<string>
+    >();
 
   return {
     exports: {
@@ -34,4 +37,27 @@ export const fakeInquirerCore = () => {
     } satisfies ModuleMock<typeof import('@inquirer/core')>,
     answer
   };
+};
+
+// mockImplementationOnce aims at the next call unless told otherwise, so a
+// second answer queued before that call replaces the first - each is placed at
+// its own call instead. an Error is thrown from its call rather than returned
+export const queue = <F extends (...args: never[]) => Promise<string>>(
+  fn: Mock<F>,
+  values: (string | Error)[]
+) => {
+  const from = fn.mock.callCount();
+
+  values.forEach((value, index) =>
+    fn.mock.mockImplementationOnce(
+      (async () => {
+        if (value instanceof Error) {
+          throw value;
+        }
+
+        return value;
+      }) as F,
+      from + index
+    )
+  );
 };

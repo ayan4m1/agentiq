@@ -11,7 +11,11 @@ import {
 } from 'node:fs';
 
 import { ApprovalAnswer, ApprovalMode } from '../types';
-import { fakeInquirerCore, fakePrompts } from '../../test/fakes/inquirer';
+import {
+  fakeInquirerCore,
+  fakePrompts,
+  queue
+} from '../../test/fakes/inquirer';
 
 // remembered answers are written under the home directory, which is read as
 // the config module is evaluated - so it has to point somewhere disposable
@@ -21,7 +25,12 @@ const home = mkdtempSync(resolve(tmpdir(), 'agentiq-approval-'));
 process.env.AQ_HOME = home;
 
 const { answer, exports: core } = fakeInquirerCore();
-const { input, exports: prompts } = fakePrompts({
+const {
+  editor,
+  input,
+  exports: prompts
+} = fakePrompts({
+  editor: mock.fn<(config: Record<string, unknown>) => Promise<string>>(),
   input: mock.fn<() => Promise<string>>()
 });
 
@@ -39,9 +48,11 @@ const {
   loadRules,
   matchesRule,
   normalizePath,
+  readAnswer,
   refusePlanning,
   remember,
   requestApproval,
+  restoreEndings,
   setMode
 } = await import('./approval');
 const { slugFor } = await import('../utils');
@@ -58,6 +69,7 @@ beforeEach(() => {
   approval.mode = ApprovalMode.Manual;
   terminal.interactive = true;
   answer.mock.resetCalls();
+  editor.mock.resetCalls();
   input.mock.resetCalls();
   log.mock.resetCalls();
   takeYield();
@@ -214,6 +226,212 @@ describe('requestApproval', () => {
       approved: false,
       reason: undefined
     });
+  });
+});
+
+describe('readAnswer', () => {
+  test('takes e as an edit when there is something to edit', () => {
+    assert.equal(readAnswer('e', true), ApprovalAnswer.Edit);
+    assert.equal(readAnswer('edit', true), ApprovalAnswer.Edit);
+  });
+
+  test('takes e as no when there is nothing to edit', () => {
+    assert.equal(readAnswer('e', false), ApprovalAnswer.No);
+  });
+
+  test('takes anything it does not know as no', () => {
+    assert.equal(readAnswer('', true), ApprovalAnswer.No);
+    assert.equal(readAnswer('maybe', true), ApprovalAnswer.No);
+  });
+});
+
+describe('requestApproval with something to edit', () => {
+  // the preview a tool would print is left out - only the question matters
+  const editable = (content: string, extension?: string) => ({
+    content,
+    extension,
+    show: mock.fn((text: string) => `OK to write "${text}"?`)
+  });
+
+  const script = (answers: string[], edits: (string | Error)[] = []) => {
+    queue(answer, answers);
+    queue(editor, edits);
+  };
+
+  test('offers an edit only when there is something to edit', async () => {
+    script([ApprovalAnswer.Once, ApprovalAnswer.Once]);
+
+    await requestApproval('OK?');
+    await requestApproval('OK?', undefined, editable('text'));
+
+    assert.equal(answer.mock.calls[0].arguments[0].editable, false);
+    assert.equal(answer.mock.calls[1].arguments[0].editable, true);
+  });
+
+  test('opens the proposal in the editor with its extension', async () => {
+    script([ApprovalAnswer.Edit, ApprovalAnswer.Once], ['changed']);
+
+    await requestApproval('OK?', undefined, editable('proposed', '.ts'));
+
+    const [config] = editor.mock.calls[0].arguments;
+
+    assert.equal(config.default, 'proposed');
+    assert.equal(config.postfix, '.ts');
+  });
+
+  test('leaves the extension to the editor when none is given', async () => {
+    script([ApprovalAnswer.Edit, ApprovalAnswer.Once], ['changed']);
+
+    await requestApproval('OK?', undefined, editable('proposed'));
+
+    assert.equal('postfix' in editor.mock.calls[0].arguments[0], false);
+  });
+
+  test('shows the edit and asks about it again', async () => {
+    const proposal = editable('proposed');
+
+    script([ApprovalAnswer.Edit, ApprovalAnswer.Once], ['changed']);
+
+    await requestApproval('OK?', undefined, proposal);
+
+    assert.deepEqual(proposal.show.mock.calls[0].arguments, ['changed']);
+    assert.equal(answer.mock.callCount(), 2);
+    assert.equal(
+      answer.mock.calls[1].arguments[0].message,
+      'OK to write "changed"?'
+    );
+  });
+
+  test('approves what the user wrote', async () => {
+    script([ApprovalAnswer.Edit, ApprovalAnswer.Once], ['changed']);
+
+    assert.deepEqual(
+      await requestApproval('OK?', undefined, editable('proposed')),
+      { approved: true, edited: 'changed' }
+    );
+  });
+
+  test('edits the last edit rather than the proposal', async () => {
+    script(
+      [ApprovalAnswer.Edit, ApprovalAnswer.Edit, ApprovalAnswer.Once],
+      ['first', 'second']
+    );
+
+    const result = await requestApproval('OK?', undefined, editable('one'));
+
+    assert.equal(editor.mock.calls[1].arguments[0].default, 'first');
+    assert.equal(result.edited, 'second');
+  });
+
+  test('says nothing was edited when the text came back the same', async () => {
+    script([ApprovalAnswer.Edit, ApprovalAnswer.Once], ['proposed']);
+
+    assert.deepEqual(
+      await requestApproval('OK?', undefined, editable('proposed')),
+      { approved: true }
+    );
+  });
+
+  test('can still be refused after an edit', async () => {
+    script([ApprovalAnswer.Edit, ApprovalAnswer.No], ['changed']);
+    input.mock.mockImplementationOnce(async () => 'never mind');
+
+    assert.deepEqual(
+      await requestApproval('OK?', undefined, editable('proposed')),
+      { approved: false, reason: 'never mind' }
+    );
+  });
+
+  test('can still be stopped after an edit', async () => {
+    script([ApprovalAnswer.Edit, ApprovalAnswer.Stop], ['changed']);
+
+    assert.deepEqual(
+      await requestApproval('OK?', undefined, editable('proposed')),
+      { approved: false, stopped: true }
+    );
+    assert.equal(takeYield(), true);
+  });
+
+  test('remembers the edited command when told always', async () => {
+    script(
+      [ApprovalAnswer.Edit, ApprovalAnswer.Always],
+      ['  yarn edited always\n']
+    );
+
+    const result = await requestApproval(
+      'OK?',
+      { kind: 'command', value: 'yarn proposed always' },
+      editable('yarn proposed always')
+    );
+
+    assert.equal(result.edited, 'yarn edited always');
+    assert.equal(isRemembered('command', 'yarn edited always'), true);
+    assert.equal(isRemembered('command', 'yarn proposed always'), false);
+  });
+
+  test('remembers the same path however its contents were edited', async () => {
+    script([ApprovalAnswer.Edit, ApprovalAnswer.Always], ['changed']);
+
+    await requestApproval(
+      'OK?',
+      { kind: 'path', value: 'edited-always.txt' },
+      editable('proposed')
+    );
+
+    assert.equal(isRemembered('path', 'edited-always.txt'), true);
+  });
+
+  test('keeps a command that was emptied in the editor', async (t) => {
+    const warn = t.mock.method(getLogger('approval'), 'warn', () => {});
+
+    script([ApprovalAnswer.Edit, ApprovalAnswer.Once], ['   \n']);
+
+    const result = await requestApproval(
+      'OK?',
+      { kind: 'command', value: 'yarn kept' },
+      editable('yarn kept')
+    );
+
+    assert.deepEqual(result, { approved: true });
+    assert.match(String(warn.mock.calls[0].arguments[0]), /left empty/);
+  });
+
+  test('asks again when the editor cannot be opened', async (t) => {
+    const error = t.mock.method(getLogger('approval'), 'error', () => {});
+
+    script(
+      [ApprovalAnswer.Edit, ApprovalAnswer.Once],
+      [new Error('no editor')]
+    );
+
+    const result = await requestApproval('OK?', undefined, editable('same'));
+
+    assert.deepEqual(result, { approved: true });
+    assert.equal(answer.mock.callCount(), 2);
+    assert.match(String(error.mock.calls[0].arguments[0]), /no editor/);
+  });
+});
+
+describe('restoreEndings', () => {
+  test('puts back crlf line breaks the editor dropped', () => {
+    assert.equal(restoreEndings('a\r\nb\r\n', 'a\nc\n'), 'a\r\nc\r\n');
+  });
+
+  test('leaves crlf alone when the editor kept it', () => {
+    assert.equal(restoreEndings('a\r\nb', 'a\r\nc'), 'a\r\nc');
+  });
+
+  test('drops a final newline the editor added', () => {
+    assert.equal(restoreEndings('a\nb', 'a\nc\n'), 'a\nc');
+    assert.equal(restoreEndings('a\r\nb', 'a\r\nc\r\n'), 'a\r\nc');
+  });
+
+  test('keeps a final newline the original had', () => {
+    assert.equal(restoreEndings('a\nb\n', 'a\nc\n'), 'a\nc\n');
+  });
+
+  test('leaves lf text as it was', () => {
+    assert.equal(restoreEndings('a\nb', 'a\nc'), 'a\nc');
   });
 });
 

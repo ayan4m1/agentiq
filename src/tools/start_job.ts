@@ -1,6 +1,7 @@
 import { startJob } from '../modules/jobs';
 import {
   describeDenial,
+  describeEditedCommand,
   refusePlanning,
   requestApproval
 } from '../modules/approval';
@@ -27,16 +28,22 @@ export const handler = async ({ command, cwd }: Args) => {
     return refusal;
   }
 
-  const { approved, reason } = await requestApproval(
-    `OK to run "${command}" in the background?`,
-    { kind: 'command', value: command }
+  const ask = (text: string) => `OK to run "${text}" in the background?`;
+
+  const { approved, reason, edited } = await requestApproval(
+    ask(command),
+    { kind: 'command', value: command },
+    { content: command, show: ask }
   );
 
   if (!approved) {
     return describeDenial(`run "${command}"`, reason);
   }
 
-  const id = startJob(command, cwd);
+  const id = startJob(edited ?? command, cwd);
+  const result = `Started job ${id}. Call read_job with id ${id} to see what it prints.`;
 
-  return `Started job ${id}. Call read_job with id ${id} to see what it prints.`;
+  return edited === undefined
+    ? result
+    : `${describeEditedCommand(edited)} ${result}`;
 };

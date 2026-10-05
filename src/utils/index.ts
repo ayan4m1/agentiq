@@ -167,26 +167,41 @@ export const serializeResult = (result: unknown): string => {
 // so render only the hunks that were actually touched. shared rather than
 // private to the patch tool because the roadmap tools write without asking, so
 // this diff is the only account the user gets of what changed
-export const renderDiff = (path: string, before: string, after: string) => {
+// one walk over the hunks for both the colored diff the user sees and the plain
+// one the model is handed, so the two cannot come to disagree
+const diffLines = (path: string, before: string, after: string) => {
   const { hunks } = structuredPatch(path, path, before, after, '', '', {
     context: 3
   });
 
-  for (const hunk of hunks) {
-    console.log(
-      chalk.cyan(
-        `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`
-      )
-    );
+  return hunks.flatMap((hunk) => [
+    `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`,
+    ...hunk.lines
+  ]);
+};
 
-    for (const line of hunk.lines) {
-      if (line.startsWith('+')) {
-        console.log(chalk.green(line));
-      } else if (line.startsWith('-')) {
-        console.log(chalk.red(line));
-      } else {
-        console.log(chalk.gray(line));
-      }
-    }
+const colorLine = (line: string) => {
+  if (line.startsWith('@@')) {
+    return chalk.cyan(line);
+  }
+
+  if (line.startsWith('+')) {
+    return chalk.green(line);
+  }
+
+  if (line.startsWith('-')) {
+    return chalk.red(line);
+  }
+
+  return chalk.gray(line);
+};
+
+export const renderDiff = (path: string, before: string, after: string) => {
+  for (const line of diffLines(path, before, after)) {
+    console.log(colorLine(line));
   }
 };
+
+// the same hunks without color, for telling the model what changed
+export const describeDiff = (path: string, before: string, after: string) =>
+  diffLines(path, before, after).join('\n');

@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { input } from '@inquirer/prompts';
+import { editor, input } from '@inquirer/prompts';
 import {
   createPrompt,
   isEnterKey,
@@ -18,7 +18,8 @@ import {
   ApprovalAnswer,
   ApprovalMode,
   type ApprovalResult,
-  type ApprovalSubject
+  type ApprovalSubject,
+  type Editable
 } from '../types';
 import { describeError, slugFor } from '../utils';
 
@@ -66,6 +67,8 @@ export const cycleMode = () => setMode(nextModes[approval.mode]);
 
 type ApprovalRequest = {
   message: string;
+  // whether there is anything to edit - only then is (e)dit offered
+  editable: boolean;
 };
 
 // what a typed answer means. an empty line keeps the old default of no
@@ -75,20 +78,32 @@ const answers: Record<string, ApprovalAnswer> = {
   a: ApprovalAnswer.Always,
   always: ApprovalAnswer.Always,
   s: ApprovalAnswer.Stop,
-  stop: ApprovalAnswer.Stop
+  stop: ApprovalAnswer.Stop,
+  e: ApprovalAnswer.Edit,
+  edit: ApprovalAnswer.Edit
 };
 
 const spoken: Record<ApprovalAnswer, string> = {
   [ApprovalAnswer.Once]: 'Yes',
   [ApprovalAnswer.Always]: 'Always',
   [ApprovalAnswer.No]: 'No',
-  [ApprovalAnswer.Stop]: 'Stopped'
+  [ApprovalAnswer.Stop]: 'Stopped',
+  [ApprovalAnswer.Edit]: 'Edit'
+};
+
+// an answer that was not on offer counts as no, the same as any typo
+export const readAnswer = (typed: string, editable: boolean) => {
+  const answer = answers[typed] ?? ApprovalAnswer.No;
+
+  return answer === ApprovalAnswer.Edit && !editable
+    ? ApprovalAnswer.No
+    : answer;
 };
 
 // @inquirer/confirm cannot be used here: its isTabKey is a bare name check, so
 // it swallows shift+tab to toggle yes/no and there is no way to hook the key
 const prompt = createPrompt<ApprovalAnswer, ApprovalRequest>(
-  ({ message }, done) => {
+  ({ message, editable }, done) => {
     const [status, setStatus] = useState<Status>('idle');
     const [value, setValue] = useState('');
     const [mode, setCurrentMode] = useState(approval.mode);
@@ -130,7 +145,7 @@ const prompt = createPrompt<ApprovalAnswer, ApprovalRequest>(
       if (isEnterKey(key)) {
         const typed = value.trim().toLowerCase();
 
-        finish(answers[typed] ?? ApprovalAnswer.No);
+        finish(readAnswer(typed, editable));
 
         return;
       }
@@ -143,7 +158,7 @@ const prompt = createPrompt<ApprovalAnswer, ApprovalRequest>(
     }
 
     return `${message} ${badges[mode]} ${chalk.gray(
-      '(y)es / (N)o / (a)lways / (s)top'
+      `(y)es / (N)o / (a)lways / (s)top${editable ? ' / (e)dit' : ''}`
     )} ${value}`;
   }
 );
@@ -162,6 +177,11 @@ const askReason = async () => {
 // same whichever action was turned down
 export const describeDenial = (action: string, reason?: string) =>
   `The user declined to ${action}.${reason ? ` They said: "${reason}"` : ''}`;
+
+// a command the user rewrote ran in place of the one the model asked for, and
+// the model has to know that to make sense of the output it gets back
+export const describeEditedCommand = (command: string) =>
+  `The user changed the command to "${command}" before running it.`;
 
 // the sibling of describeDenial for the refusal that happens before there is
 // anything to confirm. `subject` completes "Plan mode is active, so ..." -
@@ -313,12 +333,72 @@ export const forgetRule = (kind: RuleKind, pattern: string) => {
   saveRules(rules);
 };
 
+// editors do things to a file nobody asked them to: most add a final newline,
+// and some write lf over a crlf file. undone here so an edit that only fixed
+// one line does not show up as a change to every line, or to the last one
+export const restoreEndings = (original: string, edited: string) => {
+  let text = edited;
+
+  if (original.includes('\r\n') && !text.includes('\r\n')) {
+    text = text.replace(/\n/g, '\r\n');
+  }
+
+  if (!/\r?\n$/.test(original)) {
+    text = text.replace(/\r?\n$/, '');
+  }
+
+  return text;
+};
+
+// the proposal as the user left it in their editor, or what it was before when
+// there is nothing usable to take from it
+const editProposal = async (
+  current: string,
+  editable: Editable,
+  subject?: ApprovalSubject
+) => {
+  let text: string;
+
+  try {
+    text = await editor({
+      message: 'Edit before approving',
+      waitForUserInput: false,
+      default: current,
+      // left out for a command, so inquirer's own default applies
+      ...(editable.extension ? { postfix: editable.extension } : {})
+    });
+  } catch (error) {
+    // the editor could not be opened - the proposal stands and is asked about
+    // again, rather than the whole request failing over it
+    log.error(`Could not open an editor: ${describeError(error)}`);
+
+    return current;
+  }
+
+  // a command runs as one line, and a blank one would run nothing at all
+  if (subject?.kind === 'command') {
+    const command = text.trim();
+
+    if (!command) {
+      log.warn('The command was left empty, so it is unchanged');
+
+      return current;
+    }
+
+    return command;
+  }
+
+  return restoreEndings(current, text);
+};
+
 // approved means go ahead. auto answers itself, a remembered answer answers
 // itself, and manual asks. plan never reaches here - mutating tools refuse
-// before they have anything to confirm
+// before they have anything to confirm. given something editable, the user can
+// rewrite it before saying yes, and is asked again about what they wrote
 export const requestApproval = async (
   message: string,
-  subject?: ApprovalSubject
+  subject?: ApprovalSubject,
+  editable?: Editable
 ): Promise<ApprovalResult> => {
   if (approval.mode === ApprovalMode.Auto) {
     return { approved: true };
@@ -349,20 +429,39 @@ export const requestApproval = async (
     };
   }
 
+  let current = editable?.content ?? '';
   // shift+tab out of the prompt and into auto counts as a yes, so this covers
   // that path too
-  const answer = await prompt({ message });
+  let answer = await prompt({ message, editable: !!editable });
+
+  while (answer === ApprovalAnswer.Edit && editable) {
+    current = await editProposal(current, editable, subject);
+
+    // saving is not approval: an editor has no clean way to back out, so the
+    // result is shown and asked about like the original was
+    answer = await prompt({ message: editable.show(current), editable: true });
+  }
+
+  const edited =
+    editable && current !== editable.content ? { edited: current } : {};
 
   if (answer === ApprovalAnswer.Always) {
     if (subject) {
-      remember(subject.kind, subject.value);
+      // the command that will actually run is the one worth remembering. a
+      // path is the same path however its contents were edited
+      const value =
+        subject.kind === 'command' && edited.edited !== undefined
+          ? edited.edited
+          : subject.value;
+
+      remember(subject.kind, value);
     }
 
-    return { approved: true };
+    return { approved: true, ...edited };
   }
 
   if (answer === ApprovalAnswer.Once) {
-    return { approved: true };
+    return { approved: true, ...edited };
   }
 
   if (answer === ApprovalAnswer.Stop) {
