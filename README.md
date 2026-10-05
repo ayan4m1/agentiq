@@ -306,8 +306,7 @@ Run `git diff` and review the changes for correctness bugs. Focus on: $ARGUMENTS
 - Files mentioned with `@` in the prompt are attached just as when typed.
 - Commands are read again before every prompt, so a new or edited one works straight away, and
   they tab-complete like the built-in ones.
-- The history and `/undo` offer back the `/command` you typed rather than the prompt it stood for.
-- `agentiq exec "/review"` runs a saved command headlessly.
+- `agentiq exec "/review failing tests"` runs a saved command headlessly.
 
 ## Skills
 
