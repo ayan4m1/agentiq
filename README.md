@@ -2,11 +2,11 @@
 
 [![codecov](https://codecov.io/gh/ayan4m1/agentiq/graph/badge.svg?token=ZMpY0vGAjm)](https://codecov.io/gh/ayan4m1/agentiq)
 
-Agentiq is an agentic coding assistant for use with Ollama, the Anthropic API, or any OpenAI-compatible server (vLLM, llama.cpp, or the OpenAI API itself).
+Agentiq is an agentic coding assistant with support for local and cloud LLM providers.
 
 ## Features
 
-- [Support](#providers) for Ollama, Anthropic API, and OpenAI Chat Completions API - a local server that speaks one of the latter two protocols can be used
+- [Support](#providers) for Ollama, Anthropic Messages API, and OpenAI Chat Completions API - a local server that speaks one of the latter two protocols can be used
 - Three command/access approval modes - manual, automatic, and planning
 - Saves sessions so they can be resumed later on
 - Allowlisting for paths, commands, and tools
