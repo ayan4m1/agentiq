@@ -719,9 +719,10 @@ export const makeThinker = () => {
     return freed;
   };
 
-  // the model changed under us - /model switched to another one. the prompt
-  // names the model and the tokenizer belongs to it, so both are built again
-  // and everything they measured is counted again from scratch
+  // the model changed under us - /model switched to another one - or the
+  // skills listed in the prompt did. the prompt names the model and the
+  // tokenizer belongs to it, so both are built again and everything they
+  // measured is counted again from scratch
   const rebuild = (messages: ChatMessage[]) => {
     tokenizer = makeTokenizer();
     systemPrompt = buildSystemPrompt();

@@ -43,6 +43,7 @@ afterEach(() => {
   rmSync(projectOverlay, { force: true });
   rmSync(roadmapFile, { force: true });
   rmSync(skillsDir, { recursive: true, force: true });
+  rmSync(resolve(project, '.agentiq'), { recursive: true, force: true });
   loadSkills();
   roadmap.enabled = false;
   process.chdir(project);

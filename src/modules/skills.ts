@@ -16,25 +16,46 @@ import type { Skill } from '../types';
 const log = getLogger('skills');
 
 // one directory per skill, each holding a SKILL.md - the layout the agent
-// skills spec defines, so a skill written for another agent drops straight in
+// skills spec defines, so a skill written for another agent drops straight in.
+// kept for every project here, or for just one in its own .agentiq/skills,
+// which wins on a clash
 export const skillsDir = resolve(home, 'skills');
+
+export const projectSkillsDir = () =>
+  resolve(process.cwd(), '.agentiq', 'skills');
 
 const skillFile = 'SKILL.md';
 // resent on every turn like the roadmap, so it gets the same small share
 const promptBudget = getContentBudget(0.05);
 
-// set by loadSkills() at startup. describeSkills() reads this rather than the
-// disk, so /model rebuilding the prompt does not rescan the directory
+// set by loadSkills() at startup and again before each message the user
+// sends. describeSkills() reads this rather than the disk, so building the
+// prompt never rescans the directories
 let loaded: Skill[] | undefined;
+
+// the directories are rescanned before every message, so a skill that cannot
+// be used is only worth a warning the first time it is seen
+const warned = new Set<string>();
+
+const warnOnce = (message: string) => {
+  if (!warned.has(message)) {
+    warned.add(message);
+    log.warn(message);
+  }
+};
 
 const isText = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
 
-export const parseSkill = (directory: string): Skill | undefined => {
-  const path = resolve(skillsDir, directory, skillFile);
+export const parseSkill = (
+  root: string,
+  directory: string
+): Skill | undefined => {
+  const folder = resolve(root, directory);
+  const path = resolve(folder, skillFile);
 
   if (!existsSync(path)) {
-    log.warn(`Skipping skill ${directory} - it has no ${skillFile}`);
+    warnOnce(`Skipping skill ${folder} - it has no ${skillFile}`);
 
     return;
   }
@@ -45,14 +66,16 @@ export const parseSkill = (directory: string): Skill | undefined => {
     const match = frontmatterPattern.exec(readFileSync(path, 'utf8'));
 
     if (!match) {
-      log.warn(`Skipping skill ${directory} - ${path} has no frontmatter`);
+      warnOnce(
+        `Skipping skill ${folder} - its ${skillFile} has no frontmatter`
+      );
 
       return;
     }
 
     metadata = parse(match[1]);
   } catch (error) {
-    log.warn(`Skipping skill ${directory} - ${describeError(error)}`);
+    warnOnce(`Skipping skill ${folder} - ${describeError(error)}`);
 
     return;
   }
@@ -60,8 +83,8 @@ export const parseSkill = (directory: string): Skill | undefined => {
   const { name, description } = (metadata ?? {}) as Record<string, unknown>;
 
   if (!isText(name) || !isText(description)) {
-    log.warn(
-      `Skipping skill ${directory} - its frontmatter needs both a name and a description`
+    warnOnce(
+      `Skipping skill ${folder} - its frontmatter needs both a name and a description`
     );
 
     return;
@@ -70,8 +93,8 @@ export const parseSkill = (directory: string): Skill | undefined => {
   // the spec says these should agree, but refusing a skill over it would
   // punish a cosmetic mistake - the name in the file is the one the model sees
   if (name !== directory) {
-    log.warn(
-      `Skill ${directory} is named "${name}" in its frontmatter - the two should match`
+    warnOnce(
+      `Skill ${folder} is named "${name}" in its frontmatter - the two should match`
     );
   }
 
@@ -79,50 +102,86 @@ export const parseSkill = (directory: string): Skill | undefined => {
     name: name.trim(),
     description: description.trim(),
     path,
-    directory: resolve(skillsDir, directory)
+    directory: folder
   };
+};
+
+const readDirectory = (root: string) => {
+  try {
+    return (
+      readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        // sorted so the prompt is identical from one run to the next
+        .sort()
+    );
+  } catch (error) {
+    // no skills directory is the ordinary case, not worth a word
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      warnOnce(`Could not read ${root}: ${describeError(error)}`);
+    }
+
+    return [];
+  }
 };
 
 // always rescans, so calling it again picks up whatever changed on disk
 export const loadSkills = () => {
-  let entries: string[] = [];
+  const byName = new Map<string, Skill>();
 
-  try {
-    entries = readdirSync(skillsDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      // sorted so the prompt is identical from one run to the next
-      .sort();
-  } catch (error) {
-    // no skills directory is the ordinary case, not worth a word
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      log.warn(`Could not read ${skillsDir}: ${describeError(error)}`);
+  // the project's directory is read last, so its skills replace the global
+  // ones of the same name
+  for (const root of [skillsDir, projectSkillsDir()]) {
+    const names = new Set<string>();
+
+    for (const entry of readDirectory(root)) {
+      const skill = parseSkill(root, entry);
+
+      if (!skill) {
+        continue;
+      }
+
+      if (names.has(skill.name)) {
+        warnOnce(
+          `Skipping skill ${skill.directory} - another skill is already named "${skill.name}"`
+        );
+        continue;
+      }
+
+      names.add(skill.name);
+      byName.set(skill.name, skill);
     }
   }
 
-  const skills: Skill[] = [];
+  const skills = [...byName.values()].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
 
-  for (const entry of entries) {
-    const skill = parseSkill(entry);
-
-    if (!skill) {
-      continue;
-    }
-
-    if (skills.some(({ name }) => name === skill.name)) {
-      log.warn(
-        `Skipping skill ${entry} - another skill is already named "${skill.name}"`
-      );
-      continue;
-    }
-
-    skills.push(skill);
-  }
-
-  log.debug(`Loaded ${skills.length} skill(s) from ${skillsDir}`);
+  log.debug(
+    `Loaded ${skills.length} skill(s) from ${skillsDir} and ${projectSkillsDir()}`
+  );
   loaded = skills;
 
   return skills;
+};
+
+// what the prompt is built from - a description edited or a skill moved
+// changes it as surely as one added or removed
+const fingerprint = (skills: Skill[] | undefined) =>
+  JSON.stringify(
+    (skills ?? []).map(({ name, description, path }) => [
+      name,
+      description,
+      path
+    ])
+  );
+
+// rescans, and says whether the prompt has to be built again. the prompt is
+// left alone when nothing changed, so it stays exactly what was sent before
+export const reloadSkills = () => {
+  const before = fingerprint(loaded);
+
+  return fingerprint(loadSkills()) !== before;
 };
 
 // every skill installed, enabled or not - /skills offers the disabled ones

@@ -13,7 +13,14 @@ import {
 } from './approval';
 import { pickModel, pickSkills } from './picker';
 import { listServers } from './mcp';
-import { isEnabled, listSkills, setEnabled, skillsDir } from './skills';
+import {
+  isEnabled,
+  listSkills,
+  projectSkillsDir,
+  reloadSkills,
+  setEnabled,
+  skillsDir
+} from './skills';
 import { expandCommand, loadCommands } from './commands';
 import { modelContextLength, preflight } from './preflight';
 import { beginTurn, changes, countSince, rewind } from './checkpoints';
@@ -755,37 +762,40 @@ export const createController = ({
   };
 
   // the installed skills, to turn on and off. only an enabled one is listed in
-  // the system prompt, so a change rebuilds it in place for the next turn
+  // the system prompt, so a change rebuilds it in place for the next turn - as
+  // does a skill added, edited or removed on disk since it was last built
   const skills = async () => {
+    let changed = reloadSkills();
     const installed = listSkills();
 
     // a picker with nothing in it would only be something to close
     if (!installed.length) {
-      log.info(systemColor(`No skills are installed in ${skillsDir}`));
-
-      return;
-    }
-
-    let changed = false;
-
-    try {
-      await pickSkills({
-        message: 'Skills',
-        choices: installed.map(({ name, description }) => ({
-          name,
-          description,
-          enabled: isEnabled(name)
-        })),
-        toggle: (name, enabled) => {
-          changed = true;
-          setEnabled(name, enabled);
+      log.info(
+        systemColor(
+          `No skills are installed in ${skillsDir} or ${projectSkillsDir()}`
+        )
+      );
+    } else {
+      try {
+        await pickSkills({
+          message: 'Skills',
+          choices: installed.map(({ name, description }) => ({
+            name,
+            description,
+            enabled: isEnabled(name)
+          })),
+          toggle: (name, enabled) => {
+            changed = true;
+            setEnabled(name, enabled);
+          }
+        });
+      } catch (error) {
+        // log but swallow an error (if the user cancelled the prompt) -
+        // whatever was toggled before then has already been saved, so it
+        // still applies
+        if (error instanceof Error) {
+          log.error(error.message);
         }
-      });
-    } catch (error) {
-      // log but swallow an error (if the user cancelled the prompt) - whatever
-      // was toggled before then has already been saved, so it still applies
-      if (error instanceof Error) {
-        log.error(error.message);
       }
     }
 
@@ -936,6 +946,13 @@ export const createController = ({
   // typed is what the user would want offered back, when it is not the content
   // itself - the /command that a saved prompt was sent with
   const addUserMessage = (content: string, typed?: string) => {
+    // a skill added or edited since the last message is offered from this one
+    // on. the prompt is only built again when the skills actually changed, so
+    // otherwise it is exactly what was sent before
+    if (reloadSkills()) {
+      thinker.rebuild(nextThought.messages);
+    }
+
     const expanded = expandMentions(content);
     const message: AgentMessage =
       expanded || typed !== undefined

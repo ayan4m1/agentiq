@@ -130,7 +130,7 @@ mcp:
   #     url: https://example.com/mcp
 
 skills:
-  # skills in ~/.agentiq/skills to leave out of the prompt - /skills edits this
+  # skills to leave out of the prompt, by name - /skills edits this
   # disabled: []
 ```
 
@@ -245,7 +245,8 @@ Run `git diff` and review the changes for correctness bugs. Focus on: $ARGUMENTS
 ## Skills
 
 agentiq supports [Agent Skills](https://agentskills.io). Put each skill in its own directory under
-`~/.agentiq/skills/`, with a `SKILL.md` whose frontmatter names and describes it:
+`~/.agentiq/skills/`, or under `.agentiq/skills/` in the directory agentiq runs in, with a
+`SKILL.md` whose frontmatter names and describes it:
 
 ```markdown
 ---
@@ -258,13 +259,19 @@ description: Extract text and tables from PDF files. Use when the user mentions 
 ...
 ```
 
-Skills are read once at startup. Only each skill's name, description and location go into the
-system prompt; the model reads the full `SKILL.md` when a task matches it. `/context` shows what the
-listing costs on its `SKILLS` line.
+Only each skill's name, description and location go into the system prompt; the model reads the
+full `SKILL.md` when a task matches it. `/context` shows what the listing costs on its `SKILLS`
+line.
+
+- A project's skill replaces a global one of the same name, so a repository can ship skills of its
+  own - release steps, conventions for its stack - alongside the ones you keep for every project.
+- Skills are read again before every prompt and when `/skills` opens, so one added or edited
+  mid-session is offered from the next message on. The system prompt is only rebuilt when the
+  skills actually changed.
 
 Every installed skill starts out enabled. `/skills` turns individual skills off without deleting
-them: a disabled skill stays in `~/.agentiq/skills`, but its name and description are left out of
-the system prompt. The change applies from the next turn and is saved under `skills.disabled` in
+them: a disabled skill stays where it is, but its name and description are left out of the system
+prompt. The change applies from the next turn and is saved under `skills.disabled` in
 `config.yml`, so later runs start the same way.
 
 ## MCP servers

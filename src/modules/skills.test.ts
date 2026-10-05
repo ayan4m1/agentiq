@@ -12,13 +12,22 @@ import {
 
 // read when the config module first evaluates, so it has to be set before the
 // dynamic import below - and it keeps the real skills out of these results
-process.env.AQ_HOME = mkdtempSync(resolve(tmpdir(), 'agentiq-skills-'));
+const root = mkdtempSync(resolve(tmpdir(), 'agentiq-skills-'));
+
+process.env.AQ_HOME = resolve(root, 'home');
+
+const project = resolve(root, 'project');
+
+mkdirSync(project, { recursive: true });
+process.chdir(project);
 
 const {
   describeSkills,
   isEnabled,
   listSkills,
   loadSkills,
+  projectSkillsDir,
+  reloadSkills,
   setEnabled,
   skillsDir
 } = await import('./skills');
@@ -27,9 +36,9 @@ const { getLogger } = await import('./logging');
 
 const configPath = resolve(home, 'config.yml');
 
-const addSkill = (directory: string, content: string) => {
-  mkdirSync(resolve(skillsDir, directory), { recursive: true });
-  writeFileSync(resolve(skillsDir, directory, 'SKILL.md'), content);
+const addSkill = (directory: string, content: string, parent = skillsDir) => {
+  mkdirSync(resolve(parent, directory), { recursive: true });
+  writeFileSync(resolve(parent, directory, 'SKILL.md'), content);
 };
 
 const frontmatter = (name: string, description: string, body = '# Steps') =>
@@ -37,6 +46,7 @@ const frontmatter = (name: string, description: string, body = '# Steps') =>
 
 afterEach(() => {
   rmSync(skillsDir, { recursive: true, force: true });
+  rmSync(projectSkillsDir(), { recursive: true, force: true });
   skills.disabled = [];
   loadSkills();
 });
@@ -122,6 +132,121 @@ describe('loading skills', () => {
       loadSkills().map(({ name }) => name),
       ['alpha', 'zeta']
     );
+  });
+});
+
+describe('project skills', () => {
+  test('loads a skill from the project directory', () => {
+    addSkill(
+      'release',
+      frontmatter('release', 'Cut a release'),
+      projectSkillsDir()
+    );
+
+    const [skill] = loadSkills();
+
+    assert.equal(skill.name, 'release');
+    assert.equal(
+      skill.path,
+      resolve(projectSkillsDir(), 'release', 'SKILL.md')
+    );
+    assert.equal(skill.directory, resolve(projectSkillsDir(), 'release'));
+  });
+
+  test("replaces a global skill with the project's of the same name", () => {
+    addSkill('review', frontmatter('review', 'Global review'));
+    addSkill(
+      'review',
+      frontmatter('review', 'Project review'),
+      projectSkillsDir()
+    );
+
+    const skills = loadSkills();
+
+    assert.equal(skills.length, 1);
+    assert.equal(skills[0].description, 'Project review');
+    assert.equal(
+      skills[0].path,
+      resolve(projectSkillsDir(), 'review', 'SKILL.md')
+    );
+  });
+
+  test('merges both directories in a stable order', () => {
+    addSkill('zeta', frontmatter('zeta', 'Global'));
+    addSkill('beta', frontmatter('beta', 'Project'), projectSkillsDir());
+    addSkill('alpha', frontmatter('alpha', 'Global'));
+
+    assert.deepEqual(
+      loadSkills().map(({ name }) => name),
+      ['alpha', 'beta', 'zeta']
+    );
+  });
+
+  test('still loads the project skills when the global ones cannot be read', (t) => {
+    t.mock.method(getLogger('skills'), 'warn', () => {});
+    mkdirSync(resolve(skillsDir, '..'), { recursive: true });
+    writeFileSync(skillsDir, 'not a directory');
+    addSkill(
+      'release',
+      frontmatter('release', 'Cut a release'),
+      projectSkillsDir()
+    );
+
+    assert.deepEqual(
+      loadSkills().map(({ name }) => name),
+      ['release']
+    );
+  });
+});
+
+describe('reloading skills', () => {
+  test('reports no change when the disk has not changed', () => {
+    addSkill('pdf-tools', frontmatter('pdf-tools', 'Work with PDF files'));
+    loadSkills();
+
+    assert.equal(reloadSkills(), false);
+  });
+
+  test('picks up a skill added after startup', () => {
+    loadSkills();
+    addSkill(
+      'late',
+      frontmatter('late', 'Added afterwards'),
+      projectSkillsDir()
+    );
+
+    assert.equal(reloadSkills(), true);
+    assert.match(describeSkills() ?? '', /<name>late<\/name>/);
+    assert.equal(reloadSkills(), false);
+  });
+
+  test('notices an edited description', () => {
+    addSkill('pdf-tools', frontmatter('pdf-tools', 'Old description'));
+    loadSkills();
+    addSkill('pdf-tools', frontmatter('pdf-tools', 'New description'));
+
+    assert.equal(reloadSkills(), true);
+    assert.match(describeSkills() ?? '', /New description/);
+  });
+
+  test('notices a skill that was removed', () => {
+    addSkill('gone', frontmatter('gone', 'Soon deleted'));
+    loadSkills();
+    rmSync(resolve(skillsDir, 'gone'), { recursive: true, force: true });
+
+    assert.equal(reloadSkills(), true);
+    assert.equal(describeSkills(), undefined);
+  });
+
+  test('warns about a broken skill only once', (t) => {
+    const warn = t.mock.method(getLogger('skills'), 'warn', () => {});
+
+    addSkill('once', '# no frontmatter\n');
+    reloadSkills();
+    reloadSkills();
+    reloadSkills();
+
+    assert.equal(warn.mock.callCount(), 1);
   });
 });
 

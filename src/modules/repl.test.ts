@@ -115,7 +115,7 @@ const {
 } = await import('./session');
 const { discardCheckpoints, record } = await import('./checkpoints');
 const { getLogger } = await import('./logging');
-const { loadSkills, skillsDir } = await import('./skills');
+const { loadSkills, projectSkillsDir, skillsDir } = await import('./skills');
 
 // the commands print, which is only noise here - but what they print is worth
 // checking, so it is kept rather than dropped
@@ -1751,10 +1751,10 @@ describe('/skills', () => {
 
   const request = () => pickSkills.mock.calls[0].arguments[0] as SkillsRequest;
 
-  const addSkill = (name: string) => {
-    mkdirSync(resolve(skillsDir, name), { recursive: true });
+  const addSkill = (name: string, parent = skillsDir) => {
+    mkdirSync(resolve(parent, name), { recursive: true });
     writeFileSync(
-      resolve(skillsDir, name, 'SKILL.md'),
+      resolve(parent, name, 'SKILL.md'),
       `---\nname: ${name}\ndescription: About ${name}\n---\n`
     );
   };
@@ -1831,6 +1831,36 @@ describe('/skills', () => {
     await make().runCommand(Command.Skills);
 
     assert.deepEqual(skills.disabled, ['alpha']);
+    assert.equal(thinker.rebuild.mock.callCount(), 1);
+  });
+
+  test('offers a skill added since startup and rebuilds the prompt', async () => {
+    addSkill('alpha');
+    addSkill('beta', projectSkillsDir());
+
+    await make().runCommand(Command.Skills);
+
+    assert.deepEqual(
+      request().choices.map(({ name }) => name),
+      ['alpha', 'beta']
+    );
+    assert.equal(thinker.rebuild.mock.callCount(), 1);
+  });
+
+  test('rebuilds the prompt before a message when a skill was added', () => {
+    const controller = make();
+
+    controller.addUserMessage('first');
+
+    assert.equal(thinker.rebuild.mock.callCount(), 0);
+
+    addSkill('late', projectSkillsDir());
+    controller.addUserMessage('second');
+
+    assert.equal(thinker.rebuild.mock.callCount(), 1);
+
+    controller.addUserMessage('third');
+
     assert.equal(thinker.rebuild.mock.callCount(), 1);
   });
 });
