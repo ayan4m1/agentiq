@@ -236,6 +236,40 @@ The choices are:
 `ollama` or an OpenAI-compatible server, whose chat templates are the usual reason a tool call
 ends up written into a reply as text.
 
+## Tools
+
+The model gets things done with the tools below - and with those of any connected
+[MCP servers](#mcp-servers), which arrive as `mcp__<server>__<tool>`.
+
+| Tool            | Description                                                                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `read`          | Reads an existing document, returning its contents with line numbers.                                                                                                          |
+| `write`         | Writes a new document. Prefer `patch` for a file that already exists: `write` discards everything not in the content it is given.                                              |
+| `patch`         | Replaces exact snippets of text in an existing document - a single replacement, or several applied as one confirmed batch.                                                     |
+| `find`          | Finds files by name pattern, and optionally searches their contents.                                                                                                           |
+| `list`          | Lists what is in a directory, so the model can get its bearings in an unfamiliar project.                                                                                      |
+| `fetch`         | Fetches a document via HTTP, with HTML stripped down to its text.                                                                                                              |
+| `shell`         | Access a shell to run commands, waiting for each to finish.                                                                                                                    |
+| `start_job`     | Runs a command in the background and returns straight away - for anything that does not finish on its own, like dev servers, watch builds and log tails.                       |
+| `read_job`      | Returns what a background job has printed since the last time it was read. Omit the id to list every job instead.                                                              |
+| `stop_job`      | Stops a background job and everything it started.                                                                                                                              |
+| `ask_list`      | Asks the user to make a decision from a list of choices.                                                                                                                       |
+| `ask_boolean`   | Asks the user a yes/no question.                                                                                                                                               |
+| `present_plan`  | Shows the user a plan and asks permission to start work.                                                                                                                       |
+| `read_plan`     | Returns the most recent plan shown with `present_plan`.                                                                                                                        |
+| `explore`       | Answers an open-ended question about the codebase by investigating it in a separate, read-only conversation, and hands back a short report of the relevant paths and snippets. |
+| `add_todo`      | Adds an objective to the todo list in `ROADMAP.md`.                                                                                                                            |
+| `complete_todo` | Marks an objective on the `ROADMAP.md` todo list as done, checked off as a record.                                                                                             |
+| `remove_todo`   | Deletes an objective from `ROADMAP.md` outright.                                                                                                                               |
+| `update_notes`  | Writes to the Notes section of `ROADMAP.md`.                                                                                                                                   |
+| `decide`        | Asks a fast decision model how likely each of one or more yes/no questions is to be true.                                                                                      |
+
+- `explore` is only offered when `explore.enabled` is set (the default).
+- The roadmap tools - `add_todo`, `complete_todo`, `remove_todo` and `update_notes` - are only
+  offered when `roadmap.enabled` is set.
+- `decide` is only offered with the `ollama` provider, once `decide.model` is set - see
+  [The decide tool](#the-decide-tool).
+
 ## Commands
 
 | Command                     | Description                                                                                                                                                                                                                                                                                        |
