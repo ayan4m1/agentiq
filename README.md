@@ -176,16 +176,6 @@ The choices are:
 
 - `ollama` (the default) - talks to an Ollama server at `ollama.host`. Each model needs a matching
   tokenizer, and the other `ollama.*` settings apply.
-- `anthropic` - talks to the Anthropic API. No tokenizer is needed, since the API counts tokens
-  itself, and the `ollama.*` settings are ignored.
-- `openai` - talks to any server that speaks the OpenAI Chat Completions API, such as
-  [vLLM](https://github.com/vllm-project/vllm) or [llama.cpp](https://github.com/ggml-org/llama.cpp),
-  or to the OpenAI API itself. No tokenizer is needed: the context is estimated until the first
-  reply reports how many tokens the server counted, and the `ollama.*` settings are ignored.
-
-`provider.replayPreamble` and `provider.recoverToolCalls` matter most for local models served by
-`ollama` or an OpenAI-compatible server, whose chat templates are the usual reason a tool call
-ends up written into a reply as text.
 
 > [!NOTE]
 > `replayPreamble` and `recoverToolCalls` used to live under `ollama`. A `config.yml` that still
@@ -193,6 +183,9 @@ ends up written into a reply as text.
 > variables, goes on working. When both are set, the `provider` section wins over the `ollama` one,
 > and `AQ_REPLAY_PREAMBLE` / `AQ_RECOVER_TOOL_CALLS` win over the old variables. As with every
 > setting, an environment variable of either name wins over `config.yml`.
+
+- `anthropic` - talks to the Anthropic API. No tokenizer is needed, since the API counts tokens
+  itself, and the `ollama.*` settings are ignored.
 
 > [!NOTE]
 > The `anthropic` provider needs an API key. Set `anthropic.apiKey` in `config.yml` (or
@@ -212,6 +205,15 @@ ends up written into a reply as text.
 > - sglang caches repeated prompt prefixes on its own and ignores `anthropic.promptCache`. It only
 >   reports cache reads when launched with `--enable-cache-report` - without it, the debug log
 >   shows the prompt cache as not reported by the server.
+
+- `openai` - talks to any server that speaks the OpenAI Chat Completions API, such as
+  [vLLM](https://github.com/vllm-project/vllm) or [llama.cpp](https://github.com/ggml-org/llama.cpp),
+  or to the OpenAI API itself. No tokenizer is needed: the context is estimated until the first
+  reply reports how many tokens the server counted, and the `ollama.*` settings are ignored.
+
+`provider.replayPreamble` and `provider.recoverToolCalls` matter most for local models served by
+`ollama` or an OpenAI-compatible server, whose chat templates are the usual reason a tool call
+ends up written into a reply as text.
 
 > [!NOTE]
 > The `openai` provider talks to the OpenAI API unless `openai.baseUrl` (or `AQ_OPENAI_BASE_URL`)
