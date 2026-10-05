@@ -281,6 +281,11 @@ export const logging: LoggingConfig = {
   logThoughts: toBoolean(
     setting('AQ_LOG_THOUGHTS', 'logging', 'logThoughts'),
     'logging.logThoughts (AQ_LOG_THOUGHTS)'
+  ),
+  renderMarkdown: toBoolean(
+    setting('AQ_RENDER_MARKDOWN', 'logging', 'renderMarkdown'),
+    'logging.renderMarkdown (AQ_RENDER_MARKDOWN)',
+    true
   )
 };
 

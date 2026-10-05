@@ -42,6 +42,8 @@ logging:
   detailed: false
   # log the model's thinking (AQ_LOG_THOUGHTS)
   logThoughts: false
+  # render replies as markdown - false prints the raw text (AQ_RENDER_MARKDOWN)
+  renderMarkdown: true
 
 approval:
   # manual, auto, or plan - cycle at runtime with shift+tab or /mode. also the

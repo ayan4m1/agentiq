@@ -62,6 +62,27 @@ mock.module('./prompt', {
   } satisfies ModuleMock<typeof import('./prompt')>
 });
 
+// the real renderer is tested on its own. all that matters here is what the
+// thinker hands it and when, so this one notes each call and prints what it
+// was given as it stands
+let rendered: string[] = [];
+const createMarkdownStream = mock.fn((write: (text: string) => void) => ({
+  push: (text: string) => {
+    rendered.push(`push:${text}`);
+    write(text);
+  },
+  flush: () => {
+    rendered.push('flush');
+    write('\n');
+  }
+}));
+
+mock.module('./markdown', {
+  exports: { createMarkdownStream } satisfies ModuleMock<
+    typeof import('./markdown')
+  >
+});
+
 // stand-ins with predictable behavior, one for each way a tool call can end
 const echo = {
   definition: makeTool('echo', 'Repeats what it was given', [
@@ -1341,6 +1362,107 @@ describe('the spinner', () => {
 
     assert.equal(spinner.start.mock.callCount(), 0);
     assert.equal(spinner.stop.mock.callCount(), 0);
+  });
+});
+
+describe('rendering the reply', () => {
+  const ask = (): ChatMessage[] => [{ role: 'user', content: 'go on then' }];
+  const wasRendering = logging.renderMarkdown;
+
+  beforeEach(() => {
+    logging.renderMarkdown = true;
+    rendered = [];
+    createMarkdownStream.mock.resetCalls();
+    interrupt.reset();
+  });
+
+  afterEach(() => {
+    logging.renderMarkdown = wasRendering;
+    logging.logThoughts = false;
+  });
+
+  test('hands over every piece of the answer, then flushes once', async () => {
+    respond(
+      chunk({ content: 'It does ' }),
+      chunk({ content: 'nothing.' }),
+      chunk({}, { done: true })
+    );
+
+    const { messages } = await makeThinker().think({ messages: ask() });
+
+    assert.deepEqual(rendered, ['push:It does ', 'push:nothing.', 'flush']);
+    // the conversation keeps what the model wrote, not what was drawn from it
+    assert.equal(messages.at(-1)?.content, 'It does nothing.');
+  });
+
+  test('starts afresh on every turn', async () => {
+    const thinker = makeThinker();
+
+    respond(chunk({ content: 'one' }));
+    const first = await thinker.think({ messages: ask() });
+
+    respond(chunk({ content: 'two' }));
+    await thinker.think({ messages: [...first.messages, ...ask()] });
+
+    assert.equal(createMarkdownStream.mock.callCount(), 2);
+    assert.deepEqual(rendered, ['push:one', 'flush', 'push:two', 'flush']);
+  });
+
+  test('leaves reasoning out of it', async () => {
+    logging.logThoughts = true;
+    respond(chunk({ thinking: 'hmm' }), chunk({ content: 'ok' }));
+
+    await makeThinker().think({ messages: ask() });
+
+    assert.deepEqual(rendered, ['push:ok', 'flush']);
+  });
+
+  test('still flushes a turn that only called a tool', async () => {
+    respond(
+      chunk({ tool_calls: [{ function: { name: 'silent', arguments: {} } }] })
+    );
+
+    await makeThinker().think({ messages: ask() });
+
+    assert.deepEqual(rendered, ['flush']);
+  });
+
+  test('prints what was held back when escape is pressed', async () => {
+    stream.mock.mockImplementationOnce(async () =>
+      asStream(
+        (async function* () {
+          yield chunk({ content: 'Half an ans' });
+          interrupt.pressEscape();
+          throw new Error('The operation was aborted');
+        })()
+      )
+    );
+
+    const result = await makeThinker().think({ messages: ask() });
+
+    assert.equal(result.interrupted, true);
+    assert.deepEqual(rendered, ['push:Half an ans', 'flush']);
+  });
+
+  test('flushes even when the request fails', async () => {
+    stream.mock.mockImplementationOnce(async () => {
+      throw new Error('connection refused');
+    });
+
+    await assert.rejects(makeThinker().think({ messages: ask() }));
+
+    assert.deepEqual(rendered, ['flush']);
+  });
+
+  test('is skipped when the raw text was asked for', async () => {
+    logging.renderMarkdown = false;
+    respond(chunk({ content: 'It does ' }), chunk({ content: 'nothing.' }));
+
+    const { messages } = await makeThinker().think({ messages: ask() });
+
+    assert.equal(createMarkdownStream.mock.callCount(), 0);
+    assert.deepEqual(rendered, []);
+    assert.equal(messages.at(-1)?.content, 'It does nothing.');
   });
 });
 

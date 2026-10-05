@@ -14,6 +14,7 @@ import { describeSkills } from './skills';
 import { watchForInterrupt } from './interrupt';
 import { showElapsed } from './elapsed';
 import { isMcpTool } from './mcp';
+import { createMarkdownStream } from './markdown';
 import type {
   AgentMessage,
   ChatChunk,
@@ -288,6 +289,10 @@ export const makeThinker = () => {
     let wroteThoughts = false;
     let wroteOutput = false;
     let lastChunk: ChatChunk | undefined;
+    // the reply is rendered as it streams unless the raw text was asked for
+    const markdown = logging.renderMarkdown
+      ? createMarkdownStream((text) => process.stdout.write(text))
+      : undefined;
 
     // counting before the call rather than only after it gives reconcile() a
     // baseline that covers exactly the messages the model is about to be shown
@@ -353,7 +358,11 @@ export const makeThinker = () => {
             process.stdout.write('\n\n');
           }
 
-          process.stdout.write(chalk.blue(chunk.message.content));
+          if (markdown) {
+            markdown.push(chunk.message.content);
+          } else {
+            process.stdout.write(chalk.blue(chunk.message.content));
+          }
 
           assistantMessage.content += chunk.message.content;
           wroteOutput = true;
@@ -383,11 +392,16 @@ export const makeThinker = () => {
       // a turn that only made tool calls, or one that ended before saying
       // anything, never wrote over the spinner
       stopSpinner();
+      // the line still held back, and any block still open, are printed even
+      // when the turn was interrupted
+      markdown?.flush();
     }
 
     // a turn that only reasoned before calling a tool still has to close the
-    // line it was writing on
-    if (wroteThoughts || wroteOutput) {
+    // line it was writing on. rendered output already ends on a fresh line
+    if (wroteOutput && markdown) {
+      process.stdout.write('\n');
+    } else if (wroteThoughts || wroteOutput) {
       process.stdout.write('\n\n');
     }
 

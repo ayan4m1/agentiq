@@ -93,6 +93,8 @@ __metadata:
     inquirer: "npm:^14.2.3"
     inquirer-command-prompt: "npm:^0.1.0"
     lint-staged: "npm:^17.6.0"
+    marked: "npm:^15.0.12"
+    marked-terminal: "npm:^7.3.0"
     node-html-parser: "npm:^9.0.4"
     ollama: "npm:^0.6.4"
     openai: "npm:^7.28.0"
@@ -5711,7 +5713,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"marked@npm:^15.0.0":
+"marked@npm:^15.0.0, marked@npm:^15.0.12":
   version: 15.0.12
   resolution: "marked@npm:15.0.12"
   bin:

@@ -739,4 +739,45 @@ describe('settings', () => {
       console.warn = spoke;
     }
   });
+
+  test('renders markdown unless config.yml turns it off', async () => {
+    const seeded = await load('markdown-default', 'logging:\n  level: info\n');
+    const off = await load(
+      'markdown-file',
+      'logging:\n  renderMarkdown: false\n'
+    );
+
+    assert.equal(seeded.logging.renderMarkdown, true);
+    assert.equal(off.logging.renderMarkdown, false);
+  });
+
+  test('lets AQ_RENDER_MARKDOWN override logging.renderMarkdown', async () => {
+    const on = await load(
+      'markdown-env-on',
+      'logging:\n  renderMarkdown: false\n',
+      { AQ_RENDER_MARKDOWN: 'yes' }
+    );
+    const off = await load('markdown-env-off', 'logging:\n  level: info\n', {
+      AQ_RENDER_MARKDOWN: '0'
+    });
+
+    assert.equal(on.logging.renderMarkdown, true);
+    assert.equal(off.logging.renderMarkdown, false);
+  });
+
+  test('keeps renderMarkdown on rather than reading a typo as off', async () => {
+    const spoke = console.warn;
+
+    console.warn = () => {};
+
+    try {
+      const config = await load('markdown-typo', 'logging:\n  level: info\n', {
+        AQ_RENDER_MARKDOWN: 'flase'
+      });
+
+      assert.equal(config.logging.renderMarkdown, true);
+    } finally {
+      console.warn = spoke;
+    }
+  });
 });

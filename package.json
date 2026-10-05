@@ -54,6 +54,8 @@
     "filesize": "^11.0.25",
     "inquirer": "^14.2.3",
     "inquirer-command-prompt": "^0.1.0",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
     "node-html-parser": "^9.0.4",
     "ollama": "^0.6.4",
     "openai": "^7.28.0",
