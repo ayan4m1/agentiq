@@ -10,9 +10,7 @@ import { stringify } from 'yaml';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 
 // like commands/run.ts, the command runs as it is evaluated, so it can only be
-// run, not imported. the loop it drives is covered by modules/repl.ts - this is
-// only whether it gets that far, how it stops when it cannot, and what it exits
-// with once it has
+// run, not imported. see modules/repl.ts for more information.
 const register = new URL('../../test/register.mjs', import.meta.url).href;
 const entrypoint = fileURLToPath(new URL('./exec.ts', import.meta.url));
 const root = mkdtempSync(resolve(tmpdir(), 'agentiq-exec-'));
@@ -60,7 +58,7 @@ const run = (home: string, ...args: string[]) =>
 // a home with a model already chosen, so startup gets as far as the server. the
 // tokenizer is already "cached", so nothing is fetched from huggingface.co -
 // that it cannot be parsed only means token counts are estimated instead
-const configured = (name = 'configured') => {
+const withHome = (name = 'configured') => {
   const home = resolve(root, name);
   const cache = resolve(home, 'tokenizers', 'google', 'gemma-4-E4B');
 
@@ -125,7 +123,7 @@ describe('exec', () => {
 
   test('stops when ollama cannot be reached', async () => {
     const { status, stdout, stderr } = await run(
-      configured(),
+      withHome(),
       'hello',
       '-m',
       'plan'
@@ -140,7 +138,6 @@ describe('exec', () => {
 
   describe('with ollama answering', () => {
     let server: Server;
-    // what the next chat request is answered with, and what each one asked
     let reply: { status: number; lines: object[] };
     let asked: { messages: { role: string; content: string }[] }[];
 
@@ -205,7 +202,7 @@ describe('exec', () => {
         ]
       };
 
-      const home = configured('answered');
+      const home = withHome('answered');
       const { status, stdout, stderr } = await run(
         home,
         'say hi',
@@ -233,7 +230,7 @@ describe('exec', () => {
       reply = { status: 500, lines: [{ error: 'model exploded' }] };
 
       const { status, stdout, stderr } = await run(
-        configured('failed'),
+        withHome('failed'),
         'say hi',
         '-m',
         'auto'
