@@ -2,7 +2,7 @@
 
 [![codecov](https://codecov.io/gh/ayan4m1/agentiq/graph/badge.svg?token=ZMpY0vGAjm)](https://codecov.io/gh/ayan4m1/agentiq)
 
-Agentiq is an agentic coding assistant for use with Ollama (now supports Anthropic API as well).
+Agentiq is an agentic coding assistant for use with Ollama, the Anthropic API, or any OpenAI-compatible server (vLLM, llama.cpp, or the OpenAI API itself).
 
 ## Installation
 
@@ -41,8 +41,8 @@ shell:
   timeout: 120000
 
 provider:
-  # which provider serves the model - ollama or anthropic. see Providers below
-  # (AQ_PROVIDER)
+  # which provider serves the model - ollama, anthropic, or openai. see
+  # Providers below (AQ_PROVIDER)
   name: ollama
   # context size in tokens; also changed by /context-limit (AQ_CONTEXT_LIMIT)
   contextLimit: 131072
@@ -53,6 +53,13 @@ provider:
   # lets a thinking-capable model keep its reasoning out of the transcript
   # (AQ_THINK)
   # think: true
+  # send the text a model writes before a tool call back on later turns. off
+  # because some renderers (e.g. ollama's gemma one) then stop replying
+  # (AQ_REPLAY_PREAMBLE)
+  replayPreamble: false
+  # recover tool calls a model writes into its reply as text - XML, <tool_call>
+  # tags, or JSON (AQ_RECOVER_TOOL_CALLS)
+  recoverToolCalls: true
 
 ollama:
   # ollama server - unset uses http://127.0.0.1:11434 (AQ_OLLAMA_HOST)
@@ -62,13 +69,6 @@ ollama:
   # how long ollama keeps the model loaded; -1 never unloads it, 0 unloads it
   # immediately (AQ_OLLAMA_KEEP_ALIVE)
   keepAlive: 30m
-  # send the text a model writes before a tool call back on later turns. off
-  # because some renderers (e.g. ollama's gemma one) then stop replying
-  # (AQ_OLLAMA_REPLAY_PREAMBLE)
-  replayPreamble: false
-  # recover tool calls a model writes into its reply as text - XML, <tool_call>
-  # tags, or JSON (AQ_OLLAMA_RECOVER_TOOL_CALLS)
-  recoverToolCalls: true
 
 anthropic:
   # the key used when provider.name is anthropic - empty falls back to the
@@ -81,6 +81,15 @@ anthropic:
   # how long the repeated start of each request stays cached - 5m, 1h, or off
   # for a server that refuses cache_control (AQ_ANTHROPIC_PROMPT_CACHE)
   promptCache: 5m
+
+openai:
+  # a server speaking the Chat Completions API, e.g. vLLM or llama.cpp - empty
+  # uses the OpenAI API (AQ_OPENAI_BASE_URL)
+  baseUrl: ''
+  # the key used when provider.name is openai - required when baseUrl is empty,
+  # optional otherwise. empty falls back to the OPENAI_API_KEY environment
+  # variable (AQ_OPENAI_API_KEY)
+  apiKey: ''
 
 session:
   # saved sessions to keep in ~/.agentiq/sessions; 0 keeps them all
@@ -155,6 +164,21 @@ The choices are:
   tokenizer, and the other `ollama.*` settings apply.
 - `anthropic` - talks to the Anthropic API. No tokenizer is needed, since the API counts tokens
   itself, and the `ollama.*` settings are ignored.
+- `openai` - talks to any server that speaks the OpenAI Chat Completions API, such as
+  [vLLM](https://github.com/vllm-project/vllm) or [llama.cpp](https://github.com/ggml-org/llama.cpp),
+  or to the OpenAI API itself. No tokenizer is needed: the context is estimated until the first
+  reply reports how many tokens the server counted, and the `ollama.*` settings are ignored.
+
+`provider.replayPreamble` and `provider.recoverToolCalls` matter most for local models served by
+`ollama` or an OpenAI-compatible server, whose chat templates are the usual reason a tool call
+ends up written into a reply as text.
+
+> [!NOTE]
+> `replayPreamble` and `recoverToolCalls` used to live under `ollama`. A `config.yml` that still
+> sets them there, or the old `AQ_OLLAMA_REPLAY_PREAMBLE` and `AQ_OLLAMA_RECOVER_TOOL_CALLS`
+> variables, goes on working. When both are set, the `provider` section wins over the `ollama` one,
+> and `AQ_REPLAY_PREAMBLE` / `AQ_RECOVER_TOOL_CALLS` win over the old variables. As with every
+> setting, an environment variable of either name wins over `config.yml`.
 
 > [!NOTE]
 > The `anthropic` provider needs an API key. Set `anthropic.apiKey` in `config.yml` (or
@@ -174,6 +198,27 @@ The choices are:
 > - sglang caches repeated prompt prefixes on its own and ignores `anthropic.promptCache`. It only
 >   reports cache reads when launched with `--enable-cache-report` - without it, the debug log
 >   shows the prompt cache as not reported by the server.
+
+> [!NOTE]
+> The `openai` provider talks to the OpenAI API unless `openai.baseUrl` (or `AQ_OPENAI_BASE_URL`)
+> points it somewhere else. Against the OpenAI API it needs a key: set `openai.apiKey` (or
+> `AQ_OPENAI_API_KEY`), or leave it empty to fall back to the `OPENAI_API_KEY` environment
+> variable. Without one, startup stops and says so.
+>
+> To use a server of your own, set `openai.baseUrl` to its address **including `/v1`** - e.g.
+> `http://localhost:8000/v1` for vLLM or `http://localhost:8080/v1` for llama.cpp's
+> `llama-server`. A key is optional there, and only needed if the server was started with one
+> (`--api-key`).
+>
+> - Start `llama-server` with `--jinja`, or the model's tool calls will not be recognised.
+> - `provider.think` set to a level (`low`, `medium`, `high`) is sent as `reasoning_effort`. Set to
+>   `true` or `false`, it is sent as `chat_template_kwargs.enable_thinking`, which vLLM and
+>   llama.cpp pass to the chat template - but only when `openai.baseUrl` is set, since the OpenAI
+>   API refuses it.
+> - Reasoning a server separates from the answer (`reasoning_content` or `reasoning`) is kept out of
+>   the transcript, like any other provider's.
+> - The context length is read from the model list when the server reports it (vLLM's
+>   `max_model_len`, llama.cpp's `n_ctx_train`), so `provider.contextLimit` can be checked against it.
 
 ## Commands
 
@@ -199,21 +244,24 @@ The choices are:
 
 ## Choosing a model
 
-The model agentiq talks to, and the tokenizer that matches it are chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. Selecting "Add a new model..." lists what is installed on the Ollama server, asks which repo the tokenizer comes from, and saves the pair to `~/.agentiq/models.yml`. Models are kept per provider, so each one remembers its own list and the model it last used:
+The model agentiq talks to, and the tokenizer that matches it are chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. Selecting "Add a new model..." lists the models the provider serves, asks which repo the tokenizer comes from (Ollama only), and saves the entry to `~/.agentiq/models.yml`. Models are kept per provider, so each one remembers its own list and the model it last used:
 
 ```yaml
 active:
   ollama: gemma4:e4b
   anthropic: claude-opus-5-5
+  openai: Qwen/Qwen3-Coder-30B-A3B-Instruct
 models:
   ollama:
     - model: gemma4:e4b
       tokenizer: google/gemma-4-E4B
   anthropic:
     - model: claude-opus-5-5
+  openai:
+    - model: Qwen/Qwen3-Coder-30B-A3B-Instruct
 ```
 
-Anthropic models have no tokenizer entry, since the API counts tokens itself.
+Anthropic and OpenAI models have no tokenizer entry - the Anthropic API counts tokens itself, and an OpenAI-compatible server reports what it counted after every reply.
 
 The tokenizer can be a huggingface.co model (formatted like `user/repo`) or a local directory containing `tokenizer.json` and `tokenizer_config.json`, either as an absolute path or relative to `~/.agentiq` (e.g. `./my-tokenizer`).
 

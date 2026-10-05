@@ -95,6 +95,10 @@ describe('usesHfTokenizer', () => {
     assert.equal(usesHfTokenizer(Provider.Anthropic), false);
   });
 
+  test('leaves counting to the reported usage for an openai model', () => {
+    assert.equal(usesHfTokenizer(Provider.OpenAI), false);
+  });
+
   test('asks about the configured provider unless told which', (t) => {
     const configured = provider.name;
 

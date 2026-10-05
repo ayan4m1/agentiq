@@ -95,6 +95,7 @@ __metadata:
     lint-staged: "npm:^17.5.1"
     node-html-parser: "npm:^9.0.4"
     ollama: "npm:^0.6.4"
+    openai: "npm:^7.28.0"
     ora: "npm:^9.4.1"
     prettier: "npm:^3.9.6"
     rollup: "npm:^4.63.2"
@@ -6360,6 +6361,33 @@ __metadata:
   dependencies:
     mimic-function: "npm:^5.0.0"
   checksum: 10c0/5cb9179d74b63f52a196a2e7037ba2b9a893245a5532d3f44360012005c9cadb60851d56716ebff18a6f47129dab7168022445df47c2aff3b276d92585ed1221
+  languageName: node
+  linkType: hard
+
+"openai@npm:^7.28.0":
+  version: 7.28.0
+  resolution: "openai@npm:7.28.0"
+  peerDependencies:
+    "@aws-sdk/credential-provider-node": ">=3.972.0 <4"
+    "@smithy/hash-node": ">=4.3.0 <5"
+    "@smithy/signature-v4": ">=5.4.0 <6"
+    undici: ">=5 <9"
+    ws: ^8.21.0
+    zod: ^3.25 || ^4.0
+  peerDependenciesMeta:
+    "@aws-sdk/credential-provider-node":
+      optional: true
+    "@smithy/hash-node":
+      optional: true
+    "@smithy/signature-v4":
+      optional: true
+    undici:
+      optional: true
+    ws:
+      optional: true
+    zod:
+      optional: true
+  checksum: 10c0/c152b04bfdacba56af81f3b464d29af2d52eda1a3ed18c2426cbd48d3c43b107cbdbba35def3c1124654b50d9e557031dae89ab69f0d209ef97926f0b3fe8e3f
   languageName: node
   linkType: hard
 

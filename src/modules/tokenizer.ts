@@ -32,11 +32,9 @@ const repoPattern = /^(?!\.+\/)[\w.-]+\/(?!\.+$)[\w.-]+$/;
 export const estimateTokens = (value: string) =>
   Math.ceil(value.length / charsPerToken);
 
-// claude's tokenizer is not published anywhere it could be downloaded from, so
-// an anthropic model is never paired with one - the API counts for it instead.
-// asked about the configured provider unless told which
+// claude and anthropic use their own internal tokenizers
 export const usesHfTokenizer = (name: Provider = provider.name) =>
-  name !== Provider.Anthropic;
+  name !== Provider.Anthropic && name !== Provider.OpenAI;
 
 // a directory the user already has on disk, used as it stands rather than
 // downloaded into. relative paths hang off the state directory like everything
@@ -51,8 +49,6 @@ export const localTokenizerDir = (value: string) => {
   return existsSync(dir) && statSync(dir).isDirectory() ? dir : undefined;
 };
 
-// undefined rather than a throw: counting falls back to an estimate that the
-// server corrects on the first turn, which is not worth refusing to start over
 const getCacheDir = () => {
   if (!config.repo) {
     return;

@@ -1,7 +1,7 @@
 # agentiq
 
 A local-first coding agent that runs as an interactive REPL against an Ollama
-server. This file is a project overlay: it is appended to agentiq's built-in
+server, the Anthropic API, or any OpenAI-compatible server. This file is a project overlay: it is appended to agentiq's built-in
 system prompt, so it holds what is specific to _this_ codebase rather than
 general instructions about how to be an agent.
 
@@ -18,9 +18,10 @@ general instructions about how to be an agent.
 - `src/modules/repl.ts` - `createController()`, the testable core of the run
   loop: slash commands, compaction triggers, `/undo`, and the loop that keeps
   taking turns while the model is still calling tools.
-- `src/modules/ollama.ts` - `makeThinker()`, which owns the streaming chat call,
-  tool dispatch, and token accounting. `compaction.ts` holds the logic for
-  choosing what to elide; `client.ts` is the shared Ollama client.
+- `src/modules/thinker.ts` - `makeThinker()`, which owns the streaming chat
+  call, tool dispatch, and token accounting. `compaction.ts` holds the logic
+  for choosing what to elide; the shared client is `chatProvider` from
+  `src/providers/index.ts`.
 - `src/modules/mcp.ts` - connects to the MCP servers in `config.yml` at
   startup and wraps each of their tools as a `ToolCall` named
   `mcp__<server>__<tool>`, which `setMcpTools()` in `src/tools/index.ts`
@@ -47,9 +48,12 @@ general instructions about how to be an agent.
   `makeTool()` and a `handler`. `src/tools/index.ts` is the registry, and
   leaves out the tools config has not enabled - the roadmap tools, `explore`,
   and `decide`, which is only offered with ollama and a `decide.model`.
-- `src/providers/` - one `ChatProvider` per backend. A capability only one
-  backend has is an optional method on the interface - `countTokens?` for
-  anthropic, `decide?` (ollama's System One) for ollama.
+- `src/providers/` - one `ChatProvider` per backend: `ollama.ts`,
+  `anthropic.ts`, and `openai.ts` (any Chat Completions server - vLLM,
+  llama.cpp, or the OpenAI API). A capability only one backend has is an
+  optional method on the interface - `countTokens?` for anthropic, `decide?`
+  (ollama's System One) for ollama. openai has neither, and like anthropic is
+  never paired with a tokenizer (`usesHfTokenizer()` in `tokenizer.ts`).
 - `src/utils/index.ts` - shared helpers, including the content budget used to
   keep tool output from overflowing the context window.
 

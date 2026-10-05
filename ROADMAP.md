@@ -4,8 +4,8 @@
 
 ## Todo
 
-- [x] Give a session a recap so the user knows what a resumed or compacted session was doing. The `/recap [turns]` command has `thinker.recap()` (src/modules/ollama.ts) ask the model, with no tools, to recap the last `turns` (default `session.recapTurns`, AQ_RECAP_TURNS, 3; 0 covers them all) user <-> assistant turns chosen and rendered by src/modules/recap.ts.
-- [x] Recover tool calls a model writes as text (JSON, `<tool_call>` tags or fenced blocks) when `tool_calls` is empty, and dispatch them through validation instead of ending the turn (src/modules/ollama.ts)
+- [x] Give a session a recap so the user knows what a resumed or compacted session was doing. The `/recap [turns]` command has `thinker.recap()` (src/modules/thinker.ts) ask the model, with no tools, to recap the last `turns` (default `session.recapTurns`, AQ_RECAP_TURNS, 3; 0 covers them all) user <-> assistant turns chosen and rendered by src/modules/recap.ts.
+- [x] Recover tool calls a model writes as text (JSON, `<tool_call>` tags or fenced blocks) when `tool_calls` is empty, and dispatch them through validation instead of ending the turn (src/modules/thinker.ts)
 - [x] Add a non-interactive mode (`agentiq exec "<task>" --mode <mode>`) for scripts, CI and hooks, reusing approval modes and sessions (src/commands/exec.ts)
 - [x] Make `/undo` roll back a whole turn, files and conversation together, instead of popping one write at a time while the history still claims the edits exist.
 - [x] Integrate with the agent skills API and support reading skills from ~/.agentiq/skills.

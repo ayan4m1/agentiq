@@ -24,6 +24,7 @@ import {
   type ShellConfig,
   type TokenizerConfig,
   type AnthropicConfig,
+  type OpenAIConfig,
   type ProviderConfig,
   Provider,
   PromptCache
@@ -313,7 +314,24 @@ export const provider: ProviderConfig = {
       '',
     10
   ),
-  think: toThink(renamed('AQ_THINK', 'AQ_OLLAMA_THINK', 'think'))
+  think: toThink(renamed('AQ_THINK', 'AQ_OLLAMA_THINK', 'think')),
+  replayPreamble: toBoolean(
+    renamed(
+      'AQ_REPLAY_PREAMBLE',
+      'AQ_OLLAMA_REPLAY_PREAMBLE',
+      'replayPreamble'
+    ),
+    'provider.replayPreamble (AQ_REPLAY_PREAMBLE)'
+  ),
+  recoverToolCalls: toBoolean(
+    renamed(
+      'AQ_RECOVER_TOOL_CALLS',
+      'AQ_OLLAMA_RECOVER_TOOL_CALLS',
+      'recoverToolCalls'
+    ),
+    'provider.recoverToolCalls (AQ_RECOVER_TOOL_CALLS)',
+    true
+  )
 };
 
 export const anthropic: AnthropicConfig = {
@@ -324,21 +342,19 @@ export const anthropic: AnthropicConfig = {
   )
 };
 
+// whether the key is required depends on the base URL, which is the
+// provider's to judge when it first builds a client - see providers/openai.ts
+export const openai: OpenAIConfig = {
+  apiKey: setting('AQ_OPENAI_API_KEY', 'openai', 'apiKey') || '',
+  baseUrl: setting('AQ_OPENAI_BASE_URL', 'openai', 'baseUrl') || ''
+};
+
 export const ollama: OllamaConfig = {
   bearerToken: setting('AQ_OLLAMA_BEARER_TOKEN', 'ollama', 'bearerToken'),
   host: setting('AQ_OLLAMA_HOST', 'ollama', 'host'),
   // ollama's own default is five minutes, which is short enough that a pause
   // to read something costs a full reload of the model on the next turn
-  keepAlive: setting('AQ_OLLAMA_KEEP_ALIVE', 'ollama', 'keepAlive') ?? '30m',
-  replayPreamble: toBoolean(
-    setting('AQ_OLLAMA_REPLAY_PREAMBLE', 'ollama', 'replayPreamble'),
-    'ollama.replayPreamble (AQ_OLLAMA_REPLAY_PREAMBLE)'
-  ),
-  recoverToolCalls: toBoolean(
-    setting('AQ_OLLAMA_RECOVER_TOOL_CALLS', 'ollama', 'recoverToolCalls'),
-    'ollama.recoverToolCalls (AQ_OLLAMA_RECOVER_TOOL_CALLS)',
-    true
-  )
+  keepAlive: setting('AQ_OLLAMA_KEEP_ALIVE', 'ollama', 'keepAlive') ?? '30m'
 };
 
 export const session: SessionConfig = {

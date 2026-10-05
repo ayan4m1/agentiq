@@ -2,7 +2,7 @@ import ora from 'ora';
 import chalk from 'chalk';
 
 import { chatProvider } from '../providers';
-import { explore as config, ollama, provider } from './config';
+import { explore as config, provider } from './config';
 import { getLogger } from './logging';
 import { recoverToolCalls, validateArgs } from './tools';
 import { watchForInterrupt } from './interrupt';
@@ -217,7 +217,7 @@ export const explore = async (question: string) => {
       let calls = reply.tool_calls ?? [];
       let content = reply.content;
 
-      if (!calls.length && ollama.recoverToolCalls && content) {
+      if (!calls.length && provider.recoverToolCalls && content) {
         const recovered = recoverToolCalls(content, toolNameList);
 
         if (recovered.calls.length) {

@@ -29,7 +29,7 @@ mock.module('./preflight', {
   exports: fakePreflight({ resolveThink: () => think }).exports
 });
 
-const { logging, ollama, provider, session } = await import('./config');
+const { logging, provider, session } = await import('./config');
 const { makeTool, makeParameter } = await import('../utils');
 
 const interrupt = fakeInterrupt();
@@ -378,8 +378,8 @@ describe('taking a turn', () => {
   });
 
   afterEach(() => {
-    ollama.replayPreamble = false;
-    ollama.recoverToolCalls = true;
+    provider.replayPreamble = false;
+    provider.recoverToolCalls = true;
   });
 
   test('puts the system prompt first, once', async () => {
@@ -549,7 +549,7 @@ describe('taking a turn', () => {
   });
 
   test('keeps the preamble when the setting asks for it', async () => {
-    ollama.replayPreamble = true;
+    provider.replayPreamble = true;
     respond(
       chunk({
         content: 'Let me check.',
@@ -569,7 +569,7 @@ describe('taking a turn', () => {
     const said =
       'Let me repeat that.\n\n<tool_call>\n<function=echo>\n<parameter=text>\nhello\n</parameter>\n</function>\n</tool_call>';
 
-    ollama.replayPreamble = true;
+    provider.replayPreamble = true;
     // split across chunks, the way it streams
     respond(
       chunk({ content: said.slice(0, 30) }),
@@ -639,7 +639,7 @@ describe('taking a turn', () => {
   });
 
   test('recovers nothing when the setting is off', async () => {
-    ollama.recoverToolCalls = false;
+    provider.recoverToolCalls = false;
     respond(
       chunk({ content: '{"name": "echo", "arguments": {"text": "hi"}}' })
     );

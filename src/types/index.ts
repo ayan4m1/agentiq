@@ -12,7 +12,8 @@ export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel];
 
 export const Provider = {
   Anthropic: 'anthropic',
-  Ollama: 'ollama'
+  Ollama: 'ollama',
+  OpenAI: 'openai'
 } as const;
 
 export type Provider = (typeof Provider)[keyof typeof Provider];
@@ -31,6 +32,16 @@ export type ProviderConfig = {
   // left undefined when unset, so the field is not sent at all and the choice
   // falls to whatever the model does by default
   think?: ThinkSetting;
+  // whether the text a model writes on its way to a tool call is sent back on
+  // the turns that follow. off by default: some renderers, ollama's gemma one
+  // among them, read a tool call that arrives with text beside it as a turn
+  // already answered, and reply to the result with a single end token
+  replayPreamble: boolean;
+  // whether tool calls a model writes into its reply as text - qwen's XML, a
+  // <tool_call> tag, a fenced or bare JSON call - are recovered and dispatched
+  // instead of ending the turn. on by default. a local model behind ollama or
+  // an OpenAI-compatible server is just as likely to need it as the other
+  recoverToolCalls: boolean;
 };
 
 // how long a cached prompt prefix lives on the Anthropic API, or off for a
@@ -47,6 +58,13 @@ export type AnthropicConfig = {
   apiKey: string;
   baseUrl: string;
   promptCache: PromptCache;
+};
+
+// any server that speaks the Chat Completions API - vLLM, llama.cpp, or
+// OpenAI itself when the base URL is left empty
+export type OpenAIConfig = {
+  apiKey: string;
+  baseUrl: string;
 };
 
 export type LoggingConfig = {
@@ -121,15 +139,6 @@ export type OllamaConfig = {
   // how long ollama keeps the model in memory after a call - "-1" never
   // unloads it, "0" unloads it immediately
   keepAlive: string;
-  // whether the text a model writes on its way to a tool call is sent back on
-  // the turns that follow. off by default: some renderers, ollama's gemma one
-  // among them, read a tool call that arrives with text beside it as a turn
-  // already answered, and reply to the result with a single end token
-  replayPreamble: boolean;
-  // whether tool calls a model writes into its reply as text - qwen's XML, a
-  // <tool_call> tag, a fenced or bare JSON call - are recovered and dispatched
-  // instead of ending the turn. on by default
-  recoverToolCalls: boolean;
 };
 
 // a model and the huggingface repo whose tokenizer matches it. the two are only
@@ -137,7 +146,8 @@ export type OllamaConfig = {
 // will render differently - so they are chosen and saved as a pair. the
 // tokenizer may instead be a local directory holding tokenizer.json and
 // tokenizer_config.json, ./-relative to ~/.agentiq or absolute. an anthropic
-// model has no published tokenizer and is counted by the API, so it has none
+// or openai model has none - the first is counted by the API, the second is
+// estimated until the server reports what it counted
 export type ModelEntry = {
   model: string;
   tokenizer?: string;
@@ -320,9 +330,9 @@ export type ModelDetails = {
   contextLength?: number;
 };
 
-// everything agentiq needs from whatever serves the model. ollama is the only
-// one today (see providers/ollama.ts); another is a new implementation of this
-// rather than a change to the code that calls it
+// everything agentiq needs from whatever serves the model - ollama, anthropic
+// and openai each implement it in src/providers. another backend is a new
+// implementation of this rather than a change to the code that calls it
 export interface ChatProvider {
   // who is being talked to, for messages about failing to reach them
   readonly label: string;

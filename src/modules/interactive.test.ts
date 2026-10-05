@@ -194,6 +194,7 @@ mock.module('./config', {
     anthropic: {},
     logging: {},
     ollama: {},
+    openai: {},
     provider
   } satisfies ModuleMock<typeof import('./config')>
 });

@@ -28,7 +28,8 @@ shell:
   timeout: 120000
 
 provider:
-  # which provider serves the model - ollama or anthropic (AQ_PROVIDER)
+  # which provider serves the model - ollama, anthropic, or openai
+  # (AQ_PROVIDER)
   name: ollama
   # the context window to fill, in tokens (AQ_CONTEXT_LIMIT)
   contextLimit: 131072
@@ -40,6 +41,19 @@ provider:
   # reasoning from its answer by default, which keeps it out of the transcript
   # (AQ_THINK)
   # think: true
+  # whether the text a model writes on its way to a tool call is sent back on
+  # the turns that follow. off by default: some renderers - ollama's gemma one
+  # among them - read a tool call that arrives with text beside it as a turn
+  # already answered, and reply to the tool result with a single end token and
+  # nothing else. turn it on to keep that narration in the transcript on a
+  # model that handles it, at the cost of the tokens it takes up every turn
+  # (AQ_REPLAY_PREAMBLE)
+  replayPreamble: false
+  # whether tool calls a model writes into its reply as text are recovered and
+  # run - qwen's XML calls when a server renders it with the wrong template, a
+  # <tool_call> tag, or a fenced or bare JSON call. turn it off if a model's
+  # replies are mistaken for calls (AQ_RECOVER_TOOL_CALLS)
+  recoverToolCalls: true
 
 ollama:
   # leave unset for ollama's own default of http://127.0.0.1:11434
@@ -50,19 +64,6 @@ ollama:
   # how long ollama keeps the model loaded; -1 never unloads it, 0 unloads it
   # immediately (AQ_OLLAMA_KEEP_ALIVE)
   keepAlive: 30m
-  # whether the text a model writes on its way to a tool call is sent back on
-  # the turns that follow. off by default: some renderers - ollama's gemma one
-  # among them - read a tool call that arrives with text beside it as a turn
-  # already answered, and reply to the tool result with a single end token and
-  # nothing else. turn it on to keep that narration in the transcript on a
-  # model that handles it, at the cost of the tokens it takes up every turn
-  # (AQ_OLLAMA_REPLAY_PREAMBLE)
-  replayPreamble: false
-  # whether tool calls a model writes into its reply as text are recovered and
-  # run - qwen's XML calls when ollama serves it with the wrong template, a
-  # <tool_call> tag, or a fenced or bare JSON call. turn it off if a model's
-  # replies are mistaken for calls (AQ_OLLAMA_RECOVER_TOOL_CALLS)
-  recoverToolCalls: true
 
 anthropic:
   # the key used when provider.name is anthropic. leave it empty to fall back
@@ -78,6 +79,17 @@ anthropic:
   # cache costs 2x instead of 1.25x). off for a server that refuses
   # cache_control (AQ_ANTHROPIC_PROMPT_CACHE)
   promptCache: 5m
+
+openai:
+  # where the Chat Completions API is served from - point it at any server
+  # that speaks it, such as vLLM (http://localhost:8000/v1) or llama.cpp
+  # (http://localhost:8080/v1). leave it empty to use the OpenAI API itself
+  # (AQ_OPENAI_BASE_URL)
+  baseUrl: ''
+  # the key used when provider.name is openai - required when baseUrl is
+  # empty, optional otherwise. leave it empty to fall back to the
+  # OPENAI_API_KEY environment variable (AQ_OPENAI_API_KEY)
+  apiKey: ''
 
 session:
   # how many saved sessions to keep in ~/.agentiq/sessions; older ones are

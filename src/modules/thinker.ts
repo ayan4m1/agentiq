@@ -2,7 +2,7 @@ import ora from 'ora';
 import chalk from 'chalk';
 
 import { chatProvider } from '../providers';
-import { logging, ollama, provider, session } from './config';
+import { logging, provider, session } from './config';
 import { describeElision, findSplit, isElided, pairCalls } from './compaction';
 import { getLogger } from './logging';
 import { makeTokenizer } from './tokenizer';
@@ -46,7 +46,7 @@ const compactTarget = 0.5;
 // to the user, and sending it back alongside the call is what ollama's gemma
 // renderer turns into a prompt that reads as already answered - the round after
 // it comes back as a single end token and nothing else. the call is the part
-// that has to survive, so unless AQ_OLLAMA_REPLAY_PREAMBLE says otherwise the
+// that has to survive, so unless AQ_REPLAY_PREAMBLE says otherwise the
 // text goes the way the reasoning already does. a turn that neither spoke nor
 // called anything has nothing to replay whatever that setting says
 export const replayable = (message: ChatMessage, replayPreamble: boolean) => {
@@ -425,7 +425,7 @@ export const makeThinker = () => {
     let replaySource = assistantMessage;
 
     if (
-      ollama.recoverToolCalls &&
+      provider.recoverToolCalls &&
       !assistantMessage.tool_calls?.length &&
       assistantMessage.content
     ) {
@@ -445,7 +445,7 @@ export const makeThinker = () => {
     }
 
     // append message before tool results
-    const replay = replayable(replaySource, ollama.replayPreamble);
+    const replay = replayable(replaySource, provider.replayPreamble);
 
     if (replay) {
       messages.push(replay);

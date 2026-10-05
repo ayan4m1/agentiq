@@ -228,7 +228,7 @@ describe('loadConfigFile', () => {
     assert.equal(seeded.provider.name, 'ollama');
     assert.equal(seeded.provider.contextLimit, 131072);
     assert.equal(seeded.provider.minTurnDelay, 0);
-    assert.equal(seeded.ollama.recoverToolCalls, true);
+    assert.equal(seeded.provider.recoverToolCalls, true);
     assert.equal(seeded.session.limit, 50);
     assert.equal(seeded.roadmap.enabled, false);
   });
@@ -424,13 +424,51 @@ describe('settings', () => {
     assert.equal(config.session.historyLimit, 100);
     assert.equal(config.shell.timeout, 120000);
     assert.equal(config.ollama.keepAlive, '30m');
-    assert.equal(config.ollama.recoverToolCalls, true);
+    assert.equal(config.provider.recoverToolCalls, true);
     assert.equal(config.provider.name, 'ollama');
     assert.equal(config.provider.contextLimit, 131072);
     assert.equal(config.provider.think, undefined);
     assert.equal(config.logging.logThoughts, false);
     assert.deepEqual(config.skills.disabled, []);
     assert.equal(config.decide.model, undefined);
+  });
+
+  test('leaves the openai key and base URL empty by default', async () => {
+    const config = await load('openai-default', 'session:\n  limit: 7\n', {
+      AQ_OPENAI_API_KEY: '',
+      AQ_OPENAI_BASE_URL: ''
+    });
+
+    assert.deepEqual(config.openai, { apiKey: '', baseUrl: '' });
+  });
+
+  test('reads the openai settings from config.yml', async () => {
+    const config = await load(
+      'openai-file',
+      "openai:\n  apiKey: sk-file\n  baseUrl: 'http://localhost:8000/v1'\n",
+      { AQ_OPENAI_API_KEY: '', AQ_OPENAI_BASE_URL: '' }
+    );
+
+    assert.deepEqual(config.openai, {
+      apiKey: 'sk-file',
+      baseUrl: 'http://localhost:8000/v1'
+    });
+  });
+
+  test('lets AQ_OPENAI_* override the openai settings', async () => {
+    const config = await load(
+      'openai-env',
+      'openai:\n  apiKey: sk-file\n  baseUrl: http://localhost:8000/v1\n',
+      {
+        AQ_OPENAI_API_KEY: 'sk-env',
+        AQ_OPENAI_BASE_URL: 'http://localhost:8080/v1'
+      }
+    );
+
+    assert.deepEqual(config.openai, {
+      apiKey: 'sk-env',
+      baseUrl: 'http://localhost:8080/v1'
+    });
   });
 
   test('reads the decision model from config.yml', async () => {
@@ -463,7 +501,75 @@ describe('settings', () => {
   // has to go on working. each case clears the new env names, so a value set
   // in the environment running the tests cannot decide the outcome
   describe('settings that moved from ollama to provider', () => {
-    const unset = { AQ_CONTEXT_LIMIT: '', AQ_THINK: '', AQ_MIN_TURN_DELAY: '' };
+    const unset = {
+      AQ_CONTEXT_LIMIT: '',
+      AQ_THINK: '',
+      AQ_MIN_TURN_DELAY: '',
+      AQ_REPLAY_PREAMBLE: '',
+      AQ_RECOVER_TOOL_CALLS: '',
+      AQ_OLLAMA_REPLAY_PREAMBLE: '',
+      AQ_OLLAMA_RECOVER_TOOL_CALLS: ''
+    };
+
+    test('reads the tool call settings from the provider section', async () => {
+      const config = await load(
+        'tool-calls-file',
+        'provider:\n  replayPreamble: true\n  recoverToolCalls: false\n',
+        unset
+      );
+
+      assert.equal(config.provider.replayPreamble, true);
+      assert.equal(config.provider.recoverToolCalls, false);
+    });
+
+    test('still reads the tool call settings from the ollama section', async () => {
+      const config = await load(
+        'legacy-tool-calls-file',
+        'ollama:\n  replayPreamble: true\n  recoverToolCalls: false\n',
+        unset
+      );
+
+      assert.equal(config.provider.replayPreamble, true);
+      assert.equal(config.provider.recoverToolCalls, false);
+    });
+
+    test('defaults the tool call settings when neither section has them', async () => {
+      const config = await load(
+        'tool-calls-default',
+        'session:\n  limit: 7\n',
+        unset
+      );
+
+      assert.equal(config.provider.replayPreamble, false);
+      assert.equal(config.provider.recoverToolCalls, true);
+    });
+
+    test('honours the old and new tool call env vars', async () => {
+      const legacy = await load(
+        'legacy-tool-calls-env',
+        'session:\n  limit: 7\n',
+        {
+          ...unset,
+          AQ_OLLAMA_REPLAY_PREAMBLE: 'true',
+          AQ_OLLAMA_RECOVER_TOOL_CALLS: 'false'
+        }
+      );
+      const current = await load(
+        'tool-calls-env',
+        'provider:\n  replayPreamble: false\n',
+        {
+          ...unset,
+          AQ_REPLAY_PREAMBLE: 'true',
+          AQ_OLLAMA_REPLAY_PREAMBLE: 'false',
+          AQ_RECOVER_TOOL_CALLS: 'no'
+        }
+      );
+
+      assert.equal(legacy.provider.replayPreamble, true);
+      assert.equal(legacy.provider.recoverToolCalls, false);
+      assert.equal(current.provider.replayPreamble, true);
+      assert.equal(current.provider.recoverToolCalls, false);
+    });
 
     test('still reads them from the ollama section of config.yml', async () => {
       const config = await load(

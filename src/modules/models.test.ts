@@ -617,42 +617,46 @@ describe('resolving the model to start on', () => {
   });
 });
 
-describe('a provider that counts for itself', () => {
-  beforeEach(() => {
-    provider.name = Provider.Anthropic;
+// neither is paired with a tokenizer - anthropic counts for itself, and openai
+// is corrected from the usage its server reports
+for (const name of [Provider.Anthropic, Provider.OpenAI]) {
+  describe(`a provider with no tokenizer (${name})`, () => {
+    beforeEach(() => {
+      provider.name = name;
+    });
+
+    test('keeps an entry with no tokenizer', () => {
+      writeFileSync(storePath, stringify(stored([claude])));
+
+      assert.deepEqual(savedModels(loadStore()), [claude]);
+    });
+
+    test('never asks for a tokenizer', async () => {
+      typed(claude.model);
+
+      assert.deepEqual(await chooseEntry(server(claude.model)), claude);
+      assert.equal(input.mock.callCount(), 0);
+    });
+
+    test('lists a saved entry by its name alone', async () => {
+      saveStore(stored([claude], claude.model));
+      typed(claude.model);
+
+      await chooseEntry(server(claude.model));
+
+      assert.deepEqual(
+        pickModel.mock.calls[0].arguments[0].choices.map(
+          (choice) => (choice as { name?: string }).name
+        )[0],
+        claude.model
+      );
+    });
+
+    test('clears any tokenizer left by the last entry', () => {
+      tokenizer.repo = gemma.tokenizer;
+      applyEntry(claude);
+
+      assert.equal(tokenizer.repo, undefined);
+    });
   });
-
-  test('keeps an entry with no tokenizer', () => {
-    writeFileSync(storePath, stringify(stored([claude])));
-
-    assert.deepEqual(savedModels(loadStore()), [claude]);
-  });
-
-  test('never asks for a tokenizer', async () => {
-    typed(claude.model);
-
-    assert.deepEqual(await chooseEntry(server(claude.model)), claude);
-    assert.equal(input.mock.callCount(), 0);
-  });
-
-  test('lists a saved entry by its name alone', async () => {
-    saveStore(stored([claude], claude.model));
-    typed(claude.model);
-
-    await chooseEntry(server(claude.model));
-
-    assert.deepEqual(
-      pickModel.mock.calls[0].arguments[0].choices.map(
-        (choice) => (choice as { name?: string }).name
-      )[0],
-      claude.model
-    );
-  });
-
-  test('clears any tokenizer left by the last entry', () => {
-    tokenizer.repo = gemma.tokenizer;
-    applyEntry(claude);
-
-    assert.equal(tokenizer.repo, undefined);
-  });
-});
+}
