@@ -260,7 +260,7 @@ ends up written into a reply as text.
 
 ## Choosing a model
 
-The model agentiq talks to, and the tokenizer that matches it are chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. Selecting "Add a new model..." lists the models the provider serves, asks which repo the tokenizer comes from (Ollama only), and saves the entry to `~/.agentiq/models.yml`. Models are kept per provider, so each one remembers its own list and the model it last used:
+The model agentiq talks to and its matching tokenizer are chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. Selecting "Add a new model..." lists the models the provider serves, asks which repo the tokenizer comes from (Ollama only), and saves the entry to `~/.agentiq/models.yml`. Models are kept per provider, so each one remembers its own list and the model it last used:
 
 ```yaml
 active:
