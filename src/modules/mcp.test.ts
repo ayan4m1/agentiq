@@ -4,8 +4,13 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 
+import { fakeOra } from '../../test/fakes/ora';
 import type { McpConnection, McpResult, McpTool } from './mcp';
 import type { McpServerConfig } from '../types';
+
+const spinner = fakeOra();
+
+mock.module('ora', { exports: spinner.exports });
 
 const {
   closeServers,
@@ -316,6 +321,89 @@ describe('an MCP tool', () => {
 
     assert.ok(result.length < 5_000_000);
     assert.match(result, /\[truncated: showing \d+ of 5000000 characters\]/);
+  });
+});
+
+describe('the startup spinner', () => {
+  const wasTTY = process.stdin.isTTY;
+
+  beforeEach(() => {
+    spinner.reset();
+    process.stdin.isTTY = true;
+  });
+
+  afterEach(() => {
+    process.stdin.isTTY = wasTTY;
+  });
+
+  test('spins while servers connect and stops once they settle', async () => {
+    await connectServers(
+      { one: stdio, two: stdio },
+      async () => fakeConnection([tool('a')]),
+      1000
+    );
+
+    assert.equal(
+      spinner.ora.mock.calls[0].arguments[0].text,
+      'Connecting to MCP servers one, two'
+    );
+    assert.ok(spinner.start.mock.callCount() >= 1);
+    assert.equal(spinner.spinning, false);
+  });
+
+  test('steps aside for each outcome and comes back for the rest', async () => {
+    let finishSlow!: () => void;
+    const slowConnection = fakeConnection([tool('b')]);
+    const pending = connectServers(
+      { fast: stdio, slow: stdio },
+      (name) =>
+        name === 'fast'
+          ? Promise.resolve(fakeConnection([tool('a')]))
+          : new Promise((resolve) => {
+              finishSlow = () => resolve(slowConnection);
+            }),
+      1000
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // fast has been reported, and the spinner is back up for slow alone
+    assert.equal(spinner.spinning, true);
+    assert.equal(spinner.lastSpinner?.text, 'Connecting to MCP server slow');
+
+    finishSlow();
+    await pending;
+
+    assert.equal(spinner.spinning, false);
+  });
+
+  test('does not spin with nothing to start', async () => {
+    await connectServers(
+      { off: { ...stdio, enabled: false } },
+      async () => fakeConnection(),
+      1000
+    );
+
+    assert.equal(spinner.start.mock.callCount(), 0);
+  });
+
+  test('does not spin without a terminal', async () => {
+    process.stdin.isTTY = false;
+
+    await connectServers({ one: stdio }, async () => fakeConnection(), 1000);
+
+    assert.equal(spinner.start.mock.callCount(), 0);
+  });
+
+  test('leaves a retry from /mcp to the picker', async () => {
+    await connectServers(
+      { one: { ...stdio, enabled: false } },
+      async () => fakeConnection([tool('a')]),
+      1000
+    );
+    await setServerEnabled('one', true);
+
+    assert.equal(spinner.start.mock.callCount(), 0);
   });
 });
 

@@ -7,10 +7,15 @@ export type FakeSpinner = {
   start: () => FakeSpinner;
   stop: () => FakeSpinner;
   isSpinning: boolean;
+  text?: string;
   suffixText?: string;
 };
 
-type SpinnerOptions = { discardStdin?: boolean; suffixText?: string };
+type SpinnerOptions = {
+  discardStdin?: boolean;
+  text?: string;
+  suffixText?: string;
+};
 
 // the spinner draws on a real terminal, which a test does not have - so a fake
 // stands in for it, recording how it was set up and when it ran
@@ -34,6 +39,7 @@ export const fakeOra = () => {
       get isSpinning() {
         return spinning;
       },
+      text: options.text,
       suffixText: options.suffixText
     };
 

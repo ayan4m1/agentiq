@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import ora from 'ora';
 import { execFileSync } from 'node:child_process';
 // the sdk publishes these through a "./*" wildcard export, which node and tsc
 // follow but the lint resolver does not
@@ -10,6 +11,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 
 import { mcp as config, saveSetting } from './config';
 import { getLogger } from './logging';
+import { showElapsed } from './elapsed';
 import { describeDenial, refusePlanning, requestApproval } from './approval';
 import type { McpServerConfig, ToolCall, ToolDefinition } from '../types';
 import { commandOutputBudget, describeError, truncate } from '../utils';
@@ -261,6 +263,10 @@ const stop = (connection: McpConnection) => {
   connection.close().catch(() => {});
 };
 
+// how a server's outcome reaches the screen - at startup a spinner has to
+// step aside for it, everywhere else it is simply written
+type Report = (write: () => void) => void;
+
 // one server's tools, or none if it fails - the failure is recorded on its
 // status and goes no further, so it cannot cost the other servers theirs
 const connectServer = async (
@@ -268,7 +274,8 @@ const connectServer = async (
   server: McpServerConfig,
   connect: Connect,
   timeout: number,
-  status: McpServerStatus
+  status: McpServerStatus,
+  report: Report = (write) => write()
 ): Promise<ToolCall[]> => {
   status.tools = 0;
   delete status.error;
@@ -291,14 +298,18 @@ const connectServer = async (
     connections.set(name, connection);
     serverTools.set(name, calls);
     status.tools = tools.length;
-    log.info(
-      chalk.gray(`Connected to MCP server ${name} (${tools.length} tools)`)
+    report(() =>
+      log.info(
+        chalk.gray(`Connected to MCP server ${name} (${tools.length} tools)`)
+      )
     );
 
     return calls;
   } catch (error) {
     status.error = describeError(error);
-    log.warn(`Could not use MCP server ${name} - ${status.error}`);
+    report(() =>
+      log.warn(`Could not use MCP server ${name} - ${status.error}`)
+    );
 
     // a server that came up - before the failure, or only after the time ran
     // out - is still running, and nothing else will stop it
@@ -324,24 +335,82 @@ export const connectServers = async (
   connector = connect;
   connectTimeout = timeout;
 
-  const results = await Promise.all(
-    Object.entries(servers).map(([name, server]) => {
-      const status: McpServerStatus = {
-        name,
-        transport: server.url ? 'http' : 'stdio',
-        tools: 0,
-        enabled: server.enabled !== false
-      };
-
-      statuses.push(status);
-
-      return status.enabled
-        ? connectServer(name, server, connect, timeout, status)
-        : [];
-    })
+  // the servers still on their way up, which the spinner names
+  const pending = new Set(
+    Object.entries(servers)
+      .filter(([, server]) => server.enabled !== false)
+      .map(([name]) => name)
   );
+  const describePending = () =>
+    `Connecting to MCP server${pending.size === 1 ? '' : 's'} ${[...pending].join(', ')}`;
+  const spinner = ora({
+    stream: process.stdout,
+    discardStdin: false,
+    text: describePending()
+  });
+  const tty = Boolean(process.stdin.isTTY) && pending.size > 0;
+  let stopClock = () => {};
 
-  return results.flat();
+  // the spinner owns the line it is drawn on, so it steps aside for each
+  // outcome and comes back only while there is still something to wait for
+  const reportFor =
+    (name: string): Report =>
+    (write) => {
+      if (spinner.isSpinning) {
+        spinner.stop();
+      }
+
+      write();
+      pending.delete(name);
+      spinner.text = describePending();
+
+      if (tty && pending.size) {
+        spinner.start();
+      }
+    };
+
+  // every server is announced before any of them is waited on - connect()
+  // runs up to its first await here, so none can have settled yet
+  const connecting = Object.entries(servers).map(([name, server]) => {
+    const status: McpServerStatus = {
+      name,
+      transport: server.url ? 'http' : 'stdio',
+      tools: 0,
+      enabled: server.enabled !== false
+    };
+
+    statuses.push(status);
+
+    if (!status.enabled) {
+      return [];
+    }
+
+    log.info(chalk.gray(`Starting MCP server ${name}`));
+
+    return connectServer(
+      name,
+      server,
+      connect,
+      timeout,
+      status,
+      reportFor(name)
+    );
+  });
+
+  if (tty) {
+    spinner.start();
+    stopClock = showElapsed(spinner);
+  }
+
+  try {
+    return (await Promise.all(connecting)).flat();
+  } finally {
+    stopClock();
+
+    if (spinner.isSpinning) {
+      spinner.stop();
+    }
+  }
 };
 
 // the tools of every server that is connected now - what the model is offered
