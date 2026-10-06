@@ -77,6 +77,7 @@ __metadata:
     "@typescript-eslint/eslint-plugin": "npm:^8.71.0"
     "@typescript-eslint/parser": "npm:^8.71.0"
     bottleneck: "npm:^2.19.5"
+    ceramic-ai: "npm:^2.4.0"
     chalk: "npm:^6.0.1"
     commander: "npm:^15.0.0"
     commitizen: "npm:^4.3.2"
@@ -108,6 +109,7 @@ __metadata:
     tslib: "npm:^2.8.1"
     typescript: "npm:^5.9.3"
     typescript-eslint: "npm:^8.71.0"
+    unpdf: "npm:^1.8.1"
     winston: "npm:^3.19.0"
     yaml: "npm:^2.9.1"
   bin:
@@ -2603,6 +2605,13 @@ __metadata:
   version: 3.1.0
   resolution: "callsites@npm:3.1.0"
   checksum: 10c0/fff92277400eb06c3079f9e74f3af120db9f8ea03bad0e84d9aede54bbe2d44a56cccb5f6cf12211f93f52306df87077ecec5b712794c5a9b5dac6d615a3f301
+  languageName: node
+  linkType: hard
+
+"ceramic-ai@npm:^2.4.0":
+  version: 2.4.0
+  resolution: "ceramic-ai@npm:2.4.0"
+  checksum: 10c0/77c40a5cbfedd5e7563c5a90e389623f5e570b6f3d226479556f895111fb3dc379e18fab6e46850f90a4a618070b19aa5cafdb7c8977f36de7868b6690823783
   languageName: node
   linkType: hard
 
@@ -8336,6 +8345,18 @@ __metadata:
   version: 2.0.1
   resolution: "universalify@npm:2.0.1"
   checksum: 10c0/73e8ee3809041ca8b818efb141801a1004e3fc0002727f1531f4de613ea281b494a40909596dae4a042a4fb6cd385af5d4db2e137b1362e0e91384b828effd3a
+  languageName: node
+  linkType: hard
+
+"unpdf@npm:^1.8.1":
+  version: 1.8.1
+  resolution: "unpdf@npm:1.8.1"
+  peerDependencies:
+    "@napi-rs/canvas": ^0.1.69 || ^1.0.0
+  peerDependenciesMeta:
+    "@napi-rs/canvas":
+      optional: true
+  checksum: 10c0/5f411bf65ce39c0cd36560fa44e60cba2bd5b9483e0a0486a67b41b2088abd4707782df56068b49e5795b3657f43f712880b841b216f4491579a745a98b4a9ae
   languageName: node
   linkType: hard
 
