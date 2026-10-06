@@ -1,6 +1,9 @@
 import { chatProvider } from '../providers';
+import { getLogger } from '../modules/logging';
 import { decide as decideConfig } from '../modules/config';
 import { makeParameter, makeTool } from '../utils';
+
+const log = getLogger('decide');
 
 export const definition = makeTool(
   'decide',
@@ -43,6 +46,8 @@ export const handler = async ({ context, questions }: Args) => {
   if (!questions.length) {
     return 'Ask at least one yes/no question.';
   }
+
+  log.info(`Consulting decision model ${decideConfig.model}...`);
 
   const { probabilities } = await chatProvider.decide({
     model: decideConfig.model,
