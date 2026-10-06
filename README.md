@@ -267,7 +267,6 @@ The model gets things done with the tools below - and with those of any connecte
 | `read_job`      | Returns what a background job has printed since the last time it was read. Omit the id to list every job instead.                                                              |
 | `stop_job`      | Stops a background job and everything it started.                                                                                                                              |
 | `ask_list`      | Asks the user to make a decision from a list of choices.                                                                                                                       |
-| `ask_boolean`   | Asks the user a yes/no question.                                                                                                                                               |
 | `present_plan`  | Shows the user a plan and asks permission to start work.                                                                                                                       |
 | `read_plan`     | Returns the most recent plan shown with `present_plan`.                                                                                                                        |
 | `explore`       | Answers an open-ended question about the codebase by investigating it in a separate, read-only conversation, and hands back a short report of the relevant paths and snippets. |

@@ -8,7 +8,6 @@ import * as search from './search';
 import * as explore from './explore';
 import * as shell from './shell';
 import * as askList from './ask_list';
-import * as askBoolean from './ask_boolean';
 import * as presentPlan from './present_plan';
 import * as readPlan from './read_plan';
 import * as startJob from './start_job';
@@ -53,7 +52,6 @@ export const tools: ToolCall[] = [
   readJob,
   stopJob,
   askList,
-  askBoolean,
   presentPlan,
   readPlan,
   ...(exploreConfig.enabled ? [explore] : []),
@@ -71,7 +69,7 @@ export const tools: ToolCall[] = [
 // in rebuild(), which has to follow any change after makeThinker()
 export const setMcpTools = (extra: ToolCall[]) => {
   const builtIn = tools.filter(
-    (tool) => !isMcpTool(tool.definition.function.name)
+    (tool) => !isMcpTool(tool.definition.function.name ?? '')
   );
 
   tools.splice(0, tools.length, ...builtIn, ...extra);
