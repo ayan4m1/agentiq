@@ -157,7 +157,8 @@ describe('shell', () => {
     queue(editor, ['node -e "console.log(2)"']);
 
     assert.equal(
-      await run('node -e "console.log(1)"'),
+      // strip ANSI color codes
+      (await run('node -e "console.log(1)"')).replaceAll(/\x1b\[[0-9;]*m/g, ''),
       'The user changed the command to "node -e "console.log(2)"" before running it.\n\n2'
     );
   });
