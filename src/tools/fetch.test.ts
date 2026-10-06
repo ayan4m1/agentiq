@@ -47,8 +47,19 @@ const makePdf = (texts: string[]) => {
 
 const twoPages = makePdf(['Alpha', 'Bravo']);
 
-const pages: Record<string, { type: string; body: string | Buffer }> = {
+const pages: Record<string, { type?: string; body: string | Buffer }> = {
   '/doc.pdf': { type: 'application/pdf', body: twoPages },
+  '/broken.pdf': {
+    type: 'application/pdf',
+    body: '%PDF-1.4\nnot really a pdf'
+  },
+  '/huge.pdf': {
+    type: 'application/pdf',
+    // a narrow glyph, since pdf.js drops text that runs off the page
+    body: makePdf(['i'.repeat(150)])
+  },
+  '/untyped': { body: 'no type' },
+  '/nul-text': { type: 'text/plain', body: 'a\0b' },
   '/download': { type: 'application/octet-stream', body: twoPages },
   '/many.pdf': {
     type: 'application/pdf',
@@ -86,7 +97,9 @@ before(async () => {
       return;
     }
 
-    response.writeHead(200, { 'content-type': page.type }).end(page.body);
+    response
+      .writeHead(200, page.type ? { 'content-type': page.type } : {})
+      .end(page.body);
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -166,6 +179,45 @@ describe('fetch', () => {
     );
   });
 
+  test('refuses a page range it cannot read', async () => {
+    assert.match(
+      await handler({ url: `${base}/doc.pdf`, pages: 'abc' }),
+      /Cannot read pages "abc" - the document has pages 1-2$/
+    );
+  });
+
+  test('refuses a page range that runs backwards', async () => {
+    assert.match(
+      await handler({ url: `${base}/doc.pdf`, pages: '2-1' }),
+      /Cannot read pages "2-1" - the document has pages 1-2$/
+    );
+  });
+
+  test('treats page 0 as the first page', async () => {
+    assert.match(
+      await handler({ url: `${base}/doc.pdf`, pages: '0-1' }),
+      /pages\)\n\n--- page 1 of 2 ---\nAlpha$/
+    );
+  });
+
+  test('shows part of a single page too long for the budget', async () => {
+    const result = await handler({ url: `${base}/huge.pdf` });
+
+    assert.match(result, /1 pages\)\n\n--- page 1 of 1 ---\ni+\n/);
+    assert.match(result, /\[truncated: showing 99 of 170 characters\]$/);
+    assert.doesNotMatch(result, /\[showing pages/);
+  });
+
+  test('says when a PDF cannot be read', async () => {
+    const url = `${base}/broken.pdf`;
+    const result = await handler({ url });
+
+    assert.match(result, /\n\nCould not read the PDF: .+$/);
+    assert.ok(
+      result.startsWith(`Fetched ${url} (application/pdf, 25 bytes)\n\n`)
+    );
+  });
+
   test('says when a PDF has no text to extract', async () => {
     assert.match(
       await handler({ url: `${base}/scanned.pdf` }),
@@ -179,6 +231,19 @@ describe('fetch', () => {
     assert.equal(
       await handler({ url }),
       `Fetched ${url} (image/png, 10 bytes)\n\n[binary content not shown]`
+    );
+  });
+
+  test('passes text through even when it contains a NUL', async () => {
+    assert.match(await handler({ url: `${base}/nul-text` }), /\n\na\0b$/);
+  });
+
+  test('says when the content type is unknown', async () => {
+    const url = `${base}/untyped`;
+
+    assert.equal(
+      await handler({ url }),
+      `Fetched ${url} (unknown, 7 bytes)\n\nno type`
     );
   });
 
