@@ -50,7 +50,7 @@ import {
   sessionCheck,
   startSession
 } from './session';
-import { takeYield } from './turn';
+import { beginUserTurn, takeYield } from './turn';
 import {
   check,
   diagnosticsMarker,
@@ -1139,6 +1139,7 @@ export const createController = ({
     nextThought.messages.push(message);
     currentTurn = beginTurn();
     turns.set(message, currentTurn);
+    beginUserTurn();
 
     needsUserInput = false;
   };

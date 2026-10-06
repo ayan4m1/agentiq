@@ -67,6 +67,11 @@ export type OpenAIConfig = {
   baseUrl: string;
 };
 
+export type CeramicConfig = {
+  apiKey: string;
+  perTurnLimit: number;
+};
+
 export type LoggingConfig = {
   level: LogLevel;
   detailed: boolean;

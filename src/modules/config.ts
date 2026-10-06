@@ -25,6 +25,7 @@ import {
   type TokenizerConfig,
   type AnthropicConfig,
   type OpenAIConfig,
+  type CeramicConfig,
   type ProviderConfig,
   Provider,
   PromptCache
@@ -352,6 +353,23 @@ export const anthropic: AnthropicConfig = {
 export const openai: OpenAIConfig = {
   apiKey: setting('AQ_OPENAI_API_KEY', 'openai', 'apiKey') || '',
   baseUrl: setting('AQ_OPENAI_BASE_URL', 'openai', 'baseUrl') || ''
+};
+
+// read apart so that an explicit 0 - no limit at all - survives the default
+const searchesPerTurn = integer(
+  'AQ_CERAMIC_PER_TURN_LIMIT',
+  'ceramic',
+  'perTurnLimit'
+);
+
+// the key the search tool calls the Ceramic API with. CERAMIC_API_KEY is the
+// name the Ceramic SDK reads itself, so honour it
+export const ceramic: CeramicConfig = {
+  apiKey:
+    setting('AQ_CERAMIC_API_KEY', 'ceramic', 'apiKey') ||
+    process.env.CERAMIC_API_KEY ||
+    '',
+  perTurnLimit: Number.isNaN(searchesPerTurn) ? 8 : searchesPerTurn
 };
 
 export const ollama: OllamaConfig = {

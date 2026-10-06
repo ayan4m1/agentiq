@@ -4,6 +4,7 @@ import * as write from './write';
 import * as find from './find';
 import * as list from './list';
 import * as fetch from './fetch';
+import * as search from './search';
 import * as explore from './explore';
 import * as shell from './shell';
 import * as askList from './ask_list';
@@ -20,6 +21,7 @@ import * as updateNotes from './update_notes';
 import * as decide from './decide';
 
 import {
+  ceramic as ceramicConfig,
   decide as decideConfig,
   explore as exploreConfig,
   provider as providerConfig,
@@ -44,6 +46,8 @@ export const tools: ToolCall[] = [
   find,
   list,
   fetch,
+  // needs a Ceramic key to call anything with
+  ...(ceramicConfig.apiKey ? [search] : []),
   shell,
   startJob,
   readJob,

@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 process.env.AQ_ENABLE_ROADMAP = '';
 process.env.AQ_EXPLORE = '';
 process.env.AQ_DECIDE_MODEL = '';
+process.env.AQ_CERAMIC_API_KEY = '';
+process.env.CERAMIC_API_KEY = '';
 
 const { tools } = await import('./index');
 
@@ -55,6 +57,12 @@ describe('tools', () => {
     const names = tools.map((tool) => tool.definition.function.name);
 
     assert.ok(!names.includes('decide'));
+  });
+
+  test('leaves out search unless a Ceramic API key is set', () => {
+    const names = tools.map((tool) => tool.definition.function.name);
+
+    assert.ok(!names.includes('search'));
   });
 
   test('does not point the model at a roadmap tool it cannot call', () => {

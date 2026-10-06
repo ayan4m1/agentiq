@@ -1,11 +1,18 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { takeYield, turn, yieldToUser } from './turn';
+import { beginUserTurn, takeYield, turn, yieldToUser } from './turn';
 
 describe('turn', () => {
   beforeEach(() => {
     turn.yieldToUser = false;
+  });
+
+  test('clears the search count when the user sends a message', () => {
+    turn.searches = 5;
+    beginUserTurn();
+
+    assert.equal(turn.searches, 0);
   });
 
   test('does not yield unless a tool asked it to', () => {

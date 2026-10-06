@@ -109,6 +109,14 @@ openai:
   # variable (AQ_OPENAI_API_KEY)
   apiKey: ''
 
+ceramic:
+  # key for the Ceramic web search API - the search tool is offered only once
+  # this is set. empty falls back to CERAMIC_API_KEY (AQ_CERAMIC_API_KEY)
+  apiKey: ''
+  # searches the model may make in answer to one message; 0 means no limit
+  # (AQ_CERAMIC_PER_TURN_LIMIT)
+  perTurnLimit: 8
+
 session:
   # saved sessions to keep in ~/.agentiq/sessions; 0 keeps them all
   # (AQ_SESSION_LIMIT)
@@ -253,6 +261,7 @@ The model gets things done with the tools below - and with those of any connecte
 | `find`          | Finds files by name pattern, and optionally searches their contents.                                                                                                           |
 | `list`          | Lists what is in a directory, so the model can get its bearings in an unfamiliar project.                                                                                      |
 | `fetch`         | Fetches a document via HTTP, with HTML stripped down to its text.                                                                                                              |
+| `search`        | Searches the Web via the Ceramic API, returning the top 10 results as titled links with a snippet.                                                                             |
 | `shell`         | Access a shell to run commands, waiting for each to finish.                                                                                                                    |
 | `start_job`     | Runs a command in the background and returns straight away - for anything that does not finish on its own, like dev servers, watch builds and log tails.                       |
 | `read_job`      | Returns what a background job has printed since the last time it was read. Omit the id to list every job instead.                                                              |
@@ -268,6 +277,8 @@ The model gets things done with the tools below - and with those of any connecte
 | `update_notes`  | Writes to the Notes section of `ROADMAP.md`.                                                                                                                                   |
 | `decide`        | Asks a fast decision model how likely each of one or more yes/no questions is to be true.                                                                                      |
 
+- `search` is only offered once `ceramic.apiKey` (or `AQ_CERAMIC_API_KEY` / `CERAMIC_API_KEY`) is
+  set, and refuses after `ceramic.perTurnLimit` searches (8 by default) until the next message.
 - `explore` is only offered when `explore.enabled` is set (the default).
 - The roadmap tools - `add_todo`, `complete_todo`, `remove_todo` and `update_notes` - are only
   offered when `roadmap.enabled` is set.

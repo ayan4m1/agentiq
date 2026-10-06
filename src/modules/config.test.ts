@@ -507,6 +507,55 @@ describe('settings', () => {
     });
   });
 
+  test('reads the ceramic key from AQ_CERAMIC_API_KEY, then config.yml, then CERAMIC_API_KEY', async () => {
+    const fromEnv = await load(
+      'ceramic-env',
+      'ceramic:\n  apiKey: cer-file\n',
+      { AQ_CERAMIC_API_KEY: 'cer-env', CERAMIC_API_KEY: 'cer-sdk' }
+    );
+    const fromFile = await load(
+      'ceramic-file',
+      'ceramic:\n  apiKey: cer-file\n',
+      { AQ_CERAMIC_API_KEY: '', CERAMIC_API_KEY: 'cer-sdk' }
+    );
+    const fromSdk = await load('ceramic-sdk', 'session:\n  limit: 7\n', {
+      AQ_CERAMIC_API_KEY: '',
+      CERAMIC_API_KEY: 'cer-sdk'
+    });
+
+    assert.equal(fromEnv.ceramic.apiKey, 'cer-env');
+    assert.equal(fromFile.ceramic.apiKey, 'cer-file');
+    assert.equal(fromSdk.ceramic.apiKey, 'cer-sdk');
+  });
+
+  test('limits searches per turn to 8 unless told otherwise, and keeps an explicit 0', async () => {
+    const fallback = await load(
+      'ceramic-limit-default',
+      'session:\n  limit: 7\n',
+      { AQ_CERAMIC_PER_TURN_LIMIT: '' }
+    );
+    const fromFile = await load(
+      'ceramic-limit-file',
+      'ceramic:\n  perTurnLimit: 3\n',
+      { AQ_CERAMIC_PER_TURN_LIMIT: '' }
+    );
+    const fromEnv = await load(
+      'ceramic-limit-env',
+      'ceramic:\n  perTurnLimit: 3\n',
+      { AQ_CERAMIC_PER_TURN_LIMIT: '5' }
+    );
+    const unlimited = await load(
+      'ceramic-limit-zero',
+      'ceramic:\n  perTurnLimit: 0\n',
+      { AQ_CERAMIC_PER_TURN_LIMIT: '' }
+    );
+
+    assert.equal(fallback.ceramic.perTurnLimit, 8);
+    assert.equal(fromFile.ceramic.perTurnLimit, 3);
+    assert.equal(fromEnv.ceramic.perTurnLimit, 5);
+    assert.equal(unlimited.ceramic.perTurnLimit, 0);
+  });
+
   test('reads the decision model from config.yml', async () => {
     const config = await load('decide', 'decide:\n  model: kev-9b\n');
 

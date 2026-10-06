@@ -94,6 +94,15 @@ openai:
   # OPENAI_API_KEY environment variable (AQ_OPENAI_API_KEY)
   apiKey: ''
 
+ceramic:
+  # the key the search tool queries the Ceramic web search API with. the tool
+  # is only offered to the model once a key is set. leave it empty to fall back
+  # to the CERAMIC_API_KEY environment variable (AQ_CERAMIC_API_KEY)
+  apiKey: ''
+  # how many searches the model may make in answer to one message. 0 lifts the
+  # limit altogether (AQ_CERAMIC_PER_TURN_LIMIT)
+  perTurnLimit: 8
+
 session:
   # how many saved sessions to keep in ~/.agentiq/sessions; older ones are
   # deleted at startup. 0 keeps them all (AQ_SESSION_LIMIT)
