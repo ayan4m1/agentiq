@@ -464,8 +464,7 @@ Servers are started once, at startup, all at the same time. A server that fails 
 not list its tools within `mcp.timeout`, is reported and left out, and `/mcp` shows what became of
 each. From `/mcp`, `r` starts a failed server over again, and space turns a server off - stopping
 it and taking its tools away - or back on. That is saved as `enabled: false` under the server in
-`config.yml`, so it stays off on the next run without losing its settings. Their tools are offered to the model as `mcp__<server>__<tool>`, and `/context` shows what
-they cost on its `MCP` line.
+`config.yml`, so it stays off on the next run without losing its settings. Their tools are offered to the model as `mcp__<server>__<tool>`, and `/context` shows what they cost on its `MCP` line.
 
 Calling an MCP tool always needs approval, like running a command does. Answering "always" saves a
 `tool` rule, and `/rules add tool mcp__<server>__*` allows every tool for one server at once. In plan
@@ -477,7 +476,7 @@ content that is not text, such as audio, is named in the result rather than show
 ## The decide tool
 
 The `decide` tool lets the model hand quick judgement calls to a second, much faster model instead
-of reasoning through them at length. It uses Ollama's [System One](https://pydantic.dev/docs/ai/models/system-one/) API, which is built for decision models: rather than writing a reply, a System One model reads some
+of reasoning through them at length. It uses the Ollama provider's [System One](https://typesafe.ai/blog/introducing-system-one-models-and-jev) API, which is built for decision models: rather than writing a reply, a System One model reads some
 state and scores how likely each of a set of yes/no questions is to be true.
 
 To turn it on, set `decide.model` (or `AQ_DECIDE_MODEL`) to a System One model, such as `kev-9b`,
