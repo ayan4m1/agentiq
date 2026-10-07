@@ -187,8 +187,8 @@ startup, and decides:
 
 The choices are:
 
-- `ollama` (the default) - talks to an Ollama server at `ollama.host`. A matching tokenizer is
-  optional: without one, the context is estimated until the first reply and then corrected with the
+- `ollama` (the default) - talks to an Ollama server at `ollama.host`. A tokenizer matching your model
+  is optional: without one, the context is estimated until the first reply and then corrected with the
   count Ollama reports after every reply. With one, `/context` and the auto-compaction threshold are
   accurate from the start.
 
@@ -254,7 +254,7 @@ ends up written into a reply as text.
 ## Tools
 
 The model gets things done with the tools below - and with those of any connected
-[MCP servers](#mcp-servers), which arrive as `mcp__<server>__<tool>`.
+[MCP servers](#mcp-servers), which arrive with names like `mcp__<server>__<tool>`.
 
 | Tool            | Description                                                                                                                                                                    |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
