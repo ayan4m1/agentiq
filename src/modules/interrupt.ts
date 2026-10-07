@@ -42,9 +42,7 @@ export const stopReading = (stdin: NodeJS.ReadableStream = process.stdin) => {
 
 // nothing owns stdin while the model streams - inquirer builds a readline per
 // prompt and closes it again - so escape has to be watched for directly. the
-// bytes are read raw rather than through emitKeypressEvents: readline's keypress
-// pump tears itself off stdin the moment data arrives with no keypress listeners
-// left, and adding one per turn only to take it away again is what kills it
+// bytes are read raw rather than through emitKeypressEvents
 export const watchForInterrupt = (onInterrupt: () => void) => {
   const { stdin } = process;
 
@@ -87,15 +85,10 @@ export const watchForInterrupt = (onInterrupt: () => void) => {
       stop();
       process.kill(process.pid, 'SIGINT');
     }
-
-    // everything else is dropped rather than buffered into the next prompt
   }
 
   stdin.setRawMode(true);
   stdin.on('data', onData);
-  // the prompt that just closed its readline paused stdin, and a data listener
-  // does not restart a stream that was explicitly paused - without this the
-  // escape byte is never delivered
   stdin.resume();
 
   return stop;
