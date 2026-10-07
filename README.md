@@ -1,6 +1,6 @@
 # agentiq
 
-![NPM Version](https://img.shields.io/npm/v/%40ayan4m1%2Fagentiq)
+[![NPM Version](https://img.shields.io/npm/v/%40ayan4m1%2Fagentiq)](https://www.npmjs.com/package/@ayan4m1/agentiq)
 [![codecov](https://codecov.io/gh/ayan4m1/agentiq/graph/badge.svg?token=ZMpY0vGAjm)](https://codecov.io/gh/ayan4m1/agentiq)
 
 Agentiq is an agentic coding assistant with support for local and cloud LLM providers.
