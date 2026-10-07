@@ -19,6 +19,8 @@ let rememberedPrompts: string[] | undefined;
 let promptsBeforeTurns: number[];
 // the session that is active when asked - /clear and /resume change it mid-run
 let activeSession: string | undefined;
+// the models saved for the configured provider, read again for every prompt
+let savedNames: string[];
 
 type PromptOptions = {
   type: string;
@@ -159,7 +161,7 @@ mock.module('./startup', {
 });
 mock.module('./repl', {
   exports: {
-    Command: { Help: 'help', Quit: 'quit' },
+    Command: { Help: 'help', Model: 'model', Quit: 'quit' },
     createController,
     customCommands: () => [
       { name: 'review', body: 'Review the diff', path: 'review.md' }
@@ -202,6 +204,15 @@ mock.module('./thinker', {
   exports: { compactThreshold: 0.5 } satisfies ModuleMock<
     typeof import('./thinker')
   >
+});
+
+const store = { active: {}, models: {} };
+
+mock.module('./models', {
+  exports: {
+    loadStore: () => store,
+    savedModels: () => savedNames.map((model) => ({ model }))
+  } satisfies ModuleMock<typeof import('./models')>
 });
 
 // completion is tested on its own - here it only has to be handed to the prompt
@@ -260,6 +271,7 @@ describe('startRepl', () => {
     rememberedPrompts = undefined;
     promptsBeforeTurns = [];
     activeSession = undefined;
+    savedNames = [];
     controller.messages = [];
     controllerOptions = undefined;
     provider.model = 'qwen3';
@@ -395,9 +407,56 @@ describe('startRepl', () => {
 
     assert.deepEqual(options.autoCompletion('/he'), ['/help']);
     assert.deepEqual(argumentsOf(complete), [
-      ['/he', { commands: ['help', 'quit', 'review'], paths: pathIndex }]
+      [
+        '/he',
+        {
+          commands: ['help', 'model', 'quit', 'review'],
+          paths: pathIndex,
+          choices: { model: [] }
+        }
+      ]
     ]);
     assert.equal(options.short, shortCompletions);
+  });
+
+  test('completes saved model names after /model', async () => {
+    savedNames = ['gemma4:e4b', 'qwen3:30b'];
+
+    await exitCodeOf();
+
+    const [options] = prompt.mock.calls[0].arguments;
+
+    options.autoCompletion('/model ');
+
+    assert.deepEqual(complete.mock.calls[0].arguments[1], {
+      commands: ['help', 'model', 'quit', 'review'],
+      paths: pathIndex,
+      choices: { model: ['gemma4:e4b', 'qwen3:30b'] }
+    });
+  });
+
+  test('offers a model saved mid-session at the next prompt', async () => {
+    savedNames = ['gemma4:e4b'];
+    answers = ['/model', '/quit'];
+    controller.runCommand.mock.mockImplementationOnce(async (name: string) => {
+      // what adding a model through the picker does to the store
+      savedNames.push('qwen3:30b');
+
+      return name;
+    });
+
+    await exitCodeOf();
+
+    for (const call of prompt.mock.calls) {
+      call.arguments[0].autoCompletion('/model ');
+    }
+
+    assert.deepEqual(
+      complete.mock.calls.map(
+        (call) => (call.arguments[1] as { choices: unknown }).choices
+      ),
+      [{ model: ['gemma4:e4b'] }, { model: ['gemma4:e4b', 'qwen3:30b'] }]
+    );
   });
 
   test('lists the project afresh for every prompt', async () => {

@@ -295,6 +295,7 @@ The model gets things done with the tools below - and with those of any connecte
 | `/context-limit [tokens]`   | Shows the current context limit or changes it if able, saving the new value to `config.yml`. `AQ_CONTEXT_LIMIT` still wins when set.                                                                                                                                                               |
 | `/mode`                     | Cycles the approval mode between manual, auto and plan (same as shift+tab).                                                                                                                                                                                                                        |
 | `/model`                    | Picks a model to use for the current session. See [Choosing a model](#choosing-a-model).                                                                                                                                                                                                           |
+| `/model <name>`             | Switches straight to a model already saved for the current provider, without the picker.                                                                                                                                                                                                           |
 | `/compact`                  | Summarizes the conversation to free up context.                                                                                                                                                                                                                                                    |
 | `/recap [turns]`            | Prints a short recap of the last `session.recapTurns` turns, or of `turns` turns. The recap is never added to the conversation.                                                                                                                                                                    |
 | `/paste`                    | Opens `$VISUAL` or `$EDITOR` (notepad or vim when neither is set) for a multi-line prompt, and sends it when the editor closes.                                                                                                                                                                    |
@@ -358,7 +359,7 @@ it, the diff (or the command) is shown again and you are asked again: saving is 
 
 ## Choosing a model
 
-The model agentiq talks to is chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq.
+The model agentiq talks to is chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. To switch to one of them without the list, give its name: `/model qwen3:30b` (Tab completes the saved names).
 
 Selecting "Add a new model..." lists the models the provider serves, asks which repo the tokenizer comes from (Ollama only, and optional - leave it blank to estimate instead), and saves the entry to `~/.agentiq/models.yml`. Models are kept per provider, so each one remembers its own list and the model it last used:
 

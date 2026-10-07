@@ -77,6 +77,7 @@ const {
   chooseEntry,
   clearModels,
   findEntry,
+  findTyped,
   forgetEntry,
   loadStore,
   markActive,
@@ -366,6 +367,39 @@ describe('applying an entry', () => {
 
     assert.equal(provider.model, qwen.model);
     assert.equal(tokenizer.repo, qwen.tokenizer);
+  });
+});
+
+describe('finding a typed name', () => {
+  const llama = { model: 'llama3:latest' };
+
+  test('finds the entry saved under that name', () => {
+    assert.deepEqual(findTyped(stored([gemma, qwen]), qwen.model), qwen);
+  });
+
+  test('finds the :latest entry for a bare name', () => {
+    assert.deepEqual(findTyped(stored([gemma, llama]), 'llama3'), llama);
+  });
+
+  test('prefers an entry saved under exactly that name', () => {
+    const bare = { model: 'llama3' };
+
+    assert.deepEqual(findTyped(stored([llama, bare]), 'llama3'), bare);
+  });
+
+  test('does not take one tag for another', () => {
+    assert.equal(findTyped(stored([gemma]), 'gemma4:2b'), undefined);
+  });
+
+  test('looks only at the configured provider', () => {
+    assert.equal(
+      findTyped(stored([gemma], undefined, Provider.Anthropic), gemma.model),
+      undefined
+    );
+  });
+
+  test('finds nothing in an empty store', () => {
+    assert.equal(findTyped(loadStore(), gemma.model), undefined);
   });
 });
 

@@ -38,9 +38,11 @@ import {
   applyEntry,
   chooseEntry,
   findEntry,
+  findTyped,
   loadStore,
   markActive,
-  rememberEntry
+  rememberEntry,
+  savedModels
 } from './models';
 import {
   append,
@@ -542,12 +544,28 @@ export const createController = ({
 
   // switching mid-conversation rather than at startup: the history is kept and
   // handed to the thinker to be counted again, since the tokenizer that
-  // measured it belonged to the model being left behind
-  const switchModel = async () => {
-    const previous = findEntry(loadStore(), provider.model);
-    const entry = await chooseEntry();
+  // measured it belonged to the model being left behind. a name typed after
+  // the command skips the picker, but only for a model already saved - adding
+  // one still goes through the picker, so a typo never ends up in the store
+  const switchModel = async (name?: string) => {
+    const store = loadStore();
+    const previous = findEntry(store, provider.model);
+    const entry =
+      name === undefined ? await chooseEntry() : findTyped(store, name);
 
     if (!entry) {
+      if (name !== undefined) {
+        const saved = savedModels(store).map(({ model }) => model);
+
+        log.error(
+          chalk.red(
+            saved.length
+              ? `${name} is not a saved model (saved: ${saved.join(', ')}) - use /${Command.Model} on its own to add one`
+              : `${name} is not a saved model - use /${Command.Model} on its own to add one`
+          )
+        );
+      }
+
       return;
     }
 
@@ -1011,7 +1029,7 @@ export const createController = ({
         cycleMode();
         break;
       case Command.Model:
-        await switchModel();
+        await switchModel(input.trim().slice(name.length).trim() || undefined);
         break;
       case Command.Compact:
         // an explicit request overrides an earlier stalled attempt

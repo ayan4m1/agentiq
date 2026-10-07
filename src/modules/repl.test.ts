@@ -1446,6 +1446,62 @@ describe('commands', () => {
     assert.equal(thinker.rebuild.mock.callCount(), 0);
   });
 
+  test('switches straight to a saved model named after /model', async () => {
+    const controller = onModel(gemma);
+
+    controller.addUserMessage('hello');
+    await controller.runCommand(`${Command.Model} ${qwen.model}`);
+
+    assert.equal(pickModel.mock.callCount(), 0);
+    assert.equal(provider.model, qwen.model);
+    assert.equal(tokenizer.repo, qwen.tokenizer);
+    assert.equal(loadStore().active.ollama, qwen.model);
+    assert.deepEqual(thinker.rebuild.mock.calls[0].arguments[0], [
+      { role: 'user', content: 'hello' }
+    ]);
+  });
+
+  test('refuses a name that is not saved, and lists those that are', async (t) => {
+    const error = t.mock.method(getLogger('run'), 'error', () => {});
+    const controller = onModel(gemma);
+
+    await controller.runCommand(`${Command.Model} nosuch:7b`);
+
+    assert.equal(pickModel.mock.callCount(), 0);
+    assert.equal(preflight.mock.callCount(), 0);
+    assert.equal(thinker.rebuild.mock.callCount(), 0);
+    assert.equal(provider.model, gemma.model);
+    assert.equal(tokenizer.repo, gemma.tokenizer);
+    assert.deepEqual(loadStore(), {
+      active: { ollama: gemma.model },
+      models: { ollama: [gemma, qwen] }
+    });
+    assert.match(
+      String(error.mock.calls[0]?.arguments[0]),
+      /nosuch:7b is not a saved model \(saved: gemma4:e4b, qwen3:30b\)/
+    );
+  });
+
+  test('does nothing for /model <name> on the model already in use', async () => {
+    await onModel(gemma).runCommand(`${Command.Model} ${gemma.model}`);
+
+    assert.equal(pickModel.mock.callCount(), 0);
+    assert.equal(preflight.mock.callCount(), 0);
+    assert.equal(thinker.rebuild.mock.callCount(), 0);
+  });
+
+  test('stays where it was when a named model fails preflight', async () => {
+    const controller = onModel(gemma);
+
+    preflightPasses = false;
+    await controller.runCommand(`${Command.Model} ${qwen.model}`);
+
+    assert.equal(provider.model, gemma.model);
+    assert.equal(tokenizer.repo, gemma.tokenizer);
+    assert.equal(loadStore().active.ollama, gemma.model);
+    assert.equal(thinker.rebuild.mock.callCount(), 0);
+  });
+
   test('reports on the files written for /changes', async () => {
     await make().runCommand(Command.Changes);
 

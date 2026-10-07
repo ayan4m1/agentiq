@@ -89,6 +89,55 @@ describe('complete', () => {
     assert.deepEqual(complete('/recap 5', tree(project).sources), []);
   });
 
+  test('offers the choices a command has for its argument', () => {
+    const { reads, sources } = tree(project);
+    const choices = { model: ['gemma4:e4b', 'qwen3:30b'] };
+
+    assert.deepEqual(complete('/model ', { ...sources, choices }), [
+      '/model gemma4:e4b',
+      '/model qwen3:30b'
+    ]);
+    // the prompt keeps those that start with what was typed
+    assert.deepEqual(complete('/model qw', { ...sources, choices }), [
+      '/model gemma4:e4b',
+      '/model qwen3:30b'
+    ]);
+    assert.deepEqual(reads, { files: 0, directories: 0 });
+  });
+
+  test('offers nothing past the first argument', () => {
+    const choices = { model: ['gemma4:e4b'] };
+
+    assert.deepEqual(
+      complete('/model gemma4:e4b ', { ...tree(project).sources, choices }),
+      []
+    );
+  });
+
+  test('still completes paths for a command with no choices', () => {
+    const choices = { model: ['gemma4:e4b'] };
+
+    assert.deepEqual(
+      complete('/recap 5', { ...tree(project).sources, choices }),
+      []
+    );
+    assert.deepEqual(
+      complete('/check @test/', { ...tree(project).sources, choices }),
+      ['/check @test/register.mjs']
+    );
+  });
+
+  test('still offers commands before the argument is started', () => {
+    const choices = { model: ['gemma4:e4b'] };
+
+    assert.deepEqual(complete('/mod', { ...tree(project).sources, choices }), [
+      '/context',
+      '/context-limit',
+      '/compact',
+      '/help'
+    ]);
+  });
+
   test('does not list the project to complete a command', () => {
     const { reads, sources } = tree(project);
 

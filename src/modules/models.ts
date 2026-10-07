@@ -178,6 +178,12 @@ export const activeModel = (store: ModelStore) => store.active[provider.name];
 export const findEntry = (store: ModelStore, model?: string) =>
   savedModels(store).find((entry) => entry.model === model);
 
+// a name typed after /model. a bare name finds the :latest entry ollama saved
+// it under, the same way preflight matches it against the server
+export const findTyped = (store: ModelStore, name: string) =>
+  findEntry(store, name) ??
+  savedModels(store).find(({ model }) => matchesModel(model, name));
+
 // the only writer of these two settings. every consumer reads them at call time
 // - preflight before a turn, the tokenizer when it builds a cache path - so
 // there is nothing else to notify

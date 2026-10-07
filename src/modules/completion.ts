@@ -43,7 +43,11 @@ export type PathIndex = Pick<
 type Sources = {
   commands: readonly string[];
   paths: PathIndex;
+  // what each command that takes one can be given, by command name
+  choices?: Readonly<Record<string, readonly string[]>>;
 };
+
+const commandArgument = /^\/(\S+) (\S*)$/;
 
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/') + 1);
 
@@ -51,9 +55,19 @@ const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/') + 1);
 // was typed, and completes to whatever they have in common. paths are offered
 // one level at a time, as a shell does - a whole tree at once would be a list
 // too long to read and a common prefix that never gets anywhere
-export const complete = (line: string, { commands, paths }: Sources) => {
+export const complete = (
+  line: string,
+  { commands, paths, choices }: Sources
+) => {
   if (line.startsWith('/') && !line.includes(' ')) {
     return commands.map((command) => `/${command}`);
+  }
+
+  const [, command] = line.match(commandArgument) ?? [];
+  const values = command === undefined ? undefined : choices?.[command];
+
+  if (values) {
+    return values.map((value) => `/${command} ${value}`);
   }
 
   const start = line.lastIndexOf(' ') + 1;

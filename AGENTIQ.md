@@ -32,7 +32,8 @@ general instructions about how to be an agent.
 - `src/modules/tools.ts` - argument validation and recovery of tool calls the
   model wrote as text instead of emitting properly.
 - `src/modules/models.ts` - the model/tokenizer pairs in `~/.agentiq/models.yml`,
-  kept per provider, and the prompting `/model` does to add or switch between them (`picker.ts`).
+  kept per provider, and the prompting `/model` does to add or switch between them (`picker.ts`) -
+  `/model <name>` switches to a saved one directly (`findTyped`).
   The tokenizer is optional even for ollama - without one the context is
   estimated until the server reports what it counted.
 - `src/modules/plan.ts` - the plan `present_plan` saves and `read_plan`

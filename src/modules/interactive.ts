@@ -9,6 +9,7 @@ import { cycleMode, describeMode } from './approval';
 import { describeCheck } from './check';
 import { pruneSessions, sessionId, startSession } from './session';
 import { complete, createPathIndex, shortCompletions } from './completion';
+import { loadStore, savedModels } from './models';
 import { Command, createController, customCommands, systemColor } from './repl';
 import { getTokenString } from '../utils';
 import { getLogger } from './logging';
@@ -160,6 +161,10 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
         ...builtins,
         ...customCommands().map(({ name }) => name)
       ];
+      // and so is the store, so a model added by /model is offered at once
+      const choices = {
+        [Command.Model]: savedModels(loadStore()).map(({ model }) => model)
+      };
 
       //@ts-expect-error inquirer has a context of its own that means something
       // else entirely, so its type rejects the history key the command prompt
@@ -170,7 +175,8 @@ export const startRepl = async ({ resume }: ReplOptions): Promise<never> => {
         message: renderPrompt(),
         context: historyContext,
         prefill: controller.takePrefill(),
-        autoCompletion: (line: string) => complete(line, { commands, paths }),
+        autoCompletion: (line: string) =>
+          complete(line, { commands, paths, choices }),
         short: shortCompletions,
         // the library's own heading says commands, which a path list is not
         autocompletePrompt: systemColor('Completions:')
