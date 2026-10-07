@@ -248,8 +248,8 @@ The choices are:
 >   `max_model_len`, llama.cpp's `n_ctx_train`), so `provider.contextLimit` can be checked against it.
 
 `provider.replayPreamble` and `provider.recoverToolCalls` matter most for local models served by
-`ollama` or an OpenAI-compatible server, whose chat templates are the usual reason a tool call
-ends up written into a reply as text.
+`ollama` or an OpenAI-compatible server like Qwen and Gemma, whose chat templates lead to unexpected tool
+calling behavior.
 
 ## Tools
 
