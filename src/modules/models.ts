@@ -46,8 +46,10 @@ const other = '';
 export const validateRepo = (value: string) => {
   const spelled = value.trim();
 
+  // no tokenizer at all is a choice: the context is estimated until the
+  // server reports what it counted, as it does for every other provider
   if (!spelled) {
-    return 'A tokenizer repository is required';
+    return true;
   }
 
   return (
@@ -57,24 +59,20 @@ export const validateRepo = (value: string) => {
   );
 };
 
-// an entry is only useful with both halves, so a half-written one is dropped
-// rather than carried into the session as a model with no tokenizer - unless
-// its provider counts for itself, and there is no second half to have. each
-// list is checked against its own provider rather than the configured one, or
-// an anthropic entry would be dropped - and then saved over - on an ollama run
-const readable =
-  (name: Provider) =>
-  (value: unknown): value is ModelEntry => {
-    const entry = value as ModelEntry;
+// the tokenizer is optional - an entry without one runs on the estimate until
+// the server reports what it counted - but one that is there has to name
+// something, or it would be carried into the session as a repo of ''
+const readable = (value: unknown): value is ModelEntry => {
+  const entry = value as ModelEntry;
 
-    return Boolean(
-      entry &&
-      typeof entry.model === 'string' &&
-      entry.model &&
-      (!usesHfTokenizer(name) ||
-        (typeof entry.tokenizer === 'string' && entry.tokenizer))
-    );
-  };
+  return Boolean(
+    entry &&
+    typeof entry.model === 'string' &&
+    entry.model &&
+    (entry.tokenizer === undefined ||
+      (typeof entry.tokenizer === 'string' && entry.tokenizer))
+  );
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
@@ -135,7 +133,7 @@ export const loadStore = (): ModelStore => {
         continue;
       }
 
-      const models = list.filter(readable(name as Provider));
+      const models = list.filter(readable);
 
       if (models.length < list.length) {
         log.warn(`Ignoring incomplete ${name} entries in ${storePath}`);
@@ -285,13 +283,16 @@ const addEntry = async (
       return { model };
     }
 
-    const repo = await input({
-      message:
-        'Which huggingface.co repo (or local directory) has its tokenizer?',
-      validate: validateRepo
-    });
+    const repo = (
+      await input({
+        message:
+          'Which huggingface.co repo (or local directory) has its tokenizer? (optional - enter to use estimate)',
+        validate: validateRepo
+      })
+    ).trim();
 
-    return { model, tokenizer: repo.trim() };
+    // left out rather than saved as '', which loadStore would refuse
+    return repo ? { model, tokenizer: repo } : { model };
   } catch (error) {
     return cancelled(error);
   }

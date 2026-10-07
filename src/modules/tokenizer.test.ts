@@ -34,6 +34,7 @@ const {
 const { home, provider, tokenizer: config } = await import('./config');
 const { Provider } = await import('../types');
 const { charsPerToken } = await import('../utils');
+const { getLogger } = await import('./logging');
 
 const fileNames = ['tokenizer.json', 'tokenizer_config.json'];
 
@@ -185,6 +186,29 @@ describe('ensureTokenizer', () => {
   test('reports failure without a network call when no repo is configured', async () => {
     assert.equal(await ensureTokenizer(), false);
     assert.equal(fetched.mock.callCount(), 0);
+  });
+
+  test('does not warn when no repo is configured', async (t) => {
+    // a model saved without a tokenizer is a choice, so it only rates a debug
+    const logger = getLogger('tokenizer');
+    const warn = t.mock.method(logger, 'warn', () => logger);
+    const debug = t.mock.method(logger, 'debug', () => logger);
+
+    assert.equal(await ensureTokenizer(), false);
+    assert.equal(warn.mock.callCount(), 0);
+    assert.equal(debug.mock.callCount(), 1);
+  });
+
+  test('warns once about a refused repo name', async (t) => {
+    // getCacheDir says why the name is no good, and nothing repeats it
+    const logger = getLogger('tokenizer');
+    const warn = t.mock.method(logger, 'warn', () => logger);
+
+    config.repo = '../evil';
+
+    assert.equal(await ensureTokenizer(), false);
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(String(warn.mock.calls[0].arguments[0]), /"\.\.\/evil"/);
   });
 
   test('refuses a repo name that is not an owner/name pair', async () => {

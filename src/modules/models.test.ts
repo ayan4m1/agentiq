@@ -161,10 +161,24 @@ describe('the saved store', () => {
     assert.deepEqual(loadStore(), { active: {}, models: {} });
   });
 
-  test('drops an entry that is missing half of the pair', () => {
-    // a model with no tokenizer would silently fall back to estimating, which
-    // is worse than never offering it as a choice
+  test('keeps an entry with no tokenizer', () => {
+    // it runs on the estimate until the server reports what it counted
     writeFileSync(storePath, stringify(stored([gemma, { model: 'orphan' }])));
+
+    assert.deepEqual(savedModels(loadStore()), [gemma, { model: 'orphan' }]);
+  });
+
+  test('drops an entry whose tokenizer names nothing', () => {
+    writeFileSync(
+      storePath,
+      stringify(
+        stored([
+          gemma,
+          { model: 'blank', tokenizer: '' },
+          { model: 'numeric', tokenizer: 42 as unknown as string }
+        ])
+      )
+    );
 
     assert.deepEqual(savedModels(loadStore()), [gemma]);
   });
@@ -361,10 +375,10 @@ describe('validateRepo', () => {
     assert.equal(validateRepo('  google/gemma-4-E4B  '), true);
   });
 
-  test('refuses a blank answer', () => {
-    // every saved ollama entry has a tokenizer, so there is nothing to skip to
-    assert.equal(typeof validateRepo(''), 'string');
-    assert.equal(typeof validateRepo('   '), 'string');
+  test('accepts a blank answer', () => {
+    // no tokenizer at all, which leaves the context to the estimate
+    assert.equal(validateRepo(''), true);
+    assert.equal(validateRepo('   '), true);
   });
 
   test('refuses anything that is not a pair', () => {
@@ -545,6 +559,19 @@ describe('resolving the model to start on', () => {
     assert.equal(await resolveStartupEntry(server('gemma4:e4b')), true);
     assert.equal(provider.model, gemma.model);
     assert.deepEqual(loadStore(), stored([gemma], gemma.model));
+  });
+
+  test('saves a model with no tokenizer when the question is skipped', async () => {
+    typed('gemma4:e4b', '   ');
+
+    assert.equal(await resolveStartupEntry(server('gemma4:e4b')), true);
+    assert.equal(provider.model, gemma.model);
+    assert.equal(tokenizer.repo, undefined);
+    // no tokenizer key at all, rather than one loadStore would refuse
+    assert.deepEqual(
+      loadStore(),
+      stored([{ model: gemma.model }], gemma.model)
+    );
   });
 
   test('refuses to start when the question goes unanswered', async () => {

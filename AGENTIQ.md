@@ -33,6 +33,8 @@ general instructions about how to be an agent.
   model wrote as text instead of emitting properly.
 - `src/modules/models.ts` - the model/tokenizer pairs in `~/.agentiq/models.yml`,
   kept per provider, and the prompting `/model` does to add or switch between them (`picker.ts`).
+  The tokenizer is optional even for ollama - without one the context is
+  estimated until the server reports what it counted.
 - `src/modules/plan.ts` - the plan `present_plan` saves and `read_plan`
   returns, kept in `~/.agentiq/plans/<project slug>.md`. It is written before
   the user approves anything, so it must never land in the project directory.

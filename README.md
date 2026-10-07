@@ -186,8 +186,10 @@ startup, and decides:
 
 The choices are:
 
-- `ollama` (the default) - talks to an Ollama server at `ollama.host`. Each model needs a matching
-  tokenizer.
+- `ollama` (the default) - talks to an Ollama server at `ollama.host`. A matching tokenizer is
+  optional: without one, the context is estimated until the first reply and then corrected with the
+  count Ollama reports after every reply. With one, `/context` and the auto-compaction threshold are
+  accurate from the start.
 
 > [!NOTE]
 > `replayPreamble` and `recoverToolCalls` used to live under `ollama`. A `config.yml` that still
@@ -355,7 +357,7 @@ it, the diff (or the command) is shown again and you are asked again: saving is 
 
 ## Choosing a model
 
-The model agentiq talks to and its matching tokenizer are chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. Selecting "Add a new model..." lists the models the provider serves, asks which repo the tokenizer comes from (Ollama only), and saves the entry to `~/.agentiq/models.yml`. Models are kept per provider, so each one remembers its own list and the model it last used:
+The model agentiq talks to and its matching tokenizer are chosen with the `/model` command. The command lists models you have configured already - at first, you will have to add a new model to Agentiq. Selecting "Add a new model..." lists the models the provider serves, asks which repo the tokenizer comes from (Ollama only, and optional - leave it blank to estimate instead), and saves the entry to `~/.agentiq/models.yml`. Models are kept per provider, so each one remembers its own list and the model it last used:
 
 ```yaml
 active:
@@ -372,11 +374,11 @@ models:
     - model: Qwen/Qwen3-Coder-30B-A3B-Instruct
 ```
 
-Anthropic and OpenAI models have no tokenizer entry - the Anthropic API counts tokens itself, and an OpenAI-compatible server reports what it counted after every reply.
+Anthropic and OpenAI models have no tokenizer entry - the Anthropic API counts tokens itself, and an OpenAI-compatible server reports what it counted after every reply. An Ollama model saved without a tokenizer works the same way, relying on the count Ollama reports.
 
 The tokenizer can be a huggingface.co model (formatted like `user/repo`) or a local directory containing `tokenizer.json` and `tokenizer_config.json`, either as an absolute path or relative to `~/.agentiq` (e.g. `./my-tokenizer`).
 
-Switching mid-conversation keeps the history. The tokenizer is downloaded, the system prompt is
+Switching mid-conversation keeps the history. Any tokenizer is downloaded, the system prompt is
 rebuilt around the new model, and the context is counted again from scratch.
 
 ## Custom commands

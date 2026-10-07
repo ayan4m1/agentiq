@@ -114,13 +114,20 @@ const download = async (fileName: string, targetDir: string) => {
 // is slow enough that it has to finish before the first prompt renders, so this
 // is awaited at startup rather than lazily on first encode
 export const ensureTokenizer = async () => {
+  // a model saved without a tokenizer is a choice rather than a mistake, so
+  // there is nothing to warn about - only nothing to fetch
+  if (!config.repo) {
+    log.debug(
+      'No tokenizer is configured - the context is estimated until the server reports what it counted'
+    );
+
+    return false;
+  }
+
+  // getCacheDir has already said why a repo it rejects is no good
   const cache = getCacheDir();
 
   if (!cache) {
-    log.warn(
-      'No tokenizer is configured - use /model to pair this model with a huggingface.co repository, e.g. google/gemma-3-12b-it.'
-    );
-
     return false;
   }
 

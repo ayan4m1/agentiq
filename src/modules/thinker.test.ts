@@ -712,6 +712,60 @@ describe('taking a turn', () => {
     assert.equal(thinker.tokens.total, 1000 + estimateTokens('hello'));
   });
 
+  // what the server says it counted, on the final chunk of a reply
+  const counted = (content: string, promptTokens: number) =>
+    respond(
+      chunk({ content }),
+      chunk({}, { done: true, usage: { promptTokens } })
+    );
+
+  test('ignores a smaller count for a conversation that has only grown', async () => {
+    const thinker = makeThinker();
+
+    counted('hello', 1000);
+    const { messages } = await thinker.think({ messages: ask('hi') });
+    const before = thinker.tokens.total;
+
+    // ollama leaves a prefix its KV cache held out of the count
+    counted('world', 50);
+    await thinker.think({
+      messages: [...messages, { role: 'user', content: 'again' }]
+    });
+
+    assert.equal(
+      thinker.tokens.total,
+      before + estimateTokens('again') + estimateTokens('world')
+    );
+  });
+
+  test('believes a larger count for a conversation that has grown', async () => {
+    const thinker = makeThinker();
+
+    counted('hello', 1000);
+    const { messages } = await thinker.think({ messages: ask('hi') });
+
+    counted('world', 1200);
+    await thinker.think({
+      messages: [...messages, { role: 'user', content: 'again' }]
+    });
+
+    assert.equal(thinker.tokens.total, 1200 + estimateTokens('world'));
+  });
+
+  test('believes a smaller count once the conversation is a different one', async () => {
+    const thinker = makeThinker();
+
+    counted('hello', 1000);
+    await thinker.think({ messages: ask('hi') });
+
+    // a resumed session - the last count described the old conversation
+    thinker.load(ask('hi'));
+    counted('world', 50);
+    await thinker.think({ messages: ask('hi') });
+
+    assert.equal(thinker.tokens.total, 50 + estimateTokens('world'));
+  });
+
   test('hands a failed request back to the caller', async () => {
     stream.mock.mockImplementationOnce(async () => {
       throw new Error('connection refused');

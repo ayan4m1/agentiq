@@ -97,6 +97,9 @@ export const makeThinker = () => {
   };
   let turnCount = 0;
   let aborted = false;
+  // the last count reconcile() believed, and how much the conversation was
+  // estimated to hold when it was sent - see the guard in reconcile()
+  let lastCount: { promptTokens: number; messagesAtSend: number } | undefined;
 
   // think() is re-entered with the array it returned last turn, so track which
   // messages have already been counted
@@ -148,6 +151,24 @@ export const makeThinker = () => {
   // same thing, and the tokenizer may not even be the model's, so once the
   // server has spoken believe it over the estimate
   const reconcile = (promptTokens: number, messagesAtSend: number) => {
+    // ollama counts only the tokens it had to evaluate, leaving out a prefix
+    // its KV cache already held - so a conversation that has only grown since
+    // the last count can come back counted smaller. that is not the size of
+    // the prompt, and believing it would put compaction off far too long
+    if (
+      lastCount &&
+      promptTokens < lastCount.promptTokens &&
+      messagesAtSend >= lastCount.messagesAtSend
+    ) {
+      log.debug(
+        `Ignored a count of ${promptTokens} token(s), below the ${lastCount.promptTokens} counted last time - the provider likely left out a cached prefix`
+      );
+
+      return;
+    }
+
+    lastCount = { promptTokens, messagesAtSend };
+
     // the count describes the prompt as it was sent, so whatever the turn
     // appended afterwards - the reply and its tool results - is still estimated
     const appendedSinceSend = tokens.messages - messagesAtSend;
@@ -726,6 +747,7 @@ export const makeThinker = () => {
     // last one does not describe this one - drop back to a self-consistent
     // estimate and let the next turn measure it again
     tokens.measured = false;
+    lastCount = undefined;
     tokens.total = fixedCost() + tokens.messages;
 
     return counted;
@@ -741,6 +763,7 @@ export const makeThinker = () => {
     // as in load(): nothing measured describes an empty conversation, so the
     // total goes back to what the tokenizer says the fixed parts cost
     tokens.measured = false;
+    lastCount = undefined;
     tokens.total = fixedCost();
 
     return freed;
@@ -773,6 +796,7 @@ export const makeThinker = () => {
     // the count the provider gave described a prompt rendered by another model with
     // another template, so it says nothing about what this one will be sent
     tokens.measured = false;
+    lastCount = undefined;
 
     return tokens.total;
   };
