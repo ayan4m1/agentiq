@@ -477,3 +477,9 @@ export type TokenStats = {
   // add up to the total once this is set
   measured: boolean;
 };
+
+export type PackageJson = {
+  name: string;
+  version: string;
+  description: string;
+};
