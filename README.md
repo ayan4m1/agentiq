@@ -323,9 +323,9 @@ For models that can see images as well as text:
 
 Each provider is sent images in its own format. An image over 5 MB is not attached. When the model
 reports that it cannot take images, agentiq warns you but still sends them. That covers an Ollama
-model without the `vision` capability, an Anthropic model without image input; an OpenAI-compatible
-server says nothing about its models. Older tool results are dropped from context along with their
-images, since an image costs far more than the text beside it.
+model without the `vision` capability or an Anthropic model without image input; an OpenAI-compatible
+server says nothing about its models, so no warning is provided and the image may be silently discarded
+if the model does not support it. Older tool results are dropped from context along with their images.
 
 ## Approving changes
 
