@@ -22,6 +22,7 @@ import {
   skillsDir
 } from './skills';
 import { expandCommand, loadCommands } from './commands';
+import { upgrade } from './upgrade';
 import { modelContextLength, preflight, supportsImages } from './preflight';
 import {
   clipboardTools,
@@ -97,6 +98,7 @@ export const Command = {
   Rules: 'rules',
   Skills: 'skills',
   Mcp: 'mcp',
+  Upgrade: 'upgrade',
   Help: 'help',
   Quit: 'quit'
 } as const;
@@ -1075,6 +1077,9 @@ export const createController = ({
         break;
       case Command.Mcp:
         await servers();
+        break;
+      case Command.Upgrade:
+        await upgrade();
         break;
       case Command.Help:
         console.log(systemColor('\n--- Available Commands ---'));

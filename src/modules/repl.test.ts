@@ -138,6 +138,13 @@ mock.module('./check', {
   } satisfies ModuleMock<typeof import('./check')>
 });
 
+// /upgrade runs npm, which a test must never do for real
+const upgrade = mock.fn(async () => true);
+
+mock.module('./upgrade', {
+  exports: { upgrade } satisfies ModuleMock<typeof import('./upgrade')>
+});
+
 const { Command, createController, previewOf } = await import('./repl');
 const { approval, loadRules, remember } = await import('./approval');
 const { mcp, provider, session, skills, tokenizer } = await import('./config');
@@ -1198,6 +1205,14 @@ describe('commands', () => {
 
   test('carries on after an unknown command', async () => {
     assert.equal(await make().runCommand('nonsense'), undefined);
+  });
+
+  test('installs the latest version for /upgrade', async () => {
+    const calls = upgrade.mock.callCount();
+
+    await make().runCommand(Command.Upgrade);
+
+    assert.equal(upgrade.mock.callCount(), calls + 1);
   });
 
   test('cycles the approval mode for /mode', async () => {
