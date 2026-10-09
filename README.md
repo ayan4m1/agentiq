@@ -217,9 +217,8 @@ The choices are:
 >   without a key.
 > - If the server rejects `cache_control`, set `anthropic.promptCache` (or
 >   `AQ_ANTHROPIC_PROMPT_CACHE`) to `off`.
-> - sglang caches repeated prompt prefixes on its own and ignores `anthropic.promptCache`. It only
->   reports cache reads when launched with `--enable-cache-report` - without it, the debug log
->   shows the prompt cache as not reported by the server.
+> - sglang only reports cache reads when launched with `--enable-cache-report` - your context estimates
+>   may drift without it.
 
 - `openai` - talks to any server that speaks the OpenAI Chat Completions API, such as
   [vLLM](https://github.com/vllm-project/vllm) or [llama.cpp](https://github.com/ggml-org/llama.cpp),
