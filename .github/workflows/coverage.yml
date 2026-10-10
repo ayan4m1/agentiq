@@ -12,9 +12,9 @@ jobs:
         with:
           node-version-file: '.nvmrc'
       - run: yarn install --immutable
-      - run: yarn run test
+      - run: yarn test
       - uses: codecov/codecov-action@v7
         with:
-          files: ./coverage.xml
+          files: './coverage.lcov,./coverage.xml'
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
