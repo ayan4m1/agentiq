@@ -2,7 +2,7 @@ import { test, describe, before, beforeEach, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 
 import { fakeInterrupt } from '../../test/fakes/interrupt';
 import { fakeOra } from '../../test/fakes/ora';
@@ -201,6 +201,22 @@ describe('check', () => {
       assert.match(message.content, /src\//);
       assert.match(message.content, /Contents of package\.json:/);
       assert.match(message.content, /node --test/);
+    });
+
+    test("sends the project's agent instructions along", async () => {
+      writeFileSync('AGENTS.md', 'Run `make verify` before committing.');
+
+      try {
+        await setCheck('on');
+      } finally {
+        rmSync('AGENTS.md');
+      }
+
+      const [request] = complete.mock.calls[0].arguments;
+      const [message] = request.messages;
+
+      assert.match(message.content, /Contents of AGENTS\.md:/);
+      assert.match(message.content, /make verify/);
     });
 
     test('stays off when the model finds nothing', async () => {

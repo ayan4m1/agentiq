@@ -46,7 +46,10 @@ general instructions about how to be an agent.
   the roadmap, skills from `~/.agentiq/skills` (only enabled ones reach the
   prompt; `/skills` toggles them via `picker.ts`), saved prompts from
   `~/.agentiq/commands` and `.agentiq/commands` that `runCommand()` sends as
-  `/<name>` (`commands.ts`), the system prompt.
+  `/<name>` (`commands.ts`), the system prompt (`prompt.ts`, which appends
+  `~/.agentiq/AGENTIQ.md` and then the project's own - the nearest
+  `AGENTIQ.md` up to the repository root, or failing that `AGENTS.md`, then
+  `CLAUDE.md`).
 - `src/tools/` - one tool per file, each exporting a `definition` built with
   `makeTool()` and a `handler`. `src/tools/index.ts` is the registry, and
   leaves out the tools config has not enabled - the roadmap tools, `explore`,

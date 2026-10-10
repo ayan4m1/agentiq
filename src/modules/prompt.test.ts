@@ -30,6 +30,9 @@ const { loadSkills, skillsDir } = await import('./skills');
 process.chdir(original);
 const globalOverlay = resolve(stateDir, 'AGENTIQ.md');
 const projectOverlay = resolve(project, 'AGENTIQ.md');
+const projectAgents = resolve(project, 'AGENTS.md');
+const projectClaude = resolve(project, 'CLAUDE.md');
+const nestedAgents = resolve(nested, 'AGENTS.md');
 const roadmapFile = resolve(project, 'ROADMAP.md');
 
 before(() => {
@@ -41,6 +44,10 @@ before(() => {
 afterEach(() => {
   rmSync(globalOverlay, { force: true });
   rmSync(projectOverlay, { force: true });
+  rmSync(projectAgents, { force: true });
+  rmSync(projectClaude, { force: true });
+  rmSync(nestedAgents, { force: true });
+  rmSync(resolve(stateDir, 'AGENTS.md'), { force: true });
   rmSync(roadmapFile, { force: true });
   rmSync(skillsDir, { recursive: true, force: true });
   rmSync(resolve(project, '.agentiq'), { recursive: true, force: true });
@@ -166,6 +173,76 @@ describe('overlays', () => {
     writeFileSync(projectOverlay, '   \n  \n');
 
     assert.equal(buildSystemPrompt(), without);
+  });
+});
+
+describe('overlay fallbacks', () => {
+  test('appends AGENTS.md when there is no AGENTIQ.md', () => {
+    writeFileSync(projectAgents, 'AGENTS_MARKER');
+
+    assert.match(buildSystemPrompt(), /AGENTS_MARKER/);
+  });
+
+  test('appends CLAUDE.md when there is neither of the others', () => {
+    writeFileSync(projectClaude, 'CLAUDE_MARKER');
+
+    assert.match(buildSystemPrompt(), /CLAUDE_MARKER/);
+  });
+
+  test('prefers AGENTIQ.md, and appends only that', () => {
+    writeFileSync(projectOverlay, 'PROJECT_OVERLAY_MARKER');
+    writeFileSync(projectAgents, 'AGENTS_MARKER');
+    writeFileSync(projectClaude, 'CLAUDE_MARKER');
+
+    const prompt = buildSystemPrompt();
+
+    assert.match(prompt, /PROJECT_OVERLAY_MARKER/);
+    assert.doesNotMatch(prompt, /AGENTS_MARKER/);
+    assert.doesNotMatch(prompt, /CLAUDE_MARKER/);
+  });
+
+  // an empty AGENTIQ.md is how a project keeps another agent's file out
+  test('are not used when AGENTIQ.md is empty', () => {
+    writeFileSync(projectOverlay, '');
+    writeFileSync(projectAgents, 'AGENTS_MARKER');
+
+    assert.doesNotMatch(buildSystemPrompt(), /AGENTS_MARKER/);
+  });
+
+  test('prefers AGENTS.md over CLAUDE.md', () => {
+    writeFileSync(projectAgents, 'AGENTS_MARKER');
+    writeFileSync(projectClaude, 'CLAUDE_MARKER');
+
+    const prompt = buildSystemPrompt();
+
+    assert.match(prompt, /AGENTS_MARKER/);
+    assert.doesNotMatch(prompt, /CLAUDE_MARKER/);
+  });
+
+  test('finds a fallback from a subdirectory', () => {
+    writeFileSync(projectClaude, 'CLAUDE_MARKER');
+    process.chdir(nested);
+
+    assert.match(buildSystemPrompt(), /CLAUDE_MARKER/);
+  });
+
+  // the file written for agentiq is the one it should follow, even when a
+  // generic one sits closer to where it was started
+  test('prefers an AGENTIQ.md further up to a closer fallback', () => {
+    writeFileSync(projectOverlay, 'PROJECT_OVERLAY_MARKER');
+    writeFileSync(nestedAgents, 'AGENTS_MARKER');
+    process.chdir(nested);
+
+    const prompt = buildSystemPrompt();
+
+    assert.match(prompt, /PROJECT_OVERLAY_MARKER/);
+    assert.doesNotMatch(prompt, /AGENTS_MARKER/);
+  });
+
+  test('are not read from the state directory', () => {
+    writeFileSync(resolve(stateDir, 'AGENTS.md'), 'GLOBAL_AGENTS_MARKER');
+
+    assert.doesNotMatch(buildSystemPrompt(), /GLOBAL_AGENTS_MARKER/);
   });
 });
 

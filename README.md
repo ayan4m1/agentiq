@@ -11,6 +11,7 @@ Agentiq is an agentic coding assistant with support for local and cloud LLM prov
 - Three command/access approval modes - manual, automatic, and planning - with the option to
   [edit](#approving-changes) a proposed change or command in your own editor before approving it
 - Saves sessions so they can be resumed later on
+- [Project instructions](#project-instructions) from `AGENTIQ.md`, falling back to an existing `AGENTS.md` or `CLAUDE.md`
 - Allowlisting for paths, commands, and tools
 - Automatic and manual conversation compaction/summarization
 - Get a recap of a resumed session
@@ -301,7 +302,7 @@ The model gets things done with the tools below - and with those of any connecte
 | `/image [prompt]`           | Attaches the image on the clipboard. With a prompt, sends the two together; alone, holds the image for the next prompt. See [Images](#images).                                                                                                                                                     |
 | `/clear`, `/reset`          | Starts a new conversation. The old one stays saved as a session.                                                                                                                                                                                                                                   |
 | `/resume`                   | Picks a saved session to continue.                                                                                                                                                                                                                                                                 |
-| `/undo`                     | Takes the conversation back to before the most recent prompt, restoring every file written since.                                                                                                                                                                                                  |
+| `/undo`                     | Picks any earlier prompt in the conversation and, once confirmed, takes the conversation back to just before it, restoring every file written since. The prompt is put back in the input to edit and resend. Changes made by shell commands are not reversed.                                      |
 | `/changes`                  | Lists the files written this session.                                                                                                                                                                                                                                                              |
 | `/check [on\|off\|command]` | After each turn that writes files, runs a test/lint/type-check command (chosen by the model with `on`, or the one given) and shows `✔`/`✘` above the prompt. On a failure, the next prompt is pre-filled with a fix request that sends the check's output along. Alone, shows the current setting. |
 | `/rules`                    | Lists saved approval rules (↑↓ to move, `r` then `y` to remove). `/rules add command\|path\|tool <pattern>` saves one; `*` matches within a path segment, `**` across them.                                                                                                                        |
@@ -384,6 +385,24 @@ The tokenizer can be a huggingface.co model (formatted like `user/repo`) or a lo
 
 Switching mid-conversation keeps the history. The tokenizer is downloaded if necessary, the system prompt is rebuilt
 around the new model, and the context is counted again from scratch.
+
+## Project instructions
+
+Instructions in markdown are added to the end of the system prompt, after agentiq's own:
+
+- `~/.agentiq/AGENTIQ.md` applies to every project.
+- `AGENTIQ.md` in the project applies to that project, and comes after the global one so the more
+  specific file has the last word. It is looked for from the directory agentiq runs in up to the
+  repository root, so starting agentiq in `src/` still finds the one beside `package.json`.
+
+A project with no `AGENTIQ.md` anywhere up to the root uses `AGENTS.md` instead, and failing that
+`CLAUDE.md`, so instructions already written for another agent are picked up without copying them.
+Only one file is used: each name is searched for all the way up before the next is tried, so an
+`AGENTIQ.md` at the root wins over an `AGENTS.md` in the current directory. An empty `AGENTIQ.md`
+still counts as found, which is a way to keep the other two out of the prompt.
+
+The project's instruction files are also shown to the model when `/check on` asks it to choose a
+check command, since they often say how the project is tested.
 
 ## Custom commands
 

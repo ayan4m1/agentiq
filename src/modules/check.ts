@@ -44,7 +44,10 @@ const manifests = [
   'build.gradle.kts',
   'CMakeLists.txt',
   'CMakePresets.json',
-  'AGENTIQ.md'
+  // agent instructions, which tend to say how the project is tested
+  'AGENTIQ.md',
+  'AGENTS.md',
+  'CLAUDE.md'
 ];
 
 // one manifest should not crowd out the rest - a lockfile-sized package.json

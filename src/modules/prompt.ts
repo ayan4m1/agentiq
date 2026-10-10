@@ -11,6 +11,10 @@ const log = getLogger('prompt');
 // the same name in a project directory and in ~/.agentiq, so a user who learns
 // one has learned the other
 const overlayName = 'AGENTIQ.md';
+// what other agents read, tried in order when a project has no AGENTIQ.md - a
+// repository that already instructs one of them should not have to say it
+// all again for this one
+const fallbackNames = ['AGENTS.md', 'CLAUDE.md'];
 // git is only consulted to describe the working tree - a repository that takes
 // longer than this to answer is not worth holding up the first prompt for
 const gitTimeout = 2000;
@@ -123,12 +127,11 @@ const describeEnvironment = () => {
 
 // walks from the working directory up to the repository root, so running the
 // agent in src/ still finds the AGENTIQ.md that sits beside package.json
-const findProjectOverlay = (cwd: string) => {
-  const root = findGitRoot(cwd);
+const findUpwards = (cwd: string, root: string | undefined, name: string) => {
   let directory = cwd;
 
   while (true) {
-    const candidate = resolve(directory, overlayName);
+    const candidate = resolve(directory, name);
 
     if (existsSync(candidate)) {
       return candidate;
@@ -143,6 +146,21 @@ const findProjectOverlay = (cwd: string) => {
     }
 
     directory = parent;
+  }
+};
+
+// each name is looked for all the way up before the next is tried, so an
+// AGENTIQ.md at the repository root beats a CLAUDE.md beside the working
+// directory - the file written for this agent is the one it should follow
+const findProjectOverlay = (cwd: string) => {
+  const root = findGitRoot(cwd);
+
+  for (const name of [overlayName, ...fallbackNames]) {
+    const found = findUpwards(cwd, root, name);
+
+    if (found) {
+      return found;
+    }
   }
 };
 
