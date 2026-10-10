@@ -22,6 +22,7 @@ import {
   skillsDir
 } from './skills';
 import { expandCommand, loadCommands } from './commands';
+import { initPrompt } from './init';
 import { upgrade } from './upgrade';
 import { modelContextLength, preflight, supportsImages } from './preflight';
 import {
@@ -89,6 +90,7 @@ export const Command = {
   Recap: 'recap',
   Paste: 'paste',
   Image: 'image',
+  Init: 'init',
   Clear: 'clear',
   Reset: 'reset',
   Resume: 'resume',
@@ -1049,6 +1051,15 @@ export const createController = ({
         // it was typed
         await image(input.trim().slice(name.length).trim() || undefined);
         break;
+      case Command.Init: {
+        // guidance is split into words above, and has to reach the model
+        // exactly as it was typed. the history keeps the /init rather than
+        // the long prompt it stands for
+        const guidance = input.trim().slice(name.length).trim();
+
+        addUserMessage(initPrompt(guidance || undefined), `/${input.trim()}`);
+        break;
+      }
       case Command.Clear:
       case Command.Reset:
         await clear();

@@ -10,7 +10,7 @@ import { describeSkills } from './skills';
 const log = getLogger('prompt');
 // the same name in a project directory and in ~/.agentiq, so a user who learns
 // one has learned the other
-const overlayName = 'AGENTIQ.md';
+export const overlayName = 'AGENTIQ.md';
 // what other agents read, tried in order when a project has no AGENTIQ.md - a
 // repository that already instructs one of them should not have to say it
 // all again for this one
@@ -96,7 +96,7 @@ const describeGit = (cwd: string) => {
 
 // the repository root if there is one, so the overlay search has somewhere to
 // stop other than the filesystem root
-const findGitRoot = (cwd: string) => {
+export const findGitRoot = (cwd: string) => {
   try {
     return runGit(['rev-parse', '--show-toplevel'], cwd);
   } catch {
@@ -152,7 +152,7 @@ const findUpwards = (cwd: string, root: string | undefined, name: string) => {
 // each name is looked for all the way up before the next is tried, so an
 // AGENTIQ.md at the repository root beats a CLAUDE.md beside the working
 // directory - the file written for this agent is the one it should follow
-const findProjectOverlay = (cwd: string) => {
+export const findProjectOverlay = (cwd: string) => {
   const root = findGitRoot(cwd);
 
   for (const name of [overlayName, ...fallbackNames]) {

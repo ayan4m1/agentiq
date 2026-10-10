@@ -1621,6 +1621,52 @@ describe('saved commands', () => {
   });
 });
 
+describe('/init', () => {
+  test('sends the init prompt, and keeps /init as what was typed', async () => {
+    const controller = make();
+
+    assert.equal(await controller.runCommand(Command.Init), undefined);
+
+    const [message, ...rest] = controller.messages as AgentMessage[];
+
+    assert.deepEqual(rest, []);
+    assert.equal(message.role, 'user');
+    assert.match(message.content, /^Draft an AGENTIQ\.md for this project/);
+    assert.equal(message.typed, '/init');
+    assert.equal(controller.needsUserInput, false);
+  });
+
+  test('passes on guidance exactly as it was typed', async () => {
+    const controller = make();
+
+    await controller.runCommand('init focus on  the providers');
+
+    const [message] = controller.messages as AgentMessage[];
+
+    assert.match(
+      message.content,
+      /Additional guidance from the user:\nfocus on {2}the providers$/
+    );
+    assert.equal(message.typed, '/init focus on  the providers');
+  });
+
+  test('is not replaced by a saved command of the same name', async () => {
+    const controller = make();
+
+    mkdirSync(resolve('.agentiq', 'commands'), { recursive: true });
+    writeFileSync(resolve('.agentiq', 'commands', 'init.md'), 'not init');
+    await controller.runCommand(Command.Init);
+
+    assert.match(controller.messages[0].content, /^Draft an AGENTIQ\.md/);
+  });
+
+  test('is listed by /help', async () => {
+    await make().runCommand(Command.Help);
+
+    assert.match(printed(), /\/init$/m);
+  });
+});
+
 describe('/rules', () => {
   type RulesRequest = {
     choices: { name: string; value: string; label?: string }[];

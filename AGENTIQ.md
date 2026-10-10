@@ -49,7 +49,8 @@ general instructions about how to be an agent.
   `/<name>` (`commands.ts`), the system prompt (`prompt.ts`, which appends
   `~/.agentiq/AGENTIQ.md` and then the project's own - the nearest
   `AGENTIQ.md` up to the repository root, or failing that `AGENTS.md`, then
-  `CLAUDE.md`).
+  `CLAUDE.md`), and the prompt `/init` sends to have the model draft that
+  file (`init.ts`).
 - `src/tools/` - one tool per file, each exporting a `definition` built with
   `makeTool()` and a `handler`. `src/tools/index.ts` is the registry, and
   leaves out the tools config has not enabled - the roadmap tools, `explore`,
